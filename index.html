@@ -15,7 +15,7 @@
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
 #app{display:flex;flex-direction:column;height:100vh}
-header{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#141b2d,#101626);min-height:52px;flex-wrap:wrap}
+header{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(20,27,45,var(--sp-surface-alpha,1)),rgba(16,22,38,var(--sp-surface-alpha,1)));min-height:52px;flex-wrap:wrap}
 .title{font-size:17px;font-weight:650;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .logo{width:24px;height:24px;flex:none}
 .sub{color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -27,7 +27,7 @@ header{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:
 .check input{accent-color:var(--accent);margin:0;cursor:pointer}
 .hidden{display:none!important}
 #listView{flex:1;overflow:auto;padding:18px}
-.tablewrap{max-width:1200px;margin:0 auto;overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px}
+.tablewrap{max-width:1200px;margin:0 auto;overflow-x:auto;background:rgba(21,28,46,var(--sp-surface-alpha,1));border:1px solid var(--line);border-radius:12px}
 .table{width:100%;min-width:880px;border-collapse:collapse;table-layout:fixed}
 .table th{padding:10px 14px;border-bottom:1px solid var(--line);background:#18223a;text-align:left}
 .table th:nth-child(1){width:34%}
@@ -56,14 +56,42 @@ header{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:
 .desc{font-size:12.5px;color:var(--muted);line-height:1.35;margin-top:3px}
 .cellimage{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ports{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.chip{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:var(--panel-2);border:1px solid var(--line);color:var(--text);border-radius:7px;padding:3px 10px;cursor:pointer}
+.chip{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:rgba(28,39,64,var(--sp-surface-alpha,1));border:1px solid var(--line);color:var(--text);border-radius:7px;padding:3px 10px;cursor:pointer}
 .chip:hover{border-color:var(--accent);color:#fff}
 .noports{font-size:12.5px;color:var(--muted)}
 .status{font-size:12.5px;color:var(--muted);line-height:1.35}
 .empty{color:var(--muted);text-align:center;margin-top:60px}
+/* ===== appearance: background layer + glass surfaces (docs/appearance-background-handoff.md §6) ===== */
+/* Wallpaper layer: fixed, pushed to z-index -1 (paints above body background, below all
+   content), oversized so the blur filter never bleeds transparent at the viewport edges.
+   The scrim is a second background-image layer — a flat veil whose alpha is --sp-scrim —
+   so the slider re-rasterizes live with zero extra JS. Blur = wallpaper blur + glass blur,
+   summed into one variable; no backdrop-filter on the app (the layer itself is blurred). */
+#sp-bg-layer{position:fixed;inset:-48px;z-index:-1;pointer-events:none;background-repeat:no-repeat;background-position:center;background-size:cover;background-image:linear-gradient(rgba(8,10,18,var(--sp-scrim,0)) 0%,rgba(8,10,18,var(--sp-scrim,0)) 100%),var(--sp-bg-image,none);opacity:var(--sp-bg-opacity,1);filter:blur(var(--sp-bg-blur,0px))}
+/* "This portal" / "internal" pills sit on the translucent table: give them a
+   translucent base too, but only while a wallpaper is active (default stays
+   pixel-identical to the stock look). */
+body[data-sp-bg] .selftag{background:rgba(21,28,46,calc(var(--sp-surface-alpha,1)*.55))}
+/* Optional true-glass pass: per-surface backdrop blur, applied only while
+   glassBlur > 0 (the whole-layer blur above already carries the depth). */
+body[data-sp-glass] header,body[data-sp-glass] .tablewrap{backdrop-filter:blur(var(--sp-glass-blur,0px))}
+.btn:disabled{opacity:.45;cursor:default}
+.iconbtn{display:inline-flex;align-items:center;justify-content:center}
+.sp-panel{position:fixed;top:64px;right:16px;z-index:50;width:300px;max-width:calc(100vw - 32px);background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;box-shadow:0 16px 48px rgba(0,0,0,.55)}
+.sp-panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.sp-panel-title{font-weight:650;font-size:14px}
+.sp-drop{border:1.5px dashed var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;color:var(--muted);font-size:13px}
+.sp-drop.over{border-color:var(--accent);color:var(--text)}
+.sp-thumb{width:100%;height:110px;object-fit:cover;border-radius:8px}
+.sp-row{display:flex;gap:8px;margin:10px 0}
+.sp-slider{display:block;font-size:12.5px;color:var(--muted);margin-top:10px}
+.sp-slider output{float:right;color:var(--text);font-variant-numeric:tabular-nums}
+.sp-slider input[type=range]{width:100%;margin:4px 0 0;accent-color:var(--accent);cursor:pointer}
+.sp-status{font-size:12.5px;color:var(--bad);min-height:16px;margin-top:8px;overflow-wrap:anywhere}
 </style>
 </head>
 <body>
+<div id="sp-bg-layer" aria-hidden="true"></div>
 <div id="app">
   <header>
     <img class="logo" src="/star.svg" alt="" aria-hidden="true">
@@ -75,6 +103,9 @@ header{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:
       <span>Hide services without links</span>
     </label>
     <button id="refreshBtn" class="btn" type="button">Refresh</button>
+    <button id="appearanceBtn" class="btn iconbtn" type="button" title="Appearance &mdash; wallpaper &amp; effects" aria-haspopup="dialog">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
+    </button>
   </header>
   <main id="listView">
     <div class="tablewrap hidden" id="tablewrap">
@@ -92,6 +123,35 @@ header{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:
     </div>
     <div class="empty hidden" id="empty"></div>
   </main>
+</div>
+<div id="appearancePanel" class="sp-panel hidden" role="dialog" aria-label="Appearance">
+  <div class="sp-panel-head">
+    <span class="sp-panel-title">Appearance</span>
+    <button id="appearanceClose" class="btn iconbtn" type="button" title="Close">&times;</button>
+  </div>
+  <div id="spDropZone" class="sp-drop">
+    <img id="spThumb" class="sp-thumb hidden" alt="Current wallpaper">
+    <span>Drop an image here, or</span>
+    <button id="spUploadBtn" class="btn" type="button">Upload background&hellip;</button>
+  </div>
+  <input type="file" id="spFile" class="hidden" accept="image/jpeg,image/png,image/webp,image/gif,image/avif">
+  <div class="sp-row">
+    <button id="spRemove" class="btn" type="button">Remove</button>
+    <button id="spReset" class="btn" type="button">Reset</button>
+  </div>
+  <label class="sp-slider">Opacity <output id="spOpacityOut">100%</output>
+    <input type="range" id="spOpacity" min="0" max="100" step="1" value="100">
+  </label>
+  <label class="sp-slider">Wallpaper blur <output id="spBlurOut">0px</output>
+    <input type="range" id="spBlur" min="0" max="30" step="1" value="0">
+  </label>
+  <label class="sp-slider">Scrim <output id="spScrimOut">0%</output>
+    <input type="range" id="spScrim" min="0" max="100" step="1" value="0">
+  </label>
+  <label class="sp-slider">Glass blur <output id="spGlassOut">0px</output>
+    <input type="range" id="spGlass" min="0" max="20" step="1" value="0">
+  </label>
+  <div id="spStatus" class="sp-status" role="status"></div>
 </div>
 <script>
 'use strict';
@@ -268,6 +328,408 @@ hideChk.addEventListener('change', () => {
 $('#refreshBtn').addEventListener('click', () => load());
 setInterval(() => load(), 20000);
 load();
+
+/* ===== Appearance (wallpaper + glass) =====================================
+   Port of the Harness "Appearance" plugin, per
+   docs/appearance-background-handoff.md §6. Zero dependencies, zero server
+   endpoints: the wallpaper blob lives in this browser's IndexedDB
+   ('service-portal-appearance', store 'images'), and localStorage
+   ('sp-appearance') carries one small JSON settings blob — the key only,
+   never the payload. Every change applies live, in the same tick. */
+(function () {
+  'use strict';
+
+  const DB_NAME = 'service-portal-appearance';
+  const IMAGE_STORE = 'images';
+  const LS_KEY = 'sp-appearance';
+
+  const DEFAULTS = {
+    backgroundImage: '',     // IndexedDB record key ('' = none)
+    imageDark: false,        // sampled wallpaper darkness
+    backgroundOpacity: 1,    // 0..1
+    backgroundBlur: 0,       // 0..30 px
+    scrim: 0,                // 0..1 readability veil
+    surfaceAlpha: 1,         // 0..1 glass surface opacity
+    glassBlur: 0             // 0..20 px (summed into the layer blur; optional per-surface pass)
+  };
+  const BOUNDS = {
+    backgroundOpacity: { min: 0, max: 1 },
+    backgroundBlur: { min: 0, max: 30 },
+    scrim: { min: 0, max: 1 },
+    surfaceAlpha: { min: 0, max: 1 },
+    glassBlur: { min: 0, max: 20 }
+  };
+
+  /* Image preparation constants (ported from image.ts). */
+  const MAX_INPUT_BYTES = 209715200;   // 200 MB sanity cap (blobs ride IndexedDB, not localStorage)
+  const RESAMPLE_EDGE = 4096;          // longest edge above which we resample
+  const RESAMPLE_QUALITY = 0.95;       // WebP quality for resampled images
+  const DARK_THRESHOLD = 0.35;         // avg-luminance threshold below which an image counts as dark
+  const AUTO_SCRIM = 0.35;             // veil auto-applied when a dark wallpaper is set and the user hasn't touched the scrim
+
+  const $id = (s) => document.getElementById(s);
+  const els = {
+    panel: $id('appearancePanel'),
+    gear: $id('appearanceBtn'),
+    close: $id('appearanceClose'),
+    drop: $id('spDropZone'),
+    thumb: $id('spThumb'),
+    file: $id('spFile'),
+    upload: $id('spUploadBtn'),
+    remove: $id('spRemove'),
+    reset: $id('spReset'),
+    opacity: $id('spOpacity'), opacityOut: $id('spOpacityOut'),
+    blur: $id('spBlur'), blurOut: $id('spBlurOut'),
+    scrim: $id('spScrim'), scrimOut: $id('spScrimOut'),
+    glass: $id('spGlass'), glassOut: $id('spGlassOut'),
+    status: $id('spStatus')
+  };
+
+  /* ---- settings: sanitized on read, so stale or hand-edited storage can
+         never produce invalid CSS ---- */
+  function sanitizeSettings(raw) {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { ...DEFAULTS };
+    const out = { ...DEFAULTS };
+    if (typeof raw.backgroundImage === 'string') out.backgroundImage = raw.backgroundImage;
+    if (typeof raw.imageDark === 'boolean') out.imageDark = raw.imageDark;
+    else if (raw.imageDark === 0) out.imageDark = false;
+    else if (raw.imageDark === 1) out.imageDark = true;
+    for (const [field, b] of Object.entries(BOUNDS)) {
+      const v = raw[field];
+      if (typeof v === 'number' && Number.isFinite(v)) out[field] = Math.min(b.max, Math.max(b.min, v));
+    }
+    return out;
+  }
+
+  function readSettings() {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      return sanitizeSettings(raw === null ? undefined : JSON.parse(raw));
+    } catch (e) {
+      return { ...DEFAULTS };
+    }
+  }
+
+  /* ---- IndexedDB blob store (ported from blob-db.ts / image-store.ts) ---- */
+  function openBlobDb() {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, 1);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(IMAGE_STORE)) db.createObjectStore(IMAGE_STORE);
+      };
+      request.onsuccess = () => { resolve(request.result); };
+      request.onerror = () => { reject(request.error || new Error('indexeddb open failed')); };
+    });
+  }
+
+  function runBlobTx(mode, action) {
+    return new Promise((resolve, reject) => {
+      openBlobDb().then((db) => {
+        const transaction = db.transaction(IMAGE_STORE, mode);
+        const request = action(transaction.objectStore(IMAGE_STORE));
+        let result;
+        request.onsuccess = () => { result = request.result; };
+        request.onerror = () => { reject(request.error || new Error('indexeddb request failed')); };
+        transaction.oncomplete = () => { db.close(); resolve(result); };
+        transaction.onerror = () => { reject(transaction.error || new Error('indexeddb transaction failed')); };
+      }, reject);
+    });
+  }
+
+  function newBlobKey() {
+    return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+  }
+
+  function saveImage(blob, name) {
+    const key = newBlobKey();
+    return runBlobTx('readwrite', (store) => store.put({ data: blob, name }, key)).then(() => key);
+  }
+
+  function getImage(key) {
+    return runBlobTx('readonly', (store) => store.get(key)).then((record) =>
+      record === undefined ? undefined : record.data);
+  }
+
+  function deleteImage(key) {
+    return runBlobTx('readwrite', (store) => store.delete(key));
+  }
+
+  /* ---- image preparation (ported from image.ts: 200 MB cap, 24×24 darkness
+         sample, ≤4096 px keep-original-else-WebP-0.95 resample) ---- */
+  function fitWithin(width, height, maxEdge) {
+    const safe = (v) => (Number.isFinite(v) && v > 0 ? Math.round(v) : 1);
+    if (!Number.isFinite(width) || !Number.isFinite(height) || !Number.isFinite(maxEdge) || maxEdge <= 0)
+      return { width: safe(width), height: safe(height) };
+    if (width <= 0 || height <= 0) return { width: safe(width), height: safe(height) };
+    const scale = Math.min(1, maxEdge / Math.max(width, height));
+    return { width: Math.round(width * scale), height: Math.round(height * scale) };
+  }
+
+  function sampleImageDarkness(bmp) {
+    const grid = 24;
+    const canvas = document.createElement('canvas');
+    canvas.width = grid;
+    canvas.height = grid;
+    const context = canvas.getContext('2d');
+    if (context === null) return false;
+    context.drawImage(bmp, 0, 0, grid, grid);
+    let data;
+    try {
+      data = context.getImageData(0, 0, grid, grid).data;
+    } catch (e) {
+      return false;
+    }
+    let sum = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      sum += (0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]) / 255;
+    }
+    return sum / (grid * grid) < DARK_THRESHOLD;
+  }
+
+  function tryDecode(source) {
+    return createImageBitmap(source).catch(() => undefined);
+  }
+
+  function resampleWithinEdge(bitmap, keepAlpha) {
+    const size = fitWithin(bitmap.width, bitmap.height, RESAMPLE_EDGE);
+    const canvas = document.createElement('canvas');
+    canvas.width = size.width;
+    canvas.height = size.height;
+    const ctx = canvas.getContext('2d');
+    if (ctx === null) throw new Error('canvas unavailable for resampling');
+    ctx.drawImage(bitmap, 0, 0, size.width, size.height);
+    return canvasToBlob(canvas, keepAlpha, RESAMPLE_QUALITY);
+  }
+
+  function canvasToBlob(canvas, keepAlpha, quality) {
+    const type = keepAlpha ? 'image/png' : 'image/webp';
+    return new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (blob !== null && blob.type === type) { resolve(blob); return; }
+        canvas.toBlob((fallback) => {
+          if (fallback === null) reject(new Error('image encoding failed'));
+          else resolve(fallback);
+        }, 'image/png');
+      }, type, quality);
+    });
+  }
+
+  function prepareImage(source) {
+    if (!source.type.startsWith('image/')) throw new Error('unsupported file type "' + source.type + '"');
+    if (source.size > MAX_INPUT_BYTES) throw new Error('image exceeds the 200 MB input limit');
+    return tryDecode(source).then((bitmap) => {
+      if (bitmap === undefined) return { blob: source, imageDark: false };
+      try {
+        const imageDark = sampleImageDarkness(bitmap);
+        if (Math.max(bitmap.width, bitmap.height) <= RESAMPLE_EDGE)
+          return { blob: source, imageDark };
+        return resampleWithinEdge(bitmap, source.type === 'image/png').then((blob) => ({ blob, imageDark }));
+      } finally {
+        bitmap.close();
+      }
+    });
+  }
+
+  /* ---- state ---- */
+  let settings = readSettings();
+  let imageToken = '';
+  let imageUrl = undefined;
+
+  /* ---- render: the four body variables are the single source of truth ---- */
+  function applyAppearance(s) {
+    const body = document.body;
+    body.style.setProperty('--sp-bg-opacity', String(s.backgroundOpacity));
+    body.style.setProperty('--sp-bg-blur', (s.backgroundBlur + s.glassBlur) + 'px');
+    body.style.setProperty('--sp-scrim', String(s.scrim));
+    body.style.setProperty('--sp-surface-alpha', String(s.surfaceAlpha));
+    if (s.glassBlur > 0) {
+      body.style.setProperty('--sp-glass-blur', s.glassBlur + 'px');
+      body.setAttribute('data-sp-glass', '');
+    } else {
+      body.removeAttribute('data-sp-glass');
+      body.style.removeProperty('--sp-glass-blur');
+    }
+    body.toggleAttribute('data-sp-bg', s.backgroundImage !== '');
+    syncImage(s.backgroundImage);
+  }
+
+  /* Load or clear the wallpaper for a background token. Reuses the object URL
+     when the token is unchanged, so repeated applies never re-read IndexedDB.
+     A dangling key (blob evicted by the browser) falls back silently to none. */
+  function syncImage(token) {
+    if (token === imageToken) return;
+    imageToken = token;
+    teardownImage();
+    const body = document.body;
+    if (token === '') {
+      body.style.setProperty('--sp-bg-image', 'none');
+      setThumb(undefined);
+      return;
+    }
+    if (token.startsWith('data:')) {          // legacy inline data URL
+      body.style.setProperty('--sp-bg-image', 'url("' + token + '")');
+      return;
+    }
+    return getImage(token).catch(() => undefined).then((blob) => {
+      if (imageToken !== token) return;       // a newer token superseded this one
+      if (blob === undefined) {
+        imageToken = '';
+        body.style.setProperty('--sp-bg-image', 'none');
+        setThumb(undefined);
+        return;
+      }
+      imageUrl = URL.createObjectURL(blob);
+      body.style.setProperty('--sp-bg-image', 'url("' + imageUrl + '")');
+      setThumb(imageUrl);
+    });
+  }
+
+  function teardownImage() {
+    if (imageUrl !== undefined) {
+      URL.revokeObjectURL(imageUrl);
+      imageUrl = undefined;
+    }
+  }
+
+  function setThumb(url) {
+    if (url) {
+      els.thumb.src = url;
+      els.thumb.classList.remove('hidden');
+    } else {
+      els.thumb.removeAttribute('src');
+      els.thumb.classList.add('hidden');
+    }
+  }
+
+  function setStatus(msg) {
+    els.status.textContent = msg || '';
+  }
+
+  /* ---- persist + apply in the same tick (no save button) ---- */
+  function commit() {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(settings)); } catch (e) {}
+    applyAppearance(settings);
+    syncPanel();
+  }
+
+  /* ---- upload / remove / reset ---- */
+  function handleFile(file) {
+    if (!file) return;
+    setStatus('');
+    prepareImage(file).then(async (prepared) => {
+      const key = await saveImage(prepared.blob, file.name);
+      const oldKey = settings.backgroundImage;
+      settings.backgroundImage = key;
+      settings.imageDark = prepared.imageDark;
+      if (prepared.imageDark && settings.scrim === 0) settings.scrim = AUTO_SCRIM;
+      if (oldKey && oldKey !== key && !oldKey.startsWith('data:')) deleteImage(oldKey).catch(() => {});
+      commit();
+    }).catch((e) => {
+      setStatus(e && e.message ? e.message : 'could not use that file');
+    });
+  }
+
+  function removeBackground() {
+    const oldKey = settings.backgroundImage;
+    settings.backgroundImage = '';
+    settings.imageDark = false;
+    if (oldKey && !oldKey.startsWith('data:')) deleteImage(oldKey).catch(() => {});
+    commit();
+  }
+
+  function resetAppearance() {
+    const oldKey = settings.backgroundImage;
+    settings = { ...DEFAULTS };
+    if (oldKey && !oldKey.startsWith('data:')) deleteImage(oldKey).catch(() => {});
+    commit();
+  }
+
+  function isDefault() {
+    return settings.backgroundImage === '' && !settings.imageDark &&
+      settings.backgroundOpacity === 1 && settings.backgroundBlur === 0 &&
+      settings.scrim === 0 && settings.surfaceAlpha === 1 && settings.glassBlur === 0;
+  }
+
+  function syncPanel() {
+    els.opacity.value = String(Math.round(settings.backgroundOpacity * 100));
+    els.opacityOut.textContent = Math.round(settings.backgroundOpacity * 100) + '%';
+    els.blur.value = String(settings.backgroundBlur);
+    els.blurOut.textContent = settings.backgroundBlur + 'px';
+    els.scrim.value = String(Math.round(settings.scrim * 100));
+    els.scrimOut.textContent = Math.round(settings.scrim * 100) + '%';
+    els.glass.value = String(settings.glassBlur);
+    els.glassOut.textContent = settings.glassBlur + 'px';
+    els.remove.disabled = settings.backgroundImage === '';
+    els.reset.disabled = isDefault();
+  }
+
+  /* ---- panel wiring ---- */
+  const panelOpen = () => !els.panel.classList.contains('hidden');
+  const openPanel = (open) => els.panel.classList.toggle('hidden', !open);
+
+  els.gear.addEventListener('click', () => openPanel(!panelOpen()));
+  els.close.addEventListener('click', () => openPanel(false));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && panelOpen()) openPanel(false);
+  });
+
+  els.upload.addEventListener('click', () => els.file.click());
+  els.file.addEventListener('change', () => {
+    handleFile(els.file.files[0]);
+    els.file.value = '';   // reset so the same file can be picked again
+  });
+
+  let dragDepth = 0;
+  els.drop.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    dragDepth += 1;
+    els.drop.classList.add('over');
+  });
+  els.drop.addEventListener('dragover', (e) => { e.preventDefault(); });
+  els.drop.addEventListener('dragleave', () => {
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) els.drop.classList.remove('over');
+  });
+  els.drop.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dragDepth = 0;
+    els.drop.classList.remove('over');
+    const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    handleFile(file);
+  });
+
+  els.remove.addEventListener('click', removeBackground);
+  els.reset.addEventListener('click', resetAppearance);
+
+  /* Sliders use 'input' (not 'change') so the page restyles live while dragging. */
+  const bindSlider = (input, out, apply, format) => {
+    input.addEventListener('input', () => {
+      apply(Number(input.value));
+      out.textContent = format(input.value);
+      commit();
+    });
+  };
+  bindSlider(els.opacity, els.opacityOut, (v) => { settings.backgroundOpacity = v / 100; }, (v) => v + '%');
+  bindSlider(els.blur, els.blurOut, (v) => { settings.backgroundBlur = v; }, (v) => v + 'px');
+  bindSlider(els.scrim, els.scrimOut, (v) => { settings.scrim = v / 100; }, (v) => v + '%');
+  bindSlider(els.glass, els.glassOut, (v) => { settings.glassBlur = v; }, (v) => v + 'px');
+
+  /* Cross-tab sync: change the wallpaper in one tab, every other tab follows. */
+  window.addEventListener('storage', (e) => {
+    if (e.key !== LS_KEY) return;
+    settings = readSettings();
+    applyAppearance(settings);
+    syncPanel();
+  });
+
+  /* ---- startup ---- */
+  applyAppearance(settings);
+  syncPanel();
+  try {
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
+  } catch (e) {}
+})();
 </script>
 </body>
 </html>
