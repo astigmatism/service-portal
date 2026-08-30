@@ -1,0 +1,42 @@
+{
+  "comfyui-image-frontend": {
+    "label": "ComfyUI Frontend",
+    "description": "ComfyUI workflow frontend (port 8001)."
+  },
+  "deepseek-harness": {
+    "label": "DeepSeek Harness",
+    "description": "Agent UI and runtime (3081, https on 3443)."
+  },
+  "deepseek-harness-gateway": {
+    "label": "Harness Gateway",
+    "description": "Internal gateway for the agent runtime."
+  },
+  "local-ai-comfyui": {
+    "label": "ComfyUI",
+    "description": "Image/video generation backend (port 8188)."
+  },
+  "local-ai-ollama": {
+    "label": "Ollama",
+    "description": "Local LLM runtime (exposed to the host, no public port)."
+  },
+  "local-ai-ollama-router": {
+    "label": "Ollama Router",
+    "description": "Model router in front of Ollama (11434-11435)."
+  },
+  "netdata": {
+    "label": "Netdata",
+    "description": "Host monitoring — internal only, no published ports."
+  },
+  "open-webui": {
+    "label": "Open WebUI",
+    "description": "Chat UI for the local models (port 3000)."
+  },
+  "portainer": {
+    "label": "Portainer",
+    "description": "Docker management UI (https on port 9443)."
+  },
+  "service-portal": {
+    "label": "Service Portal",
+    "description": "This gateway — lists every running container."
+  }
+}

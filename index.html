@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rosalina System Services</title>
+<link rel="icon" type="image/svg+xml" href="/star.svg">
+<style>
+:root{
+  --bg:#0d1220; --panel:#151c2e; --panel-2:#1c2740; --line:#26324d;
+  --text:#e8edf7; --muted:#8b98b8; --accent:#5aa7ff;
+  --ok:#38d39f; --warn:#f0b429; --bad:#f26d6d;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+#app{display:flex;flex-direction:column;height:100vh}
+header{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#141b2d,#101626);min-height:52px;flex-wrap:wrap}
+.title{font-size:17px;font-weight:650;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.logo{width:24px;height:24px;flex:none}
+.sub{color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.spacer{flex:1}
+.btn{appearance:none;border:1px solid var(--line);background:var(--panel-2);color:var(--text);border-radius:8px;padding:6px 12px;font-size:13px;cursor:pointer;text-decoration:none;display:inline-block;white-space:nowrap}
+.btn:hover{border-color:var(--accent);color:#fff}
+.check{display:inline-flex;align-items:center;gap:7px;color:var(--muted);font-size:13px;cursor:pointer;user-select:none;white-space:nowrap}
+.check:hover{color:var(--text)}
+.check input{accent-color:var(--accent);margin:0;cursor:pointer}
+.hidden{display:none!important}
+#listView{flex:1;overflow:auto;padding:18px}
+.tablewrap{max-width:1200px;margin:0 auto;overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px}
+.table{width:100%;min-width:880px;border-collapse:collapse;table-layout:fixed}
+.table th{padding:10px 14px;border-bottom:1px solid var(--line);background:#18223a;text-align:left}
+.table th:nth-child(1){width:34%}
+.table th:nth-child(2){width:27%}
+.table th:nth-child(3){width:19%}
+.table th:nth-child(4){width:20%}
+.th{appearance:none;background:none;border:0;padding:0;color:var(--muted);font:inherit;font-size:11.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;display:inline-flex;align-items:center;gap:6px;text-align:left}
+.th:hover{color:var(--text)}
+.th .arr{font-size:10px;opacity:.5;line-height:1}
+.th.active{color:var(--accent)}
+.th.active .arr{opacity:1}
+.table td{padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:middle;min-width:0}
+.table tbody tr:last-child td{border-bottom:0}
+.table tbody tr.linkable{cursor:pointer}
+.table tbody tr.linkable:hover td{background:#1b2745}
+.table tbody tr.internal td{opacity:.62}
+.table tbody tr.internal:hover td{opacity:.92}
+.nameline{display:flex;align-items:center;gap:8px;min-width:0}
+.name{font-weight:650;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.selftag{margin-left:auto;font-size:11px;color:var(--accent);border:1px solid #2e4a75;border-radius:999px;padding:1px 8px;white-space:nowrap;flex:none}
+.dot{width:9px;height:9px;border-radius:50%;flex:none}
+.dot.ok{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+.dot.run{background:var(--accent)}
+.dot.warn{background:var(--warn)}
+.dot.bad{background:var(--bad);box-shadow:0 0 6px var(--bad)}
+.desc{font-size:12.5px;color:var(--muted);line-height:1.35;margin-top:3px}
+.cellimage{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ports{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chip{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:var(--panel-2);border:1px solid var(--line);color:var(--text);border-radius:7px;padding:3px 10px;cursor:pointer}
+.chip:hover{border-color:var(--accent);color:#fff}
+.noports{font-size:12.5px;color:var(--muted)}
+.status{font-size:12.5px;color:var(--muted);line-height:1.35}
+.empty{color:var(--muted);text-align:center;margin-top:60px}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <img class="logo" src="/star.svg" alt="" aria-hidden="true">
+    <div class="title" id="title">Rosalina System Services</div>
+    <div class="sub" id="meta">loading&hellip;</div>
+    <div class="spacer"></div>
+    <label class="check" title="Hide services with no published ports (nothing to open) — your choice is remembered">
+      <input type="checkbox" id="hideNoLink">
+      <span>Hide services without links</span>
+    </label>
+    <button id="refreshBtn" class="btn" type="button">Refresh</button>
+  </header>
+  <main id="listView">
+    <div class="tablewrap hidden" id="tablewrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col"><button class="th" type="button" data-key="name">Service <span class="arr">&#8597;</span></button></th>
+            <th scope="col"><button class="th" type="button" data-key="image">Image <span class="arr">&#8597;</span></button></th>
+            <th scope="col"><button class="th" type="button" data-key="ports">Ports <span class="arr">&#8597;</span></button></th>
+            <th scope="col"><button class="th" type="button" data-key="status">Status <span class="arr">&#8597;</span></button></th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div class="empty hidden" id="empty"></div>
+  </main>
+</div>
+<script>
+'use strict';
+const $ = (s) => document.querySelector(s);
+let services = [];
+let generatedAt = null;
+let lastError = null;
+let sortKey = 'name';
+let sortDir = 1; // 1 = ascending, -1 = descending
+const HIDE_KEY = 'sp-hide-no-link';
+let hideNoLink = false;
+try { hideNoLink = localStorage.getItem(HIDE_KEY) === '1'; } catch (e) {}
+
+function escapeHtml(s){return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+function hostBase(p){
+  if (p.hostIp && p.hostIp !== '0.0.0.0' && p.hostIp !== '::') return p.hostIp;
+  return location.hostname || 'localhost';
+}
+function schemeFor(p){ const h = p.hostPort; return (h === 443 || h === 8443 || h === 3443 || h === 9443) ? 'https' : 'http'; }
+function urlFor(svc, p){ return schemeFor(p) + '://' + hostBase(p) + ':' + p.hostPort + '/'; }
+
+function openNewTab(url){
+  const a = document.createElement('a');
+  a.href = url; a.target = '_blank'; a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function published(s){ return s.ports.filter(p => p.hostPort != null); }
+function displayName(s){ return s.label || s.name; }
+
+function statusRank(s){
+  if (s.state === 'exited' || s.state === 'dead' || s.state === 'created') return 0;
+  if (s.health === 'unhealthy') return 1;
+  if (s.state === 'restarting') return 2;
+  if (s.health === 'starting') return 3;
+  return 4; // healthy, or running without health
+}
+
+const SORTERS = {
+  name:   (a, b) => displayName(a).localeCompare(displayName(b)) || a.name.localeCompare(b.name),
+  image:  (a, b) => a.image.localeCompare(b.image) || a.name.localeCompare(b.name),
+  ports:  (a, b) => published(a).length - published(b).length || a.name.localeCompare(b.name),
+  status: (a, b) => statusRank(a) - statusRank(b) || a.name.localeCompare(b.name),
+};
+
+async function load(){
+  try {
+    const r = await fetch('/api/services', {cache:'no-store'});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    services = d.services;
+    generatedAt = d.generatedAt;
+    lastError = null;
+  } catch (e) {
+    lastError = 'could not reach docker: ' + e.message;
+  }
+  renderList();
+}
+
+function renderList(){
+  if (lastError){ $('#meta').textContent = lastError; }
+  else {
+    const visible = services.filter(s => !hideNoLink || published(s).length > 0).length;
+    const when = generatedAt ? ' \u00b7 updated ' + new Date(generatedAt).toLocaleTimeString() : '';
+    $('#meta').textContent = (hideNoLink && visible !== services.length
+      ? visible + ' of ' + services.length
+      : services.length) + ' services' + when;
+  }
+
+  const rows = services
+    .filter(s => !hideNoLink || published(s).length > 0)
+    .sort((a, b) => SORTERS[sortKey](a, b) * sortDir);
+
+  const empty = $('#empty');
+  if (!services.length){
+    $('#tablewrap').classList.add('hidden');
+    empty.textContent = 'No running containers found.';
+    empty.classList.remove('hidden');
+    return;
+  }
+  $('#tablewrap').classList.remove('hidden');
+  empty.classList.add('hidden');
+
+  for (const b of document.querySelectorAll('button.th')){
+    const th = b.parentElement;
+    const active = b.dataset.key === sortKey;
+    b.classList.toggle('active', active);
+    b.querySelector('.arr').textContent = active ? (sortDir === 1 ? '\u25b2' : '\u25bc') : '\u2195';
+    if (active) th.setAttribute('aria-sort', sortDir === 1 ? 'ascending' : 'descending');
+    else th.removeAttribute('aria-sort');
+  }
+
+  const wrap = $('#rows');
+  wrap.innerHTML = '';
+  if (!rows.length){
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 4;
+    td.style.textAlign = 'center'; td.style.color = 'var(--muted)'; td.style.padding = '40px 14px';
+    td.textContent = 'Every service is hidden \u2014 untick \u201cHide services without links\u201d to see them.';
+    tr.appendChild(td);
+    wrap.appendChild(tr);
+    return;
+  }
+
+  for (const s of rows){
+    const pub = published(s);
+    const h = s.health;
+    const tr = document.createElement('tr');
+    tr.className = pub.length ? 'linkable' : 'internal';
+    if (pub.length) tr.title = urlFor(s, pub[0]);
+
+    const td1 = document.createElement('td');
+    const nl = document.createElement('div'); nl.className = 'nameline';
+    const dotCls = h ? (h === 'healthy' ? 'ok' : h === 'unhealthy' ? 'bad' : 'warn')
+                     : (s.state === 'running' ? 'run' : 'bad');
+    const dot = document.createElement('span'); dot.className = 'dot ' + dotCls;
+    const nm = document.createElement('span'); nm.className = 'name';
+    nm.textContent = displayName(s); nm.title = s.name;
+    nl.appendChild(dot); nl.appendChild(nm);
+    if (s.self){ const t = document.createElement('span'); t.className = 'selftag'; t.textContent = 'this portal'; nl.appendChild(t); }
+    else if (!pub.length){ const t = document.createElement('span'); t.className = 'selftag'; t.textContent = 'internal'; nl.appendChild(t); }
+    td1.appendChild(nl);
+    if (s.description){ const ds = document.createElement('div'); ds.className = 'desc'; ds.textContent = s.description; td1.appendChild(ds); }
+    tr.appendChild(td1);
+
+    const td2 = document.createElement('td');
+    td2.className = 'cellimage'; td2.textContent = s.image; td2.title = s.image;
+    tr.appendChild(td2);
+
+    const td3 = document.createElement('td');
+    const ports = document.createElement('div'); ports.className = 'ports';
+    if (!pub.length) ports.innerHTML = '<span class="noports">no published ports</span>';
+    for (const p of pub){
+      const b = document.createElement('button');
+      b.className = 'chip'; b.type = 'button';
+      b.textContent = p.hostPort + (p.protocol && p.protocol !== 'tcp' ? '/' + p.protocol : '');
+      b.title = urlFor(s, p);
+      b.addEventListener('click', (ev) => { ev.stopPropagation(); openNewTab(urlFor(s, p)); });
+      ports.appendChild(b);
+    }
+    td3.appendChild(ports);
+    tr.appendChild(td3);
+
+    const td4 = document.createElement('td');
+    td4.className = 'status';
+    td4.textContent = escapeHtml((s.statusLine || s.state || '').replace(/\s*\((healthy|unhealthy|starting)\)\s*$/, '')) + (h ? ' \u00b7 ' + h : '');
+    tr.appendChild(td4);
+
+    if (pub.length) tr.addEventListener('click', () => openNewTab(urlFor(s, pub[0])));
+    wrap.appendChild(tr);
+  }
+}
+
+for (const b of document.querySelectorAll('button.th')){
+  b.addEventListener('click', () => {
+    if (sortKey === b.dataset.key) sortDir = -sortDir;
+    else { sortKey = b.dataset.key; sortDir = 1; }
+    renderList();
+  });
+}
+
+const hideChk = $('#hideNoLink');
+hideChk.checked = hideNoLink;
+hideChk.addEventListener('change', () => {
+  hideNoLink = hideChk.checked;
+  try { localStorage.setItem(HIDE_KEY, hideNoLink ? '1' : '0'); } catch (e) {}
+  renderList();
+});
+
+$('#refreshBtn').addEventListener('click', () => load());
+setInterval(() => load(), 20000);
+load();
+</script>
+</body>
+</html>
