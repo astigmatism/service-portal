@@ -40,6 +40,7 @@ const SERVER_BG_TOKEN = 'server';
 
 const APPEARANCE_DEFAULTS = {
   backgroundImage: '',
+  backgroundPosition: 'center',
   imageDark: false,
   backgroundOpacity: 1,
   backgroundBlur: 0,
@@ -47,6 +48,8 @@ const APPEARANCE_DEFAULTS = {
   surfaceAlpha: 1,
   glassBlur: 0,
 };
+// cover-crop anchors for the wallpaper (see --sp-bg-position in index.html)
+const APPEARANCE_POSITIONS = ['center', 'top', 'bottom', 'left', 'right'];
 const APPEARANCE_BOUNDS = {
   backgroundOpacity: { min: 0, max: 1 },
   backgroundBlur: { min: 0, max: 30 },
@@ -67,6 +70,7 @@ function sanitizeAppearance(raw) {
   if (typeof raw.imageDark === 'boolean') out.imageDark = raw.imageDark;
   else if (raw.imageDark === 0) out.imageDark = false;
   else if (raw.imageDark === 1) out.imageDark = true;
+  if (APPEARANCE_POSITIONS.includes(raw.backgroundPosition)) out.backgroundPosition = raw.backgroundPosition;
   for (const [field, b] of Object.entries(APPEARANCE_BOUNDS)) {
     const v = raw[field];
     if (typeof v === 'number' && Number.isFinite(v)) out[field] = Math.min(b.max, Math.max(b.min, v));

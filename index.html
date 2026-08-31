@@ -67,7 +67,7 @@ header{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:
    The scrim is a second background-image layer — a flat veil whose alpha is --sp-scrim —
    so the slider re-rasterizes live with zero extra JS. Blur = wallpaper blur + glass blur,
    summed into one variable; no backdrop-filter on the app (the layer itself is blurred). */
-#sp-bg-layer{position:fixed;inset:-48px;z-index:-1;pointer-events:none;background-repeat:no-repeat;background-position:center;background-size:cover;background-image:linear-gradient(rgba(8,10,18,var(--sp-scrim,0)) 0%,rgba(8,10,18,var(--sp-scrim,0)) 100%),var(--sp-bg-image,none);opacity:var(--sp-bg-opacity,1);filter:blur(var(--sp-bg-blur,0px))}
+#sp-bg-layer{position:fixed;inset:-48px;z-index:-1;pointer-events:none;background-repeat:no-repeat;background-position:var(--sp-bg-position,center);background-size:cover;background-image:linear-gradient(rgba(8,10,18,var(--sp-scrim,0)) 0%,rgba(8,10,18,var(--sp-scrim,0)) 100%),var(--sp-bg-image,none);opacity:var(--sp-bg-opacity,1);filter:blur(var(--sp-bg-blur,0px))}
 /* "This portal" / "internal" pills sit on the translucent table: give them a
    translucent base too, but only while a wallpaper is active (default stays
    pixel-identical to the stock look). */
@@ -87,6 +87,8 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap{backdrop-filter:blur(v
 .sp-slider{display:block;font-size:12.5px;color:var(--muted);margin-top:10px}
 .sp-slider output{float:right;color:var(--text);font-variant-numeric:tabular-nums}
 .sp-slider input[type=range]{width:100%;margin:4px 0 0;accent-color:var(--accent);cursor:pointer}
+.sp-select{display:block;font-size:12.5px;color:var(--muted);margin-top:10px}
+.sp-select select{width:100%;margin:4px 0 0;padding:4px 8px;font-size:13px;color:var(--text);background:var(--panel-2);border:1px solid var(--line);border-radius:7px;cursor:pointer}
 .sp-status{font-size:12.5px;color:var(--bad);min-height:16px;margin-top:8px;overflow-wrap:anywhere}
 </style>
 </head>
@@ -135,6 +137,16 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap{backdrop-filter:blur(v
     <button id="spUploadBtn" class="btn" type="button">Upload background&hellip;</button>
   </div>
   <input type="file" id="spFile" class="hidden" accept="image/jpeg,image/png,image/webp,image/gif,image/avif">
+  <label class="sp-select" title="Which edge the wallpaper anchors to when it covers the screen">
+    Position
+    <select id="spPosition">
+      <option value="center" selected>Centered</option>
+      <option value="top">Pinned to top</option>
+      <option value="bottom">Pinned to bottom</option>
+      <option value="left">Pinned to left</option>
+      <option value="right">Pinned to right</option>
+    </select>
+  </label>
   <div class="sp-row">
     <button id="spRemove" class="btn" type="button">Remove</button>
     <button id="spReset" class="btn" type="button">Reset</button>
@@ -347,8 +359,19 @@ load();
   const IMAGE_STORE = 'images';
   const LS_KEY = 'sp-appearance';
 
+  /* cover-crop anchors: which edge the wallpaper keeps visible */
+  const POSITION_VALUES = ['center', 'top', 'bottom', 'left', 'right'];
+  const POSITION_CSS = {
+    center: 'center center',
+    top: 'center top',
+    bottom: 'center bottom',
+    left: 'left center',
+    right: 'right center',
+  };
+
   const DEFAULTS = {
-    backgroundImage: '',     // IndexedDB record key ('' = none)
+    backgroundImage: '',     // 'server' = shared wallpaper on the server ('' = none)
+    backgroundPosition: 'center',
     imageDark: false,        // sampled wallpaper darkness
     backgroundOpacity: 1,    // 0..1
     backgroundBlur: 0,       // 0..30 px
@@ -380,6 +403,7 @@ load();
     thumb: $id('spThumb'),
     file: $id('spFile'),
     upload: $id('spUploadBtn'),
+    position: $id('spPosition'),
     remove: $id('spRemove'),
     reset: $id('spReset'),
     opacity: $id('spOpacity'), opacityOut: $id('spOpacityOut'),
@@ -395,6 +419,7 @@ load();
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { ...DEFAULTS };
     const out = { ...DEFAULTS };
     if (typeof raw.backgroundImage === 'string') out.backgroundImage = raw.backgroundImage;
+    if (POSITION_VALUES.indexOf(raw.backgroundPosition) !== -1) out.backgroundPosition = raw.backgroundPosition;
     if (typeof raw.imageDark === 'boolean') out.imageDark = raw.imageDark;
     else if (raw.imageDark === 0) out.imageDark = false;
     else if (raw.imageDark === 1) out.imageDark = true;
@@ -584,6 +609,7 @@ load();
     body.style.setProperty('--sp-bg-blur', (s.backgroundBlur + s.glassBlur) + 'px');
     body.style.setProperty('--sp-scrim', String(s.scrim));
     body.style.setProperty('--sp-surface-alpha', String(s.surfaceAlpha));
+    body.style.setProperty('--sp-bg-position', POSITION_CSS[s.backgroundPosition] || POSITION_CSS.center);
     if (s.glassBlur > 0) {
       body.style.setProperty('--sp-glass-blur', s.glassBlur + 'px');
       body.setAttribute('data-sp-glass', '');
@@ -708,7 +734,7 @@ load();
   }
 
   function isDefault() {
-    return settings.backgroundImage === '' && !settings.imageDark &&
+    return settings.backgroundImage === '' && settings.backgroundPosition === 'center' && !settings.imageDark &&
       settings.backgroundOpacity === 1 && settings.backgroundBlur === 0 &&
       settings.scrim === 0 && settings.surfaceAlpha === 1 && settings.glassBlur === 0;
   }
@@ -716,6 +742,8 @@ load();
   function syncPanel() {
     els.opacity.value = String(Math.round(settings.backgroundOpacity * 100));
     els.opacityOut.textContent = Math.round(settings.backgroundOpacity * 100) + '%';
+    els.position.value = POSITION_VALUES.indexOf(settings.backgroundPosition) !== -1
+      ? settings.backgroundPosition : 'center';
     els.blur.value = String(settings.backgroundBlur);
     els.blurOut.textContent = settings.backgroundBlur + 'px';
     els.scrim.value = String(Math.round(settings.scrim * 100));
@@ -759,6 +787,11 @@ load();
     els.drop.classList.remove('over');
     const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
     handleFile(file);
+  });
+
+  els.position.addEventListener('change', () => {
+    settings.backgroundPosition = els.position.value;
+    commit();
   });
 
   els.remove.addEventListener('click', removeBackground);
