@@ -137,19 +137,33 @@ function sendJson(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 
-function dockerApi(pathname) {
+function dockerApiRequest(method, pathname, timeoutMs) {
   return new Promise((resolve, reject) => {
-    const req = http.get({ socketPath: SOCKET, path: pathname }, (res) => {
+    const req = http.request({ socketPath: SOCKET, path: pathname, method }, (res) => {
       let data = '';
       res.setEncoding('utf8');
       res.on('data', (chunk) => (data += chunk));
       res.on('end', () => {
-        try { resolve(JSON.parse(data)); } catch (err) { reject(err); }
+        if (res.statusCode >= 400) {
+          let msg = data;
+          try { msg = JSON.parse(data).message || msg; } catch (e) {}
+          const err = new Error(msg || 'docker api HTTP ' + res.statusCode);
+          err.statusCode = res.statusCode;
+          reject(err);
+          return;
+        }
+        resolve(data);
       });
     });
     req.on('error', reject);
-    req.setTimeout(5000, () => req.destroy(new Error('docker API timed out')));
+    req.setTimeout(timeoutMs || 5000, () => req.destroy(new Error('docker API timed out')));
+    req.end();
   });
+}
+
+/* JSON list calls (GET /containers/json). */
+function dockerApi(pathname) {
+  return dockerApiRequest('GET', pathname).then((data) => JSON.parse(data));
 }
 
 function toService(c) {
@@ -219,6 +233,20 @@ const server = http.createServer((req, res) => {
         res.writeHead(502, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'docker api error: ' + err.message }));
       });
+    return;
+  }
+
+  const svcAction = pathname.match(/^\/api\/services\/([0-9a-f]{12,64})\/(start|stop)$/);
+  if (svcAction) {
+    if (req.method !== 'POST') {
+      sendJson(res, 405, { error: 'method not allowed' });
+      return;
+    }
+    // Docker allows a stopped container its 10 s grace period, so this gets a
+    // longer budget than the read-only list fetch.
+    dockerApiRequest('POST', '/containers/' + svcAction[1] + '/' + svcAction[2], 35000)
+      .then(() => sendJson(res, 200, { ok: true, action: svcAction[2] }))
+      .catch((err) => sendJson(res, 502, { error: 'docker api error: ' + err.message }));
     return;
   }
 

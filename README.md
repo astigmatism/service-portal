@@ -17,7 +17,10 @@ reconfiguration, no restart.
 - Single-page UI (vanilla HTML/CSS/JS, dark theme): sortable table (Service / Image / Ports /
   Status), status dots from Docker state + health, clickable port chips (https is auto-used
   for host ports 443/8443/3443/9443), a "Hide services without links" filter persisted in
-  localStorage, and 20-second auto-refresh.
+  localStorage, a Table/Sidebar layout switch also persisted in localStorage (the Sidebar
+  layout is a narrow single-column list on the left third of the screen — status dot, name
+  link, and a per-row start/stop toggle — leaving the rest of the viewport for the
+  wallpaper), and 20-second auto-refresh.
 
 ## Routes
 
@@ -25,6 +28,7 @@ reconfiguration, no restart.
 |---|---|
 | `/`, `/index.html` | The portal UI (`text/html`, `Cache-Control: no-store`) |
 | `/api/services` | JSON: `{generatedAt, services: [...]}` — one entry per running container with `name, label, description, id, image, state, health, statusLine, ports[], self` (`no-store`) |
+| `POST /api/services/<id>/start` / `POST /api/services/<id>/stop` | Docker start/stop for that container: `200` `{ok, action}` on success, `502` + `error` when Docker refuses (`no-store`) |
 | `/api/appearance` | `GET` → `{settings: {...}}`; `PUT` → replaces the styling settings (opacity, blur, scrim, glass, dark flag, sampled accent; sanitized and clamped server-side) (`no-store`) |
 | `/api/appearance/background` | The shared wallpaper: `GET` → stored image bytes (404 if none) · `POST` → replace it (image/* bodies up to 200 MB) · `DELETE` → remove it (`no-store`) |
 | `/healthz` | Plain-text `ok` |
@@ -55,8 +59,9 @@ docker run -d --name service-portal \
 Then open `http://<machine-ip>/`.
 
 - `--restart unless-stopped` — survives reboots, honors explicit `docker stop`.
-- The socket mount lets the container talk to the Docker Engine. The app only issues
-  read-only `GET /containers/json`, but the mount itself is a powerful capability —
+- The socket mount lets the container talk to the Docker Engine. The app issues read-only
+  `GET /containers/json` plus `POST /containers/<id>/start|stop` for the sidebar layout's
+  per-row start/stop toggles, but the mount itself is a powerful capability —
   that is the inherent trade-off of live container discovery.
 - If port 80 is unavailable, publish a different **host** port but keep the internal port 80:
   `-p <newport>:80` (do not renumber the internal port).
