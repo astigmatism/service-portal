@@ -25,6 +25,8 @@ reconfiguration, no restart.
 |---|---|
 | `/`, `/index.html` | The portal UI (`text/html`, `Cache-Control: no-store`) |
 | `/api/services` | JSON: `{generatedAt, services: [...]}` — one entry per running container with `name, label, description, id, image, state, health, statusLine, ports[], self` (`no-store`) |
+| `/api/appearance` | `GET` → `{settings: {...}}`; `PUT` → replaces the styling settings (opacity, blur, scrim, glass, dark flag; sanitized and clamped server-side) (`no-store`) |
+| `/api/appearance/background` | The shared wallpaper: `GET` → stored image bytes (404 if none) · `POST` → replace it (image/* bodies up to 200 MB) · `DELETE` → remove it (`no-store`) |
 | `/healthz` | Plain-text `ok` |
 | `/favicon.ico`, `/star.svg` | The star icon (`image/svg+xml`) |
 | anything else | `404 not found` |
@@ -45,6 +47,7 @@ docker run -d --name service-portal \
   --restart unless-stopped \
   -p 80:80 \
   -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /var/lib/service-portal:/data \
   -e SELF_NAME=service-portal \
   service-portal:latest
 ```
@@ -57,6 +60,10 @@ Then open `http://<machine-ip>/`.
   that is the inherent trade-off of live container discovery.
 - If port 80 is unavailable, publish a different **host** port but keep the internal port 80:
   `-p <newport>:80` (do not renumber the internal port).
+- The `/data` volume holds the shared wallpaper and appearance settings
+  (`background.bin`, `background.json`, `appearance.json`) — the Appearance
+  panel is network-wide, not per-browser. It survives container recreation;
+  removing the host directory resets the appearance to defaults.
 
 ## Security note
 
@@ -75,6 +82,12 @@ authentication of its own.
 - **Runtime label override (no rebuild)**: pass `-e SERVICE_LABELS='{"name": {"label": "...",
   "description": "..."}}'` (JSON string) to `docker run`; it takes precedence over
   `labels.json`.
+- **Wallpaper & appearance**: the gear button opens the Appearance panel — upload a
+  background image and tune opacity, wallpaper blur, scrim, and glass blur. The wallpaper
+  and settings are stored on the server in the `/data` volume, so every machine on the
+  network sees the same appearance. Browsers that still hold a wallpaper from the old
+  browser-only storage get it migrated to the server automatically on first load, then
+  their local copies are cleared.
 - **Rename the portal**: change "Rosalina System Services" in the two places in
   `index.html` (the `<title>` tag and the header `<div class="title" id="title">`), rebuild.
 - **Non-standard HTTPS ports**: edit the `schemeFor()` function in `index.html` to add host
@@ -92,6 +105,7 @@ docker build -t service-portal:latest .
 docker rm -f service-portal && docker run -d --name service-portal \
   --restart unless-stopped -p 80:80 \
   -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /var/lib/service-portal:/data \
   -e SELF_NAME=service-portal service-portal:latest
 ```
 

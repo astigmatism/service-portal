@@ -331,11 +331,15 @@ load();
 
 /* ===== Appearance (wallpaper + glass) =====================================
    Port of the Harness "Appearance" plugin, per
-   docs/appearance-background-handoff.md §6. Zero dependencies, zero server
-   endpoints: the wallpaper blob lives in this browser's IndexedDB
-   ('service-portal-appearance', store 'images'), and localStorage
-   ('sp-appearance') carries one small JSON settings blob — the key only,
-   never the payload. Every change applies live, in the same tick. */
+   docs/appearance-background-handoff.md §6, now server-persisted: the
+   wallpaper and styling settings live on the server (GET/PUT
+   /api/appearance, POST/GET/DELETE /api/appearance/background), shared by
+   every client on the network. This browser keeps a localStorage
+   ('sp-appearance') copy as an offline fallback cache, and on first visit
+   with an empty server the wallpaper previously stored in this browser's
+   IndexedDB ('service-portal-appearance', store 'images') is migrated up
+   once, then the local copies are cleared. Every change applies live, in
+   the same tick, and syncs to the server debounced. */
 (function () {
   'use strict';
 
@@ -401,6 +405,8 @@ load();
     return out;
   }
 
+  /* readSettings() is now only the *local fallback cache* — the server is
+     the source of truth. */
   function readSettings() {
     try {
       const raw = localStorage.getItem(LS_KEY);
@@ -410,7 +416,50 @@ load();
     }
   }
 
-  /* ---- IndexedDB blob store (ported from blob-db.ts / image-store.ts) ---- */
+  /* ---- server sync: settings PUT (debounced) + wallpaper endpoints ---- */
+  const BG_URL = '/api/appearance/background';
+  const PUT_DEBOUNCE_MS = 250;
+  let putTimer = 0;
+
+  function putSettings(applySettings) {
+    return fetch('/api/appearance', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(applySettings)
+    }).then((r) => {
+      if (!r.ok) throw new Error('settings save failed (HTTP ' + r.status + ')');
+      return r.json();
+    });
+  }
+
+  /* Debounced settings push; the localStorage cache is refreshed either way
+     (on success from the server's sanitized copy, on failure from intent) so
+     a later offline visit still shows the last configuration. */
+  function queuePut(next) {
+    clearTimeout(putTimer);
+    putTimer = setTimeout(() => {
+      putSettings(next)
+        .then((data) => {
+          if (data && data.settings) {
+            if (typeof data.settings.backgroundImage === 'string' &&
+                data.settings.backgroundImage !== next.backgroundImage) {
+              next = { ...next, backgroundImage: data.settings.backgroundImage };
+            }
+          }
+          cacheSettings(next);
+        })
+        .catch(() => cacheSettings(next));
+    }, PUT_DEBOUNCE_MS);
+  }
+
+  function cacheSettings(s) {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(s)); } catch (e) {}
+  }
+
+  /* ---- legacy IndexedDB blob store (ported from blob-db.ts / image-store.ts)
+         — kept read-only-ish: the wallpaper now lives on the server; this is
+         only consulted to (a) show a not-yet-migrated wallpaper in this
+         browser and (b) feed the one-time startup migration. ---- */
   function openBlobDb() {
     return new Promise((resolve, reject) => {
       const request = indexedDB.open(DB_NAME, 1);
@@ -435,15 +484,6 @@ load();
         transaction.onerror = () => { reject(transaction.error || new Error('indexeddb transaction failed')); };
       }, reject);
     });
-  }
-
-  function newBlobKey() {
-    return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
-  }
-
-  function saveImage(blob, name) {
-    const key = newBlobKey();
-    return runBlobTx('readwrite', (store) => store.put({ data: blob, name }, key)).then(() => key);
   }
 
   function getImage(key) {
@@ -531,10 +571,11 @@ load();
     });
   }
 
-  /* ---- state ---- */
+  /* ---- state ----
+     Boot starts on the (local) cache so the page paints immediately, then the
+     startup fetch below replaces it with the server's copy. */
   let settings = readSettings();
   let imageToken = '';
-  let imageUrl = undefined;
 
   /* ---- render: the four body variables are the single source of truth ---- */
   function applyAppearance(s) {
@@ -554,23 +595,32 @@ load();
     syncImage(s.backgroundImage);
   }
 
-  /* Load or clear the wallpaper for a background token. Reuses the object URL
-     when the token is unchanged, so repeated applies never re-read IndexedDB.
-     A dangling key (blob evicted by the browser) falls back silently to none. */
+  /* Apply the wallpaper for a background token. The server serves the
+     wallpaper at BG_URL (Cache-Control: no-store), so any non-empty token is
+     just that URL — shared by every client on the network. A token left
+     behind by the old browser-only storage ('data:' or an IndexedDB key)
+     that we don't have a blob for resolves to none. */
   function syncImage(token) {
     if (token === imageToken) return;
     imageToken = token;
-    teardownImage();
     const body = document.body;
     if (token === '') {
       body.style.setProperty('--sp-bg-image', 'none');
       setThumb(undefined);
       return;
     }
-    if (token.startsWith('data:')) {          // legacy inline data URL
-      body.style.setProperty('--sp-bg-image', 'url("' + token + '")');
+    if (token === 'server') {
+      body.style.setProperty('--sp-bg-image', 'url("' + BG_URL + '")');
+      setThumb(BG_URL);
       return;
     }
+    if (token.startsWith('data:')) {          // legacy inline data URL
+      body.style.setProperty('--sp-bg-image', 'url("' + token + '")');
+      setThumb(token);
+      return;
+    }
+    /* Legacy IndexedDB key from the browser-only era: keep it visible in this
+       browser if the blob is still here (until startup migration uploads it). */
     return getImage(token).catch(() => undefined).then((blob) => {
       if (imageToken !== token) return;       // a newer token superseded this one
       if (blob === undefined) {
@@ -579,17 +629,10 @@ load();
         setThumb(undefined);
         return;
       }
-      imageUrl = URL.createObjectURL(blob);
-      body.style.setProperty('--sp-bg-image', 'url("' + imageUrl + '")');
-      setThumb(imageUrl);
+      const url = URL.createObjectURL(blob);
+      body.style.setProperty('--sp-bg-image', 'url("' + url + '")');
+      setThumb(url);
     });
-  }
-
-  function teardownImage() {
-    if (imageUrl !== undefined) {
-      URL.revokeObjectURL(imageUrl);
-      imageUrl = undefined;
-    }
   }
 
   function setThumb(url) {
@@ -606,43 +649,62 @@ load();
     els.status.textContent = msg || '';
   }
 
-  /* ---- persist + apply in the same tick (no save button) ---- */
+  /* ---- apply + persist in the same tick (no save button) ----
+     Styling applies live locally; the settings blob lands on the server
+     debounced, so dragging a slider across the LAN costs one small PUT. */
   function commit() {
-    try { localStorage.setItem(LS_KEY, JSON.stringify(settings)); } catch (e) {}
     applyAppearance(settings);
     syncPanel();
+    cacheSettings(settings);
+    queuePut(settings);
   }
 
   /* ---- upload / remove / reset ---- */
   function handleFile(file) {
     if (!file) return;
     setStatus('');
-    prepareImage(file).then(async (prepared) => {
-      const key = await saveImage(prepared.blob, file.name);
-      const oldKey = settings.backgroundImage;
-      settings.backgroundImage = key;
-      settings.imageDark = prepared.imageDark;
-      if (prepared.imageDark && settings.scrim === 0) settings.scrim = AUTO_SCRIM;
-      if (oldKey && oldKey !== key && !oldKey.startsWith('data:')) deleteImage(oldKey).catch(() => {});
-      commit();
+    prepareImage(file).then((prepared) => {
+      setStatus('Uploading…');
+      return fetch(BG_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': prepared.blob.type || 'image/webp' },
+        body: prepared.blob
+      }).then((r) => {
+        if (!r.ok) throw new Error('upload failed (HTTP ' + r.status + ')');
+        return r.json();
+      }).then(() => {
+        settings.backgroundImage = 'server';
+        settings.imageDark = prepared.imageDark;
+        if (prepared.imageDark && settings.scrim === 0) settings.scrim = AUTO_SCRIM;
+        setStatus('');
+        commit();
+      });
     }).catch((e) => {
       setStatus(e && e.message ? e.message : 'could not use that file');
     });
   }
 
   function removeBackground() {
-    const oldKey = settings.backgroundImage;
-    settings.backgroundImage = '';
-    settings.imageDark = false;
-    if (oldKey && !oldKey.startsWith('data:')) deleteImage(oldKey).catch(() => {});
-    commit();
+    setStatus('');
+    fetch(BG_URL, { method: 'DELETE' }).then((r) => {
+      if (!r.ok) throw new Error('remove failed (HTTP ' + r.status + ')');
+      settings.backgroundImage = '';
+      settings.imageDark = false;
+      commit();
+    }).catch((e) => {
+      setStatus(e && e.message ? e.message : 'could not remove background');
+    });
   }
 
   function resetAppearance() {
-    const oldKey = settings.backgroundImage;
-    settings = { ...DEFAULTS };
-    if (oldKey && !oldKey.startsWith('data:')) deleteImage(oldKey).catch(() => {});
-    commit();
+    setStatus('');
+    fetch(BG_URL, { method: 'DELETE' }).then((r) => {
+      if (!r.ok) throw new Error('reset failed (HTTP ' + r.status + ')');
+      settings = { ...DEFAULTS };
+      commit();
+    }).catch((e) => {
+      setStatus(e && e.message ? e.message : 'could not reset appearance');
+    });
   }
 
   function isDefault() {
@@ -715,7 +777,8 @@ load();
   bindSlider(els.scrim, els.scrimOut, (v) => { settings.scrim = v / 100; }, (v) => v + '%');
   bindSlider(els.glass, els.glassOut, (v) => { settings.glassBlur = v; }, (v) => v + 'px');
 
-  /* Cross-tab sync: change the wallpaper in one tab, every other tab follows. */
+  /* Cross-tab sync: change the wallpaper in one tab, every other tab follows
+     (each tab's debounced PUT is what updates the shared server state). */
   window.addEventListener('storage', (e) => {
     if (e.key !== LS_KEY) return;
     settings = readSettings();
@@ -723,12 +786,66 @@ load();
     syncPanel();
   });
 
-  /* ---- startup ---- */
-  applyAppearance(settings);
-  syncPanel();
-  try {
-    if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
-  } catch (e) {}
+  /* ---- one-time migration from the browser-only era ----
+     If the server has no wallpaper yet but this browser still holds one in
+     its old IndexedDB (or a legacy inline data URL), push it up once and
+     clear the local copies. The server's existing settings stay authoritative
+     for the sliders; only the wallpaper (and its dark flag) comes along. */
+  function migrateLegacy(serverSettings) {
+    if (serverSettings.backgroundImage !== '') return;
+    let local;
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      local = sanitizeSettings(raw === null ? undefined : JSON.parse(raw));
+    } catch (e) { return; }
+    if (!local || local.backgroundImage === '' || local.backgroundImage === 'server') return;
+    const token = local.backgroundImage;
+    const source = token.startsWith('data:')
+      ? fetch(token).then((r) => r.blob()).catch(() => undefined)
+      : getImage(token).catch(() => undefined);
+    source.then((blob) => {
+      if (blob === undefined) {
+        if (!token.startsWith('data:')) deleteImage(token).catch(() => {});
+        return;
+      }
+      const merged = { ...serverSettings, backgroundImage: 'server', imageDark: !!local.imageDark };
+      if (merged.imageDark && merged.scrim === 0) merged.scrim = AUTO_SCRIM;
+      return fetch(BG_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': blob.type || 'image/webp' },
+        body: blob
+      }).then((r) => {
+        if (!r.ok) throw new Error('migration upload failed (HTTP ' + r.status + ')');
+        return putSettings(merged).then(() => merged);
+      }).then((mergedSettings) => {
+        if (!token.startsWith('data:')) deleteImage(token).catch(() => {});
+        settings = mergedSettings;
+        cacheSettings(settings);
+        applyAppearance(settings);
+        syncPanel();
+      });
+    }).catch(() => {});
+  }
+
+  /* ---- startup: the server is the source of truth; the local cache is the
+     offline fallback. The page already painted with the cache above. ---- */
+  fetch('/api/appearance').then((r) => {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }).then((data) => {
+    const serverSettings = sanitizeSettings(data && data.settings);
+    settings = serverSettings;
+    applyAppearance(settings);
+    syncPanel();
+    cacheSettings(settings);
+    migrateLegacy(serverSettings);
+  }).catch(() => {
+    /* server unreachable: keep the cached appearance, changes will sync once
+       the network returns (the next PUT retries on any edit) */
+    settings = readSettings();
+    applyAppearance(settings);
+    syncPanel();
+  });
 })();
 </script>
 </body>
