@@ -25,7 +25,7 @@ reconfiguration, no restart.
 |---|---|
 | `/`, `/index.html` | The portal UI (`text/html`, `Cache-Control: no-store`) |
 | `/api/services` | JSON: `{generatedAt, services: [...]}` — one entry per running container with `name, label, description, id, image, state, health, statusLine, ports[], self` (`no-store`) |
-| `/api/appearance` | `GET` → `{settings: {...}}`; `PUT` → replaces the styling settings (opacity, blur, scrim, glass, dark flag; sanitized and clamped server-side) (`no-store`) |
+| `/api/appearance` | `GET` → `{settings: {...}}`; `PUT` → replaces the styling settings (opacity, blur, scrim, glass, dark flag, sampled accent; sanitized and clamped server-side) (`no-store`) |
 | `/api/appearance/background` | The shared wallpaper: `GET` → stored image bytes (404 if none) · `POST` → replace it (image/* bodies up to 200 MB) · `DELETE` → remove it (`no-store`) |
 | `/healthz` | Plain-text `ok` |
 | `/favicon.ico`, `/star.svg` | The star icon (`image/svg+xml`) |
@@ -88,6 +88,15 @@ authentication of its own.
   network sees the same appearance. Browsers that still hold a wallpaper from the old
   browser-only storage get it migrated to the server automatically on first load, then
   their local copies are cleared.
+- **Auto color scheme**: when a background is uploaded, the browser samples its dominant
+  hue (32×32 grid, 12 hue buckets, saturation-weighted; the accent is re-normalized to a
+  fixed lightness/saturation so it always reads as an accent) and derives a coordinated
+  dark palette around it — background, panels, inputs, borders, header, table head, hover
+  rows and pills all take on the wallpaper's hue. The sampled accent is stored in the
+  shared settings (field `accent`), so every client on the network gets the same theme.
+  Hueless (gray) images leave the stock palette in place; removing or resetting the
+  background restores the stock palette. Text and the status colors (ok/warn/bad) never
+  change.
 - **Rename the portal**: change "Rosalina System Services" in the two places in
   `index.html` (the `<title>` tag and the header `<div class="title" id="title">`), rebuild.
 - **Non-standard HTTPS ports**: edit the `schemeFor()` function in `index.html` to add host

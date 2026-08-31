@@ -47,6 +47,8 @@ const APPEARANCE_DEFAULTS = {
   scrim: 0,
   surfaceAlpha: 1,
   glassBlur: 0,
+  accent: '', // sampled wallpaper accent (#rrggbb); '' = stock palette
+  accentTouched: false, // true once a sample/reset decided the accent for the current wallpaper
 };
 // cover-crop anchors for the wallpaper (see --sp-bg-position in index.html)
 const APPEARANCE_POSITIONS = ['center', 'top', 'bottom', 'left', 'right'];
@@ -71,6 +73,10 @@ function sanitizeAppearance(raw) {
   else if (raw.imageDark === 0) out.imageDark = false;
   else if (raw.imageDark === 1) out.imageDark = true;
   if (APPEARANCE_POSITIONS.includes(raw.backgroundPosition)) out.backgroundPosition = raw.backgroundPosition;
+  if (typeof raw.accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.accent)) out.accent = raw.accent.toLowerCase();
+  if (typeof raw.accentTouched === 'boolean') out.accentTouched = raw.accentTouched;
+  else if (raw.accentTouched === 0) out.accentTouched = false;
+  else if (raw.accentTouched === 1) out.accentTouched = true;
   for (const [field, b] of Object.entries(APPEARANCE_BOUNDS)) {
     const v = raw[field];
     if (typeof v === 'number' && Number.isFinite(v)) out[field] = Math.min(b.max, Math.max(b.min, v));

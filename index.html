@@ -10,12 +10,21 @@
   --bg:#0d1220; --panel:#151c2e; --panel-2:#1c2740; --line:#26324d;
   --text:#e8edf7; --muted:#8b98b8; --accent:#5aa7ff;
   --ok:#38d39f; --warn:#f0b429; --bad:#f26d6d;
+  /* RGB triples of the panel family so alpha variants (header gradient,
+     table, chips, pills) can track the theme. Defaults equal the literal
+     colors below; the wallpaper-derived theme overrides them at runtime
+     (applyTheme() in the Appearance script). Clearing the theme variables
+     restores the stock look exactly. */
+  --panel-rgb:21,28,46; --panel-2-rgb:28,39,64;
+  --header-a-rgb:20,27,45; --header-b-rgb:16,22,38;
+  --head-rgb:24,34,58; --hover-rgb:27,39,69;
+  --selftag-line:#2e4a75;
 }
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
 #app{display:flex;flex-direction:column;height:100vh}
-header{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(20,27,45,var(--sp-surface-alpha,1)),rgba(16,22,38,var(--sp-surface-alpha,1)));min-height:52px;flex-wrap:wrap}
+header{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(var(--header-a-rgb),var(--sp-surface-alpha,1)),rgba(var(--header-b-rgb),var(--sp-surface-alpha,1)));min-height:52px;flex-wrap:wrap}
 .title{font-size:17px;font-weight:650;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .logo{width:24px;height:24px;flex:none}
 .sub{color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -27,9 +36,9 @@ header{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:
 .check input{accent-color:var(--accent);margin:0;cursor:pointer}
 .hidden{display:none!important}
 #listView{flex:1;overflow:auto;padding:18px}
-.tablewrap{max-width:1200px;margin:0 auto;overflow-x:auto;background:rgba(21,28,46,var(--sp-surface-alpha,1));border:1px solid var(--line);border-radius:12px}
+.tablewrap{max-width:1200px;margin:0 auto;overflow-x:auto;background:rgba(var(--panel-rgb),var(--sp-surface-alpha,1));border:1px solid var(--line);border-radius:12px}
 .table{width:100%;min-width:880px;border-collapse:collapse;table-layout:fixed}
-.table th{padding:10px 14px;border-bottom:1px solid var(--line);background:#18223a;text-align:left}
+.table th{padding:10px 14px;border-bottom:1px solid var(--line);background:rgb(var(--head-rgb));text-align:left}
 .table th:nth-child(1){width:34%}
 .table th:nth-child(2){width:27%}
 .table th:nth-child(3){width:19%}
@@ -42,12 +51,12 @@ header{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:
 .table td{padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:middle;min-width:0}
 .table tbody tr:last-child td{border-bottom:0}
 .table tbody tr.linkable{cursor:pointer}
-.table tbody tr.linkable:hover td{background:#1b2745}
+.table tbody tr.linkable:hover td{background:rgb(var(--hover-rgb))}
 .table tbody tr.internal td{opacity:.62}
 .table tbody tr.internal:hover td{opacity:.92}
 .nameline{display:flex;align-items:center;gap:8px;min-width:0}
 .name{font-weight:650;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.selftag{margin-left:auto;font-size:11px;color:var(--accent);border:1px solid #2e4a75;border-radius:999px;padding:1px 8px;white-space:nowrap;flex:none}
+.selftag{margin-left:auto;font-size:11px;color:var(--accent);border:1px solid var(--selftag-line);border-radius:999px;padding:1px 8px;white-space:nowrap;flex:none}
 .dot{width:9px;height:9px;border-radius:50%;flex:none}
 .dot.ok{background:var(--ok);box-shadow:0 0 6px var(--ok)}
 .dot.run{background:var(--accent)}
@@ -56,7 +65,7 @@ header{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:
 .desc{font-size:12.5px;color:var(--muted);line-height:1.35;margin-top:3px}
 .cellimage{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ports{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.chip{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:rgba(28,39,64,var(--sp-surface-alpha,1));border:1px solid var(--line);color:var(--text);border-radius:7px;padding:3px 10px;cursor:pointer}
+.chip{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:rgba(var(--panel-2-rgb),var(--sp-surface-alpha,1));border:1px solid var(--line);color:var(--text);border-radius:7px;padding:3px 10px;cursor:pointer}
 .chip:hover{border-color:var(--accent);color:#fff}
 .noports{font-size:12.5px;color:var(--muted)}
 .status{font-size:12.5px;color:var(--muted);line-height:1.35}
@@ -71,7 +80,7 @@ header{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:
 /* "This portal" / "internal" pills sit on the translucent table: give them a
    translucent base too, but only while a wallpaper is active (default stays
    pixel-identical to the stock look). */
-body[data-sp-bg] .selftag{background:rgba(21,28,46,calc(var(--sp-surface-alpha,1)*.55))}
+body[data-sp-bg] .selftag{background:rgba(var(--panel-rgb),calc(var(--sp-surface-alpha,1)*.55))}
 /* Optional true-glass pass: per-surface backdrop blur, applied only while
    glassBlur > 0 (the whole-layer blur above already carries the depth). */
 body[data-sp-glass] header,body[data-sp-glass] .tablewrap{backdrop-filter:blur(var(--sp-glass-blur,0px))}
@@ -150,6 +159,7 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap{backdrop-filter:blur(v
   <div class="sp-row">
     <button id="spRemove" class="btn" type="button">Remove</button>
     <button id="spReset" class="btn" type="button">Reset</button>
+    <button id="spResetColors" class="btn" type="button" title="Drop the wallpaper-derived color scheme (the wallpaper stays)">Reset colors</button>
   </div>
   <label class="sp-slider">Opacity <output id="spOpacityOut">100%</output>
     <input type="range" id="spOpacity" min="0" max="100" step="1" value="100">
@@ -377,7 +387,11 @@ load();
     backgroundBlur: 0,       // 0..30 px
     scrim: 0,                // 0..1 readability veil
     surfaceAlpha: 1,         // 0..1 glass surface opacity
-    glassBlur: 0             // 0..20 px (summed into the layer blur; optional per-surface pass)
+    glassBlur: 0,            // 0..20 px (summed into the layer blur; optional per-surface pass)
+    accent: '',              // sampled wallpaper accent (#rrggbb); '' = stock palette
+    accentTouched: false     // true once a sample (or a reset) has decided the accent for the
+                             // current wallpaper — stops startup auto-sampling from re-applying
+                             // a theme the user deliberately cleared
   };
   const BOUNDS = {
     backgroundOpacity: { min: 0, max: 1 },
@@ -393,6 +407,11 @@ load();
   const RESAMPLE_QUALITY = 0.95;       // WebP quality for resampled images
   const DARK_THRESHOLD = 0.35;         // avg-luminance threshold below which an image counts as dark
   const AUTO_SCRIM = 0.35;             // veil auto-applied when a dark wallpaper is set and the user hasn't touched the scrim
+  /* Accent-sampling constants (ported from the harness plugin's image.ts). */
+  const ACCENT_HUE_BUCKETS = 12;       // 30° hue bins
+  const ACCENT_MIN_SATURATION = 0.18;  // chroma below which a pixel counts as gray and is ignored
+  const ACCENT_TARGET_LIGHTNESS = 0.46;// the sampled accent is re-normalized to this L (dark enough for white text)
+  const ACCENT_TARGET_SATURATION = 0.5;// and this S (saturated enough to read as a color)
 
   const $id = (s) => document.getElementById(s);
   const els = {
@@ -406,6 +425,7 @@ load();
     position: $id('spPosition'),
     remove: $id('spRemove'),
     reset: $id('spReset'),
+    resetColors: $id('spResetColors'),
     opacity: $id('spOpacity'), opacityOut: $id('spOpacityOut'),
     blur: $id('spBlur'), blurOut: $id('spBlurOut'),
     scrim: $id('spScrim'), scrimOut: $id('spScrimOut'),
@@ -427,6 +447,10 @@ load();
       const v = raw[field];
       if (typeof v === 'number' && Number.isFinite(v)) out[field] = Math.min(b.max, Math.max(b.min, v));
     }
+    if (typeof raw.accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.accent)) out.accent = raw.accent.toLowerCase();
+    if (typeof raw.accentTouched === 'boolean') out.accentTouched = raw.accentTouched;
+    else if (raw.accentTouched === 0) out.accentTouched = false;
+    else if (raw.accentTouched === 1) out.accentTouched = true;
     return out;
   }
 
@@ -552,6 +576,126 @@ load();
     return sum / (grid * grid) < DARK_THRESHOLD;
   }
 
+  /* ---- color math + accent extraction (ported from the harness plugin's
+         image.ts: "bucket pixels by hue, weight by saturation, normalize") ----
+     The sampled accent keeps the image's dominant hue but is re-normalized to
+     fixed S/L so it always works as an accent; derivePalette() then builds the
+     whole dark surface family (header → background → panel → input → border)
+     around that one hue, so a themed portal harmonizes with its wallpaper. */
+  function rgbToHsl(r, g, b, sat, light) {
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    let h = 0, s = 0;
+    if (max !== min) {
+      const delta = max - min;
+      s = l > .5 ? delta / (2 - max - min) : delta / (max + min);
+      if (max === r) h = ((g - b) / delta + (g < b ? 6 : 0)) / 6;
+      else if (max === g) h = ((b - r) / delta + 2) / 6;
+      else h = ((r - g) / delta + 4) / 6;
+    }
+    return [h, sat === undefined ? s : sat, light === undefined ? l : light];
+  }
+
+  function hslToHex(hsl) {
+    const h = hsl[0], s = hsl[1], l = hsl[2];
+    const hue = (h - Math.floor(h)) * 6;
+    const c = (1 - Math.abs(2 * l - 1)) * s;
+    const x = c * (1 - Math.abs(hue % 2 - 1));
+    const m = l - c / 2;
+    let rgb;
+    if (hue < 1) rgb = [c, x, 0];
+    else if (hue < 2) rgb = [x, c, 0];
+    else if (hue < 3) rgb = [0, c, x];
+    else if (hue < 4) rgb = [0, x, c];
+    else if (hue < 5) rgb = [x, 0, c];
+    else rgb = [c, 0, x];
+    const toHex = (v) => Math.round((v + m) * 255).toString(16).padStart(2, '0');
+    return '#' + toHex(rgb[0]) + toHex(rgb[1]) + toHex(rgb[2]);
+  }
+
+  function hexToRgb(hex) {
+    return [
+      parseInt(hex.slice(1, 3), 16) / 255,
+      parseInt(hex.slice(3, 5), 16) / 255,
+      parseInt(hex.slice(5, 7), 16) / 255
+    ];
+  }
+
+  /* Sample a dominant, readable accent from a bitmap: draw onto a fixed 32×32
+     grid (constant cost regardless of file size), bucket every non-gray pixel
+     into one of 12 hue bins (skipping near-black/near-white, and anything with
+     chroma < ACCENT_MIN_SATURATION), weight each bin by count × average
+     chroma, take the winner's average RGB and re-normalize it to the target
+     S/L. Returns #rrggbb, or null when the image carries no usable hue. */
+  function sampleAccentColor(bmp) {
+    const grid = 32;
+    const canvas = document.createElement('canvas');
+    canvas.width = grid;
+    canvas.height = grid;
+    const context = canvas.getContext('2d');
+    if (context === null) return null;
+    context.drawImage(bmp, 0, 0, grid, grid);
+    let data;
+    try {
+      data = context.getImageData(0, 0, grid, grid).data;
+    } catch (e) {
+      return null;
+    }
+    const buckets = new Array(ACCENT_HUE_BUCKETS);
+    for (let i = 0; i < ACCENT_HUE_BUCKETS; i++) buckets[i] = [0, 0, 0, 0, 0]; // rSum,gSum,bSum,count,chromaSum
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i] / 255, g = data[i + 1] / 255, b = data[i + 2] / 255;
+      const max = Math.max(r, g, b), min = Math.min(r, g, b);
+      const l = (max + min) / 2;
+      if (l < .08 || l > .92) continue;            // near-black / near-white
+      const delta = max - min;
+      if (delta < ACCENT_MIN_SATURATION) continue; // gray
+      let hue;
+      if (max === r) hue = ((g - b) / delta + (g < b ? 6 : 0)) / 6;
+      else if (max === g) hue = ((b - r) / delta + 2) / 6;
+      else hue = ((r - g) / delta + 4) / 6;
+      const acc = buckets[Math.min(ACCENT_HUE_BUCKETS - 1, Math.floor(hue * ACCENT_HUE_BUCKETS))];
+      acc[0] += r; acc[1] += g; acc[2] += b; acc[3] += 1; acc[4] += delta;
+    }
+    let best, bestScore = -1;
+    for (const acc of buckets) {
+      if (acc[3] === 0) continue;
+      const score = acc[3] * (acc[4] / acc[3]);    // count × avg chroma
+      if (score > bestScore) { bestScore = score; best = acc; }
+    }
+    if (best === undefined) return null;
+    const [rSum, gSum, bSum, count] = best;
+    return hslToHex(rgbToHsl(rSum / count, gSum / count, bSum / count, ACCENT_TARGET_SATURATION, ACCENT_TARGET_LIGHTNESS));
+  }
+
+  /* Derive the portal's coordinated dark surface family from one accent
+     color. Same hue throughout; lightness steps the surfaces apart
+     (background → panel → input → border, harness ratios) plus the portal's
+     own header/thead/hover surfaces at the intermediate steps. Text and the
+     semantic status colors (--ok/--warn/--bad) are deliberately left alone —
+     the derived surfaces stay dark, so the stock light text stays readable. */
+  function derivePalette(accentHex) {
+    const [h, s] = rgbToHsl(...hexToRgb(accentHex));
+    const hex = (sat, light) => hslToHex([h, sat, light]);
+    const rgbOf = (sat, light) => {
+      const [r, g, b] = hexToRgb(hex(sat, light));
+      return Math.round(r * 255) + ',' + Math.round(g * 255) + ',' + Math.round(b * 255);
+    };
+    return {
+      accent: accentHex,
+      background: hex(s * .35, .10),
+      headerBottomRgb: rgbOf(s * .35, .07),
+      headerTopRgb: rgbOf(s * .35, .13),
+      panel: hex(s * .35, .16), panelRgb: rgbOf(s * .35, .16),
+      headRgb: rgbOf(s * .35, .19),
+      input: hex(s * .35, .21), inputRgb: rgbOf(s * .35, .21),
+      hoverRgb: rgbOf(s * .35, .24),
+      border: hex(s * .25, .34),
+      tagLine: hex(s * .45, .32)
+    };
+  }
+
   function tryDecode(source) {
     return createImageBitmap(source).catch(() => undefined);
   }
@@ -584,12 +728,13 @@ load();
     if (!source.type.startsWith('image/')) throw new Error('unsupported file type "' + source.type + '"');
     if (source.size > MAX_INPUT_BYTES) throw new Error('image exceeds the 200 MB input limit');
     return tryDecode(source).then((bitmap) => {
-      if (bitmap === undefined) return { blob: source, imageDark: false };
+      if (bitmap === undefined) return { blob: source, imageDark: false, accent: null };
       try {
         const imageDark = sampleImageDarkness(bitmap);
+        const accent = sampleAccentColor(bitmap);
         if (Math.max(bitmap.width, bitmap.height) <= RESAMPLE_EDGE)
-          return { blob: source, imageDark };
-        return resampleWithinEdge(bitmap, source.type === 'image/png').then((blob) => ({ blob, imageDark }));
+          return { blob: source, imageDark, accent };
+        return resampleWithinEdge(bitmap, source.type === 'image/png').then((blob) => ({ blob, imageDark, accent }));
       } finally {
         bitmap.close();
       }
@@ -618,7 +763,39 @@ load();
       body.style.removeProperty('--sp-glass-blur');
     }
     body.toggleAttribute('data-sp-bg', s.backgroundImage !== '');
+    applyTheme(s);
     syncImage(s.backgroundImage);
+  }
+
+  /* The wallpaper-derived palette, applied as CSS variables on <body>. Every
+     themed variable has a stock value in :root, so removing the variables
+     (no accent / not a hex) restores the default look exactly. */
+  const THEME_VARS = [
+    '--bg', '--panel', '--panel-rgb', '--panel-2', '--panel-2-rgb', '--line',
+    '--accent', '--header-a-rgb', '--header-b-rgb', '--head-rgb', '--hover-rgb',
+    '--selftag-line'
+  ];
+  function applyTheme(s) {
+    const body = document.body;
+    if (typeof s.accent === 'string' && /^#[0-9a-f]{6}$/.test(s.accent)) {
+      const p = derivePalette(s.accent);
+      body.style.setProperty('--bg', p.background);
+      body.style.setProperty('--panel', p.panel);
+      body.style.setProperty('--panel-rgb', p.panelRgb);
+      body.style.setProperty('--panel-2', p.input);
+      body.style.setProperty('--panel-2-rgb', p.inputRgb);
+      body.style.setProperty('--line', p.border);
+      body.style.setProperty('--accent', p.accent);
+      body.style.setProperty('--header-a-rgb', p.headerTopRgb);
+      body.style.setProperty('--header-b-rgb', p.headerBottomRgb);
+      body.style.setProperty('--head-rgb', p.headRgb);
+      body.style.setProperty('--hover-rgb', p.hoverRgb);
+      body.style.setProperty('--selftag-line', p.tagLine);
+      body.setAttribute('data-sp-theme', '');
+    } else {
+      for (const v of THEME_VARS) body.style.removeProperty(v);
+      body.removeAttribute('data-sp-theme');
+    }
   }
 
   /* Apply the wallpaper for a background token. The server serves the
@@ -701,6 +878,8 @@ load();
       }).then(() => {
         settings.backgroundImage = 'server';
         settings.imageDark = prepared.imageDark;
+        settings.accent = prepared.accent || '';   // '' for hueless (gray) images: stock palette stays
+        settings.accentTouched = true;             // this wallpaper's accent is decided
         if (prepared.imageDark && settings.scrim === 0) settings.scrim = AUTO_SCRIM;
         setStatus('');
         commit();
@@ -710,12 +889,21 @@ load();
     });
   }
 
+  function resetColors() {
+    setStatus('');
+    settings.accent = '';       // back to the stock palette; the wallpaper itself stays
+    settings.accentTouched = true; // …and that choice sticks: no auto re-sampling on reload
+    commit();
+  }
+
   function removeBackground() {
     setStatus('');
     fetch(BG_URL, { method: 'DELETE' }).then((r) => {
       if (!r.ok) throw new Error('remove failed (HTTP ' + r.status + ')');
       settings.backgroundImage = '';
       settings.imageDark = false;
+      settings.accent = '';       // no wallpaper → no sampled theme
+      settings.accentTouched = false;
       commit();
     }).catch((e) => {
       setStatus(e && e.message ? e.message : 'could not remove background');
@@ -736,7 +924,8 @@ load();
   function isDefault() {
     return settings.backgroundImage === '' && settings.backgroundPosition === 'center' && !settings.imageDark &&
       settings.backgroundOpacity === 1 && settings.backgroundBlur === 0 &&
-      settings.scrim === 0 && settings.surfaceAlpha === 1 && settings.glassBlur === 0;
+      settings.scrim === 0 && settings.surfaceAlpha === 1 && settings.glassBlur === 0 &&
+      settings.accent === '';
   }
 
   function syncPanel() {
@@ -752,6 +941,7 @@ load();
     els.glassOut.textContent = settings.glassBlur + 'px';
     els.remove.disabled = settings.backgroundImage === '';
     els.reset.disabled = isDefault();
+    els.resetColors.disabled = settings.accent === '';
   }
 
   /* ---- panel wiring ---- */
@@ -796,6 +986,7 @@ load();
 
   els.remove.addEventListener('click', removeBackground);
   els.reset.addEventListener('click', resetAppearance);
+  els.resetColors.addEventListener('click', resetColors);
 
   /* Sliders use 'input' (not 'change') so the page restyles live while dragging. */
   const bindSlider = (input, out, apply, format) => {
@@ -836,12 +1027,26 @@ load();
     const source = token.startsWith('data:')
       ? fetch(token).then((r) => r.blob()).catch(() => undefined)
       : getImage(token).catch(() => undefined);
-    source.then((blob) => {
+    source.then(async (blob) => {
       if (blob === undefined) {
         if (!token.startsWith('data:')) deleteImage(token).catch(() => {});
         return;
       }
-      const merged = { ...serverSettings, backgroundImage: 'server', imageDark: !!local.imageDark };
+      /* Sample the migrated wallpaper fresh (darkness + accent) so the shared
+         theme matches what the server now serves, rather than trusting the
+         possibly-stale local copy. */
+      let imageDark = !!local.imageDark;
+      let accent = '';
+      const bmp = await tryDecode(blob);
+      if (bmp !== undefined) {
+        try {
+          imageDark = sampleImageDarkness(bmp);
+          accent = sampleAccentColor(bmp) || '';
+        } finally {
+          bmp.close();
+        }
+      }
+      const merged = { ...serverSettings, backgroundImage: 'server', imageDark, accent, accentTouched: true };
       if (merged.imageDark && merged.scrim === 0) merged.scrim = AUTO_SCRIM;
       return fetch(BG_URL, {
         method: 'POST',
@@ -860,6 +1065,32 @@ load();
     }).catch(() => {});
   }
 
+  /* ---- one-time theme adoption for the shared wallpaper: fires only while
+     the server has a wallpaper whose accent has never been decided
+     (accentTouched still false — i.e. it predates the auto color scheme).
+     Samples it once and stores the accent plus the touched marker, so a
+     hueless wallpaper (accent stays '') and a deliberately cleared theme
+     are never re-sampled. */
+  function maybeSampleAccent(serverSettings) {
+    if (serverSettings.backgroundImage !== 'server' || serverSettings.accentTouched) return;
+    fetch(BG_URL).then((r) => (r.ok ? r.blob() : undefined)).then((blob) => {
+      if (blob === undefined) return;
+      return tryDecode(blob).then((bmp) => {
+        if (bmp === undefined) return;
+        const accent = sampleAccentColor(bmp) || '';
+        bmp.close();
+        return putSettings({ ...serverSettings, accent, accentTouched: true }).then((data) => {
+          if (settings.accentTouched) return;     // superseded by a newer upload
+          const updated = sanitizeSettings(data && data.settings);
+          settings = updated;
+          cacheSettings(settings);
+          applyAppearance(settings);
+          syncPanel();
+        });
+      });
+    }).catch(() => {});
+  }
+
   /* ---- startup: the server is the source of truth; the local cache is the
      offline fallback. The page already painted with the cache above. ---- */
   fetch('/api/appearance').then((r) => {
@@ -872,6 +1103,7 @@ load();
     syncPanel();
     cacheSettings(settings);
     migrateLegacy(serverSettings);
+    maybeSampleAccent(serverSettings);
   }).catch(() => {
     /* server unreachable: keep the cached appearance, changes will sync once
        the network returns (the next PUT retries on any edit) */
