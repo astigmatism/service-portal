@@ -242,7 +242,10 @@ function hostBase(p){
   if (p.hostIp && p.hostIp !== '0.0.0.0' && p.hostIp !== '::') return p.hostIp;
   return location.hostname || 'localhost';
 }
-function schemeFor(p){ const h = p.hostPort; return (h === 443 || h === 8443 || h === 3443 || h === 9443) ? 'https' : 'http'; }
+const HTTPS_PORTS = new Set([443, 3443, 8443, 9443]);
+function schemeFor(p){
+  return HTTPS_PORTS.has(p.containerPort) || HTTPS_PORTS.has(p.hostPort) ? 'https' : 'http';
+}
 function urlFor(svc, p){ return schemeFor(p) + '://' + hostBase(p) + ':' + p.hostPort + '/'; }
 
 function openNewTab(url){
@@ -398,6 +401,10 @@ function projectUpdateButton(s){
 }
 
 function published(s){ return s.ports.filter(p => p.hostPort != null); }
+function primaryPort(s){
+  const ports = published(s);
+  return ports.find(p => schemeFor(p) === 'https') || ports[0] || null;
+}
 function displayName(s){ return s.label || s.name; }
 
 function statusRank(s){
@@ -490,10 +497,11 @@ function renderTable(rows){
 
   for (const s of rows){
     const pub = published(s);
+    const primary = primaryPort(s);
     const h = s.health;
     const tr = document.createElement('tr');
     tr.className = pub.length ? 'linkable' : 'internal';
-    if (pub.length) tr.title = urlFor(s, pub[0]);
+    if (primary) tr.title = urlFor(s, primary);
 
     const td1 = document.createElement('td');
     const nl = document.createElement('div'); nl.className = 'nameline';
@@ -532,7 +540,7 @@ function renderTable(rows){
     td4.textContent = escapeHtml((s.statusLine || s.state || '').replace(/\s*\((healthy|unhealthy|starting)\)\s*$/, '')) + (h ? ' \u00b7 ' + h : '');
     tr.appendChild(td4);
 
-    if (pub.length) tr.addEventListener('click', () => openNewTab(urlFor(s, pub[0])));
+    if (primary) tr.addEventListener('click', () => openNewTab(urlFor(s, primary)));
     wrap.appendChild(tr);
   }
 }
@@ -549,10 +557,11 @@ function renderSidebar(rows){
   }
   for (const s of rows){
     const pub = published(s);
+    const primary = primaryPort(s);
     const h = s.health;
     const li = document.createElement('li');
     li.className = 'srow' + (pub.length ? '' : ' internal');
-    if (pub.length) li.title = urlFor(s, pub[0]);
+    if (primary) li.title = urlFor(s, primary);
 
     const dotCls = h ? (h === 'healthy' ? 'ok' : h === 'unhealthy' ? 'bad' : 'warn')
                      : (s.state === 'running' ? 'run' : 'bad');
@@ -563,7 +572,7 @@ function renderSidebar(rows){
     nm.className = 'name sname';
     nm.textContent = displayName(s);
     nm.title = s.name;
-    if (pub.length){ nm.href = urlFor(s, pub[0]); nm.target = '_blank'; nm.rel = 'noopener'; }
+    if (primary){ nm.href = urlFor(s, primary); nm.target = '_blank'; nm.rel = 'noopener'; }
     li.appendChild(nm);
 
     const ctl = document.createElement('span'); ctl.className = 'sidectl';

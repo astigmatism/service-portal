@@ -173,3 +173,41 @@ test('sidebar update control is adjacent, confirmed, protected, and restart-awar
     assert.match(button.title, /in progress/);
   });
 });
+
+test('HTTPS is inferred from either side of a port mapping and preferred for service links', () => {
+  const app = boot();
+  const service = {
+    id: 'b'.repeat(12),
+    name: 'secure-service',
+    label: 'Secure service',
+    image: 'example/secure:latest',
+    state: 'running',
+    health: 'healthy',
+    statusLine: 'Up 1 minute (healthy)',
+    ports: [
+      { containerPort: 80, hostPort: 8080, hostIp: '0.0.0.0', protocol: 'tcp' },
+      { containerPort: 443, hostPort: 8444, hostIp: '0.0.0.0', protocol: 'tcp' }
+    ],
+    self: false,
+    update: null
+  };
+
+  const schemeFor = vm.runInContext('schemeFor', app.sandbox);
+  const primaryPort = vm.runInContext('primaryPort', app.sandbox);
+  assert.equal(schemeFor(service.ports[0]), 'http');
+  assert.equal(schemeFor(service.ports[1]), 'https', 'container port 443 remains HTTPS on a custom host port');
+  assert.equal(
+    schemeFor({ containerPort: 3000, hostPort: 9443 }),
+    'https',
+    'a conventional HTTPS host port is still recognized'
+  );
+  assert.equal(primaryPort(service).hostPort, 8444, 'HTTPS wins over an earlier HTTP mapping');
+
+  vm.runInContext('renderTable', app.sandbox)([service]);
+  const tableRow = app.elements.get('rows').children[0];
+  assert.equal(tableRow.title, 'https://localhost:8444/');
+
+  vm.runInContext('renderSidebar', app.sandbox)([service]);
+  const sidebarRow = app.elements.get('sideRows').children[0];
+  assert.equal(sidebarRow.children[1].href, 'https://localhost:8444/');
+});
