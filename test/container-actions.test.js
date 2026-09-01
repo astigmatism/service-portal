@@ -40,7 +40,7 @@ function fakeDocker(socketPath, calls) {
             'Content-Length: ' + b.length + '\r\nConnection: close\r\n\r\n' + body);
         };
         calls.push({ method, path: p });
-        if (method === 'GET' && p === '/containers/json') return respond('200 OK', '[]');
+        if (method === 'GET' && p === '/containers/json?all=1') return respond('200 OK', '[]');
         const m = p.match(/^\/containers\/([0-9a-f]{6,64})\/(start|stop)$/);
         if (method === 'POST' && m) {
           if (m[1].startsWith('bad'))
@@ -87,7 +87,14 @@ const json = (r) => JSON.parse(r.body);
   const docker = await fakeDocker(sockPath, calls);
   const port = await freePort();
   const proc = child.spawn(process.execPath, [path.join(ROOT, 'server.js')], {
-    env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, DOCKER_SOCKET: sockPath, SELF_NAME: 'test' },
+    env: {
+      ...process.env,
+      PORT: String(port),
+      DATA_DIR: dataDir,
+      DOCKER_SOCKET: sockPath,
+      SELF_NAME: 'test',
+      PORTAL_TITLE: 'Test & Portal'
+    },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   let out = '';
@@ -104,6 +111,16 @@ const json = (r) => JSON.parse(r.body);
       await sleep(100);
     }
     assert.strictEqual((await call(port, 'GET', '/healthz')).status, 200, 'server is up');
+
+    // Runtime configuration is injected into both visible title locations and
+    // escaped before it reaches the HTML response.
+    const home = await call(port, 'GET', '/');
+    assert.strictEqual(home.status, 200, 'home page is available');
+    assert.match(home.body, /<title>Test &amp; Portal<\/title>/, 'document title comes from PORTAL_TITLE');
+    assert.match(
+      home.body,
+      /<div class="title" id="title">Test &amp; Portal<\/div>/,
+      'header title comes from PORTAL_TITLE');
 
     // The list route still works over the fake socket.
     const list = json(await call(port, 'GET', '/api/services'));

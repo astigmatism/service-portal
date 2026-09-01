@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Rosalina System Services</title>
+<title>{{PORTAL_TITLE}}</title>
 <link rel="icon" type="image/svg+xml" href="/star.svg">
 <style>
 :root{
   --bg:#0d1220; --panel:#151c2e; --panel-2:#1c2740; --line:#26324d;
   --text:#e8edf7; --muted:#8b98b8; --accent:#5aa7ff;
   --ok:#38d39f; --warn:#f0b429; --bad:#f26d6d;
-  /* RGB triples of the panel family so alpha variants (header gradient,
-     table, chips, pills) can track the theme. Defaults equal the literal
+  /* RGB triples of the panel family so alpha variants (list surfaces and
+     pills) can track the theme. Defaults equal the literal
      colors below; the wallpaper-derived theme overrides them at runtime
      (applyTheme() in the Appearance script). Clearing the theme variables
      restores the stock look exactly. */
@@ -24,7 +24,7 @@
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
 #app{display:flex;flex-direction:column;height:100vh}
-header{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(var(--header-a-rgb),var(--sp-surface-alpha,1)),rgba(var(--header-b-rgb),var(--sp-surface-alpha,1)));min-height:52px;flex-wrap:wrap}
+header{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgb(var(--header-a-rgb)),rgb(var(--header-b-rgb)));min-height:52px;flex-wrap:wrap}
 .title{font-size:17px;font-weight:650;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .logo{width:24px;height:24px;flex:none}
 .sub{color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -36,9 +36,9 @@ header{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:
 .check input{accent-color:var(--accent);margin:0;cursor:pointer}
 .hidden{display:none!important}
 #listView{flex:1;overflow:auto;padding:18px}
-.tablewrap{max-width:1200px;margin:0 auto;overflow-x:auto;background:rgba(var(--panel-rgb),var(--sp-surface-alpha,1));border:1px solid var(--line);border-radius:12px}
+.tablewrap{max-width:1200px;margin:0 auto;overflow-x:auto;background:rgba(var(--panel-rgb),var(--sp-list-alpha,1));border:1px solid var(--line);border-radius:12px}
 .table{width:100%;min-width:880px;border-collapse:collapse;table-layout:fixed}
-.table th{padding:10px 14px;border-bottom:1px solid var(--line);background:rgb(var(--head-rgb));text-align:left}
+.table th{padding:10px 14px;border-bottom:1px solid var(--line);background:rgba(var(--head-rgb),var(--sp-list-alpha,1));text-align:left}
 .table th:nth-child(1){width:34%}
 .table th:nth-child(2){width:27%}
 .table th:nth-child(3){width:19%}
@@ -65,21 +65,21 @@ header{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:
 .desc{font-size:12.5px;color:var(--muted);line-height:1.35;margin-top:3px}
 .cellimage{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ports{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.chip{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:rgba(var(--panel-2-rgb),var(--sp-surface-alpha,1));border:1px solid var(--line);color:var(--text);border-radius:7px;padding:3px 10px;cursor:pointer}
+.chip{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:rgb(var(--panel-2-rgb));border:1px solid var(--line);color:var(--text);border-radius:7px;padding:3px 10px;cursor:pointer}
 .chip:hover{border-color:var(--accent);color:#fff}
 .noports{font-size:12.5px;color:var(--muted)}
 .status{font-size:12.5px;color:var(--muted);line-height:1.35}
 .empty{color:var(--muted);text-align:center;margin-top:60px}
 /* ===== layout switch (header) + secondary "sidebar" layout: one narrow
    single-column list on the left third, wallpaper out front on the right ===== */
-.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:rgba(var(--panel-2-rgb),var(--sp-surface-alpha,1))}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:rgb(var(--panel-2-rgb))}
 .seg-btn{appearance:none;border:0;background:transparent;color:var(--muted);font-size:12.5px;line-height:1;padding:7px 11px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .seg-btn + .seg-btn{border-left:1px solid var(--line)}
 .seg-btn:hover{color:var(--text)}
 .seg-btn.active{color:var(--text);background:rgb(var(--hover-rgb))}
 body[data-layout="sidebar"] #listView{display:flex;gap:18px;overflow:hidden}
 body[data-layout="sidebar"] #empty{flex:1}
-#sidebar{display:flex;flex-direction:column;flex:0 1 calc(100%/3);min-width:280px;max-width:720px;min-height:0;background:rgba(var(--panel-rgb),var(--sp-surface-alpha,1));border:1px solid var(--line);border-radius:12px;overflow:hidden}
+#sidebar{display:flex;flex-direction:column;align-self:flex-start;flex:0 1 calc(100%/3);min-width:280px;max-width:720px;min-height:0;max-height:100%;background:rgba(var(--panel-rgb),var(--sp-list-alpha,1));border:1px solid var(--line);border-radius:12px;overflow:hidden}
 .side-rows{list-style:none;margin:0;padding:0;flex:1;min-height:0;overflow-y:auto}
 .srow{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line);min-width:0}
 .side-rows .srow:last-child{border-bottom:0}
@@ -89,9 +89,11 @@ body[data-layout="sidebar"] #empty{flex:1}
 .sname{flex:1;min-width:0;color:inherit;text-decoration:none}
 a.sname:hover{color:var(--accent);text-decoration:underline}
 .sidectl{display:inline-flex;align-items:center;gap:7px;margin-left:auto;flex:none}
-.ctlbtn{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:1px solid var(--line);border-radius:7px;background:rgba(var(--panel-2-rgb),var(--sp-surface-alpha,1));color:var(--text);cursor:pointer;flex:none}
+.ctlbtn{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:1px solid var(--line);border-radius:7px;background:rgb(var(--panel-2-rgb));color:var(--text);cursor:pointer;flex:none}
 .ctlbtn:hover:not(:disabled){border-color:var(--accent);color:#fff}
 .ctlbtn:disabled{opacity:.45;cursor:default}
+.ctlbtn.update-running svg{animation:ctlspin 1.1s linear infinite}
+@keyframes ctlspin{to{transform:rotate(360deg)}}
 .side-empty{padding:40px 14px;text-align:center;color:var(--muted);font-size:13px}
 #toast{position:fixed;left:18px;bottom:18px;z-index:60;max-width:420px;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--bad);color:var(--text);border-radius:10px;padding:10px 14px;font-size:13px;box-shadow:0 12px 32px rgba(0,0,0,.5)}
 /* ===== appearance: background layer + glass surfaces (docs/appearance-background-handoff.md §6) ===== */
@@ -104,7 +106,7 @@ a.sname:hover{color:var(--accent);text-decoration:underline}
 /* "This portal" / "internal" pills sit on the translucent table: give them a
    translucent base too, but only while a wallpaper is active (default stays
    pixel-identical to the stock look). */
-body[data-sp-bg] .selftag{background:rgba(var(--panel-rgb),calc(var(--sp-surface-alpha,1)*.55))}
+body[data-sp-bg] .selftag{background:rgba(var(--panel-rgb),calc(var(--sp-list-alpha,1)*.55))}
 /* Optional true-glass pass: per-surface backdrop blur, applied only while
    glassBlur > 0 (the whole-layer blur above already carries the depth). */
 body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #sidebar{backdrop-filter:blur(var(--sp-glass-blur,0px))}
@@ -130,7 +132,7 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
 <div id="app">
   <header>
     <img class="logo" src="/star.svg" alt="" aria-hidden="true">
-    <div class="title" id="title">Rosalina System Services</div>
+    <div class="title" id="title">{{PORTAL_TITLE}}</div>
     <div class="sub" id="meta">loading&hellip;</div>
     <div class="spacer"></div>
     <div class="seg" role="group" aria-label="List layout">
@@ -207,6 +209,9 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
   <label class="sp-slider">Scrim <output id="spScrimOut">0%</output>
     <input type="range" id="spScrim" min="0" max="100" step="1" value="0">
   </label>
+  <label class="sp-slider" title="Opacity of the service list background in both table and sidebar layouts">List background <output id="spListOpacityOut">100%</output>
+    <input type="range" id="spListOpacity" min="0" max="100" step="1" value="100">
+  </label>
   <label class="sp-slider">Glass blur <output id="spGlassOut">0px</output>
     <input type="range" id="spGlass" min="0" max="20" step="1" value="0">
   </label>
@@ -265,6 +270,8 @@ function toast(msg){
 
 const ICON_START = '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
 const ICON_STOP = '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+const ICON_UPDATE = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6v5h-5"/><path d="M4 18v-5h5"/><path d="M6.1 9a7 7 0 0 1 11.8-2.6L20 11"/><path d="M4 13l2.1 4.6A7 7 0 0 0 17.9 15"/></svg>';
+const maintenancePollers = new Set();
 
 /* Per-row start/stop toggle (sidebar layout). The button reflects the
    container's current state, and a fresh /api/services poll rebuilds the
@@ -299,6 +306,97 @@ function containerToggle(s){
   return b;
 }
 
+function maintenanceMessage(job){
+  if (!job) return '';
+  if (job.state === 'queued') return 'Update queued';
+  if (job.state === 'running') return 'Update and restart in progress';
+  if (job.state === 'succeeded') return 'Last update completed successfully';
+  if (job.state === 'failed') return 'Last update failed' + (job.error ? ': ' + job.error : '');
+  return 'Update status: ' + job.state;
+}
+
+function lastUsefulLine(text){
+  const lines = String(text || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const line = lines.length ? lines[lines.length - 1] : '';
+  return line.length > 180 ? line.slice(0, 177) + '\u2026' : line;
+}
+
+function watchMaintenance(job, serviceName){
+  if (!job || !job.id || maintenancePollers.has(job.id)) return;
+  maintenancePollers.add(job.id);
+  const poll = () => {
+    fetch('/api/maintenance/' + encodeURIComponent(job.id), { cache: 'no-store' })
+      .then((r) => r.json().catch(() => ({})).then((d) => {
+        if (!r.ok) throw new Error((d && d.error) || ('HTTP ' + r.status));
+        return d.job;
+      }))
+      .then((current) => {
+        if (current.state === 'succeeded' || current.state === 'failed') {
+          maintenancePollers.delete(job.id);
+          load();
+          if (current.state === 'succeeded') toast('Updated and restarted ' + serviceName + '.');
+          else {
+            const detail = current.error || lastUsefulLine(current.logs) || 'unknown maintenance error';
+            toast('Could not update ' + serviceName + ': ' + detail);
+          }
+          return;
+        }
+        load();
+        setTimeout(poll, 1800);
+      })
+      .catch(() => {
+        // Updating this portal intentionally drops the connection while its
+        // replacement starts. Keep polling until the persisted job returns.
+        setTimeout(poll, 2200);
+      });
+  };
+  poll();
+}
+
+function projectUpdateButton(s){
+  if (!s.update || !s.update.available) return null;
+  const job = s.update.job;
+  const active = job && (job.state === 'queued' || job.state === 'running');
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'ctlbtn' + (active ? ' update-running' : '');
+  b.innerHTML = ICON_UPDATE;
+  b.disabled = !!active;
+  b.title = active
+    ? maintenanceMessage(job) + ' for ' + displayName(s)
+    : 'Update and restart ' + displayName(s) + (job ? ' \u2014 ' + maintenanceMessage(job) : '');
+  if (active) {
+    watchMaintenance(job, displayName(s));
+    return b;
+  }
+  b.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    ev.preventDefault();
+    if (!window.confirm('Update and restart ' + displayName(s) + '?\n\nThe service may be unavailable while its project rebuilds.')) return;
+    b.disabled = true;
+    b.classList.add('update-running');
+    fetch('/api/projects/' + encodeURIComponent(s.update.project) + '/update', {
+      method: 'POST',
+      headers: { 'X-Service-Portal-Action': 'update' }
+    })
+      .then((r) => r.json().catch(() => ({})).then((d) => {
+        if (!r.ok) throw new Error((d && d.error) || ('HTTP ' + r.status));
+        return d.job;
+      }))
+      .then((started) => {
+        toast('Update started for ' + displayName(s) + '.');
+        watchMaintenance(started, displayName(s));
+        load();
+      })
+      .catch((e) => {
+        toast('Could not start update for ' + displayName(s) + ': ' + e.message);
+        b.disabled = false;
+        b.classList.remove('update-running');
+      });
+  });
+  return b;
+}
+
 function published(s){ return s.ports.filter(p => p.hostPort != null); }
 function displayName(s){ return s.label || s.name; }
 
@@ -325,6 +423,12 @@ async function load(){
     services = d.services;
     generatedAt = d.generatedAt;
     lastError = null;
+    for (const s of services) {
+      const job = s.update && s.update.job;
+      if (job && (job.state === 'queued' || job.state === 'running')) {
+        watchMaintenance(job, displayName(s));
+      }
+    }
   } catch (e) {
     lastError = 'could not reach docker: ' + e.message;
   }
@@ -465,6 +569,8 @@ function renderSidebar(rows){
     const ctl = document.createElement('span'); ctl.className = 'sidectl';
     if (s.self){ const t = document.createElement('span'); t.className = 'selftag'; t.textContent = 'this portal'; ctl.appendChild(t); }
     else if (!pub.length){ const t = document.createElement('span'); t.className = 'selftag'; t.textContent = 'internal'; ctl.appendChild(t); }
+    const updateButton = projectUpdateButton(s);
+    if (updateButton) ctl.appendChild(updateButton);
     ctl.appendChild(containerToggle(s));
     li.appendChild(ctl);
     list.appendChild(li);
@@ -546,7 +652,7 @@ load();
     backgroundOpacity: 1,    // 0..1
     backgroundBlur: 0,       // 0..30 px
     scrim: 0,                // 0..1 readability veil
-    surfaceAlpha: 1,         // 0..1 glass surface opacity
+    surfaceAlpha: 1,         // 0..1 service-list background opacity
     glassBlur: 0,            // 0..20 px (summed into the layer blur; optional per-surface pass)
     accent: '',              // sampled wallpaper accent (#rrggbb); '' = stock palette
     accentTouched: false     // true once a sample (or a reset) has decided the accent for the
@@ -589,6 +695,7 @@ load();
     opacity: $id('spOpacity'), opacityOut: $id('spOpacityOut'),
     blur: $id('spBlur'), blurOut: $id('spBlurOut'),
     scrim: $id('spScrim'), scrimOut: $id('spScrimOut'),
+    listOpacity: $id('spListOpacity'), listOpacityOut: $id('spListOpacityOut'),
     glass: $id('spGlass'), glassOut: $id('spGlassOut'),
     status: $id('spStatus')
   };
@@ -913,7 +1020,7 @@ load();
     body.style.setProperty('--sp-bg-opacity', String(s.backgroundOpacity));
     body.style.setProperty('--sp-bg-blur', (s.backgroundBlur + s.glassBlur) + 'px');
     body.style.setProperty('--sp-scrim', String(s.scrim));
-    body.style.setProperty('--sp-surface-alpha', String(s.surfaceAlpha));
+    body.style.setProperty('--sp-list-alpha', String(s.surfaceAlpha));
     body.style.setProperty('--sp-bg-position', POSITION_CSS[s.backgroundPosition] || POSITION_CSS.center);
     if (s.glassBlur > 0) {
       body.style.setProperty('--sp-glass-blur', s.glassBlur + 'px');
@@ -1097,6 +1204,8 @@ load();
     els.blurOut.textContent = settings.backgroundBlur + 'px';
     els.scrim.value = String(Math.round(settings.scrim * 100));
     els.scrimOut.textContent = Math.round(settings.scrim * 100) + '%';
+    els.listOpacity.value = String(Math.round(settings.surfaceAlpha * 100));
+    els.listOpacityOut.textContent = Math.round(settings.surfaceAlpha * 100) + '%';
     els.glass.value = String(settings.glassBlur);
     els.glassOut.textContent = settings.glassBlur + 'px';
     els.remove.disabled = settings.backgroundImage === '';
@@ -1159,6 +1268,7 @@ load();
   bindSlider(els.opacity, els.opacityOut, (v) => { settings.backgroundOpacity = v / 100; }, (v) => v + '%');
   bindSlider(els.blur, els.blurOut, (v) => { settings.backgroundBlur = v; }, (v) => v + 'px');
   bindSlider(els.scrim, els.scrimOut, (v) => { settings.scrim = v / 100; }, (v) => v + '%');
+  bindSlider(els.listOpacity, els.listOpacityOut, (v) => { settings.surfaceAlpha = v / 100; }, (v) => v + '%');
   bindSlider(els.glass, els.glassOut, (v) => { settings.glassBlur = v; }, (v) => v + 'px');
 
   /* Cross-tab sync: change the wallpaper in one tab, every other tab follows

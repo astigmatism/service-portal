@@ -1,0 +1,25 @@
+name: service-portal
+
+services:
+  portal:
+    build:
+      context: .
+    image: service-portal:latest
+    container_name: service-portal
+    restart: unless-stopped
+    ports:
+      - "${SERVICE_PORT:-8080}:80"
+    environment:
+      PORTAL_TITLE: "${PORTAL_TITLE:-Service Portal}"
+      SELF_NAME: service-portal
+    labels:
+      io.service-portal.update.enabled: "true"
+      io.service-portal.update.script: "update and restart"
+      io.service-portal.update.image: "service-portal:latest"
+      io.service-portal.update.user: "${PORTAL_UPDATE_USER:-0:0}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portal-data:/data
+
+volumes:
+  portal-data:

@@ -1,0 +1,100 @@
+#!/bin/sh
+set -eu
+
+project_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$project_dir"
+lock_dir=$project_dir/.git/service-portal-update.lock
+
+cleanup() {
+  rmdir "$lock_dir" 2>/dev/null || true
+}
+
+[ -d .git ] || { printf '%s\n' 'Error: the project checkout is not mounted.' >&2; exit 1; }
+if ! mkdir "$lock_dir" 2>/dev/null; then
+  printf '%s\n' 'Error: another service-portal update may already be running.' >&2
+  exit 1
+fi
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+if ! command -v git >/dev/null 2>&1; then
+  printf '%s\n' 'Error: git is not installed or is not on PATH.' >&2
+  exit 1
+fi
+
+if ! command -v docker >/dev/null 2>&1; then
+  printf '%s\n' 'Error: Docker is not installed or is not on PATH.' >&2
+  exit 1
+fi
+
+if ! docker compose version >/dev/null 2>&1; then
+  printf '%s\n' 'Error: the Docker Compose plugin is unavailable.' >&2
+  exit 1
+fi
+
+if [ ! -f compose.yaml ]; then
+  printf '%s\n' "Error: compose.yaml was not found in $project_dir." >&2
+  exit 1
+fi
+
+git_repo() {
+  git -c "safe.directory=$project_dir" -C "$project_dir" "$@"
+}
+
+branch=$(git_repo symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+[ "$branch" = main ] || {
+  printf '%s\n' "Error: maintenance requires the main branch; found ${branch:-detached HEAD}." >&2
+  exit 1
+}
+remote=$(git_repo config --get branch.main.remote 2>/dev/null || true)
+merge_ref=$(git_repo config --get branch.main.merge 2>/dev/null || true)
+[ "$remote" = origin ] && [ "$merge_ref" = refs/heads/main ] || {
+  printf '%s\n' 'Error: main must track origin/main.' >&2
+  exit 1
+}
+origin_url=$(git_repo remote get-url origin 2>/dev/null || true)
+case "$origin_url" in
+  git@github.com:astigmatism/service-portal.git|\
+  git@github.com:astigmatism/service-portal|\
+  https://github.com/astigmatism/service-portal.git|\
+  https://github.com/astigmatism/service-portal) ;;
+  *) printf '%s\n' "Error: refusing unexpected origin $origin_url." >&2; exit 1 ;;
+esac
+
+dirty=$(git_repo status --porcelain)
+if [ -n "$dirty" ]; then
+  printf '%s\n' 'Error: refusing to update a checkout with uncommitted changes:' >&2
+  printf '%s\n' "$dirty" >&2
+  exit 1
+fi
+
+before_commit=$(git_repo rev-parse HEAD)
+printf '%s\n' 'Fetching origin/main while the portal remains available...'
+# This repository is public. Rewrite its SSH remote for this fetch only so the
+# detached, non-interactive runner does not need a host SSH agent or key mount.
+git -c "safe.directory=$project_dir" \
+  -c 'url.https://github.com/.insteadOf=git@github.com:' \
+  -C "$project_dir" fetch --prune origin main
+target_commit=$(git_repo rev-parse FETCH_HEAD)
+if ! git_repo merge-base --is-ancestor "$before_commit" "$target_commit"; then
+  printf '%s\n' 'Error: refusing a non-fast-forward update.' >&2
+  exit 1
+fi
+if [ "$before_commit" != "$target_commit" ]; then
+  git_repo merge --ff-only "$target_commit"
+fi
+
+printf '%s\n' 'Validating the updated Compose configuration...'
+docker compose config --quiet
+
+printf '%s\n' 'Building the updated image while the current portal remains available...'
+docker compose build
+
+printf '%s\n' 'Recreating the portal and waiting for its health check...'
+docker compose up -d --wait --wait-timeout 120
+
+printf '%s\n' 'Deployment status:'
+docker compose ps
+printf 'Update complete: %s -> %s\n' "$before_commit" "$target_commit"

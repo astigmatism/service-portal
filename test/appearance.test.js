@@ -233,10 +233,11 @@ for (const needle of [
   '--panel-rgb:21,28,46', '--panel-2-rgb:28,39,64',
   '--header-a-rgb:20,27,45', '--header-b-rgb:16,22,38',
   '--head-rgb:24,34,58', '--hover-rgb:27,39,69', '--selftag-line:#2e4a75',
-  'rgba(var(--panel-rgb),var(--sp-surface-alpha,1))',
-  'rgba(var(--panel-2-rgb),var(--sp-surface-alpha,1))',
-  'rgba(var(--header-a-rgb),var(--sp-surface-alpha,1))',
-  'rgb(var(--head-rgb))', 'rgb(var(--hover-rgb))',
+  '.tablewrap{', 'background:rgba(var(--panel-rgb),var(--sp-list-alpha,1))',
+  'background:rgba(var(--head-rgb),var(--sp-list-alpha,1))',
+  '#sidebar{', 'align-self:flex-start', 'max-height:100%',
+  'List background <output id="spListOpacityOut">100%</output>',
+  'rgb(var(--header-a-rgb))', 'rgb(var(--panel-2-rgb))', 'rgb(var(--hover-rgb))',
   'border:1px solid var(--selftag-line)'
 ]) {
   assert.ok(html.includes(needle), 'index.html CSS missing: ' + needle);
@@ -381,7 +382,27 @@ for (const needle of [
     console.log('  ok 7. deliberately cleared theme survives a page reload');
   }
 
-  /* ---------------- Scenario 8: server-side sanitization ---------------- */
+  /* -------- Scenario 8: list-background opacity is live + saved -------- */
+  {
+    const t = boot(() => makeBitmap(1, 1, () => [128, 128, 128]), { surfaceAlpha: 0.42 });
+    await sleep(30);
+    assert.strictEqual(t.body.style.props['--sp-list-alpha'], '0.42', 'saved opacity applied to both list layouts');
+    assert.strictEqual(t.elements.spListOpacity.value, '42', 'slider reflects saved opacity');
+    assert.strictEqual(t.elements.spListOpacityOut.textContent, '42%', 'output reflects saved opacity');
+
+    t.elements.spListOpacity.value = '35';
+    const input = t.elements.spListOpacity.listeners.input;
+    assert.ok(input && input.length, 'list opacity slider wired');
+    input[0]();
+    assert.strictEqual(t.body.style.props['--sp-list-alpha'], '0.35', 'dragging updates the list live');
+    assert.strictEqual(t.elements.spListOpacityOut.textContent, '35%');
+    await sleep(300);
+    assert.strictEqual(t.fetchState.putBodies[t.fetchState.putBodies.length - 1].surfaceAlpha, 0.35,
+      'list opacity persisted with appearance settings');
+    console.log('  ok 8. list-background opacity applies live and persists');
+  }
+
+  /* ---------------- Scenario 9: server-side sanitization ---------------- */
   {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sp-appearance-test-'));
     const port = 18931;
@@ -419,7 +440,10 @@ for (const needle of [
       assert.strictEqual((await put({ accent: '', accentTouched: 'nope' })).accentTouched, false, 'junk accentTouched rejected');
       assert.strictEqual((await put({ accent: '', accentTouched: true })).accentTouched, true, 'accentTouched round-trips');
       assert.strictEqual((await get()).accentTouched, true, 'accentTouched persisted');
-      console.log('  ok 8. server sanitizes and persists the accent fields');
+      assert.strictEqual((await put({ surfaceAlpha: 0.37 })).surfaceAlpha, 0.37, 'list opacity round-trips');
+      assert.strictEqual((await put({ surfaceAlpha: -1 })).surfaceAlpha, 0, 'list opacity clamps low');
+      assert.strictEqual((await put({ surfaceAlpha: 4 })).surfaceAlpha, 1, 'list opacity clamps high');
+      console.log('  ok 9. server sanitizes and persists the appearance fields');
     } finally {
       proc.kill();
       fs.rmSync(dataDir, { recursive: true, force: true });

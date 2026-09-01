@@ -1,7 +1,7 @@
-# Rosalina System Services — service-portal
+# Service Portal
 
-A zero-dependency Docker container that acts as a **gateway/portal to every container running
-on the host**. Open the portal in a browser (plain port 80) to see a live table of all running
+A zero-dependency Docker container that acts as a **gateway/portal to every container
+on the host**. Open the portal in a browser (plain port 80) to see a live table of all
 containers; click a service row or one of its port chips to open that service in a new browser
 tab via its published port.
 
@@ -10,32 +10,92 @@ reconfiguration, no restart.
 
 ## How it works
 
-- One Node.js HTTP server on `node:20-alpine`. No package.json, no npm, no node_modules.
+- One Node.js HTTP server on `node:20-alpine`. There are no runtime npm dependencies.
 - The container mounts the **host Docker socket** read-write and calls the Docker Engine REST
-  API (`GET /containers/json`) over the Unix socket on every `/api/services` request,
+  API (`GET /containers/json?all=1`) over the Unix socket on every `/api/services` request,
   so the UI is always a live view of the host.
 - Single-page UI (vanilla HTML/CSS/JS, dark theme): sortable table (Service / Image / Ports /
   Status), status dots from Docker state + health, clickable port chips (https is auto-used
   for host ports 443/8443/3443/9443), a "Hide services without links" filter persisted in
   localStorage, a Table/Sidebar layout switch also persisted in localStorage (the Sidebar
   layout is a narrow single-column list on the left third of the screen — status dot, name
-  link, and a per-row start/stop toggle — leaving the rest of the viewport for the
+  link, a per-row start/stop toggle, and an opt-in update/restart control — leaving the rest of the viewport for the
   wallpaper), and 20-second auto-refresh.
+- Project updates run in detached maintenance containers, so an updater survives replacing
+  the target container or the portal itself. Job status and bounded logs persist in `/data`.
 
 ## Routes
 
 | Path | Response |
 |---|---|
 | `/`, `/index.html` | The portal UI (`text/html`, `Cache-Control: no-store`) |
-| `/api/services` | JSON: `{generatedAt, services: [...]}` — one entry per running container with `name, label, description, id, image, state, health, statusLine, ports[], self` (`no-store`) |
+| `/api/services` | JSON: `{generatedAt, services: [...]}` — one entry per container with `name, label, description, id, image, state, health, statusLine, ports[], self, project, update` (`no-store`) |
 | `POST /api/services/<id>/start` / `POST /api/services/<id>/stop` | Docker start/stop for that container: `200` `{ok, action}` on success, `502` + `error` when Docker refuses (`no-store`) |
+| `POST /api/projects/<project>/update` | Starts an opted-in detached update/restart job; requires `X-Service-Portal-Action: update`, returns `202` + job metadata, `409` if already active |
+| `GET /api/maintenance/<job-id>` | Persisted update state, exit code, error, and bounded runner logs (`no-store`) |
 | `/api/appearance` | `GET` → `{settings: {...}}`; `PUT` → replaces the styling settings (opacity, blur, scrim, glass, dark flag, sampled accent; sanitized and clamped server-side) (`no-store`) |
 | `/api/appearance/background` | The shared wallpaper: `GET` → stored image bytes (404 if none) · `POST` → replace it (image/* bodies up to 200 MB) · `DELETE` → remove it (`no-store`) |
 | `/healthz` | Plain-text `ok` |
 | `/favicon.ico`, `/star.svg` | The star icon (`image/svg+xml`) |
 | anything else | `404 not found` |
 
-## Build
+## Quick start (Docker Compose)
+
+From this directory:
+
+```sh
+cp .env.example .env                 # first deployment only; then edit .env
+docker compose up --build -d
+docker compose ps
+```
+
+Open **http://localhost:8080/**. The Compose deployment:
+
+- builds the image from the checked-out source;
+- publishes the portal on host port `8080` (container port `80`);
+- reports container health through `/healthz`;
+- restarts automatically unless explicitly stopped; and
+- keeps appearance settings and wallpaper data in the named volume
+`service-portal_portal-data`.
+
+Runtime-specific settings live in `.env`, which is intentionally ignored by
+Git. The available settings are:
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `PORTAL_TITLE` | `Service Portal` | Browser and page-header title for this deployment |
+| `SERVICE_PORT` | `8080` | Host port published by Docker Compose |
+| `PORTAL_UPDATE_USER` | `1000:1000` in `.env.example` | Numeric host UID:GID used by the updater when it writes to this checkout; use the output of `id -u` and `id -g` |
+
+Use the committed `.env.example` as the template for each machine. Changing
+either setting only requires `docker compose up -d` to recreate the container;
+the image does not need to be rebuilt.
+
+To choose another host port, set `SERVICE_PORT` when starting it:
+
+```sh
+SERVICE_PORT=9090 docker compose up --build -d
+```
+
+Then open `http://localhost:9090/`. On another machine, replace `localhost`
+with that machine's hostname or IP address and ensure the selected host port is
+allowed through its firewall.
+
+Useful lifecycle commands:
+
+```sh
+docker compose logs -f
+docker compose restart
+docker compose down                 # removes the container, keeps portal data
+docker compose down --volumes       # also removes saved appearance data
+```
+
+> **Docker socket access:** this application intentionally mounts
+> `/var/run/docker.sock` so it can discover, start/stop, and update opted-in projects. That is a
+> powerful host-level capability; expose this unauthenticated portal only on a
+> network you trust.
+
+## Build manually
 
 Requires Docker Engine and a free host port 80.
 
@@ -43,7 +103,7 @@ Requires Docker Engine and a free host port 80.
 docker build -t service-portal:latest .
 ```
 
-## Run
+## Run manually
 
 ```sh
 docker rm -f service-portal 2>/dev/null
@@ -52,6 +112,7 @@ docker run -d --name service-portal \
   -p 80:80 \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v /var/lib/service-portal:/data \
+  -e PORTAL_TITLE="Service Portal" \
   -e SELF_NAME=service-portal \
   service-portal:latest
 ```
@@ -60,7 +121,7 @@ Then open `http://<machine-ip>/`.
 
 - `--restart unless-stopped` — survives reboots, honors explicit `docker stop`.
 - The socket mount lets the container talk to the Docker Engine. The app issues read-only
-  `GET /containers/json` plus `POST /containers/<id>/start|stop` for the sidebar layout's
+  `GET /containers/json?all=1` plus `POST /containers/<id>/start|stop` for the sidebar layout's
   per-row start/stop toggles, but the mount itself is a powerful capability —
   that is the inherent trade-off of live container discovery.
 - If port 80 is unavailable, publish a different **host** port but keep the internal port 80:
@@ -76,6 +137,51 @@ The portal container sees the host Docker socket. Anyone with control of the con
 control all containers on the host. Run it only on networks you trust; it exposes no
 authentication of its own.
 
+## Update and restart integration
+
+Updates are disabled unless a Compose service explicitly opts its project in with labels:
+
+```yaml
+labels:
+  io.service-portal.update.enabled: "true"
+  io.service-portal.update.script: "scripts/update-and-restart.sh"
+  io.service-portal.update.image: "my-project-updater:latest"
+  io.service-portal.update.user: "1000:1000"
+```
+
+The script must be an executable relative path inside the Compose project working directory.
+The runner image must already exist locally and contain everything the project script needs,
+normally Git, Docker CLI, and the Compose plugin. The portal derives the absolute project
+directory from Docker's `com.docker.compose.project.working_dir` label, mounts that directory
+and the Docker socket into a new detached runner, and never accepts a command or path from the
+browser. Every container in the same Compose project shares the same job and lock.
+
+The portal's own Compose service is opted in. Its `update and restart` script refuses dirty,
+detached, non-`main`, unexpected-origin, and non-fast-forward Git states; validates Compose;
+builds while the current portal remains available; and then recreates the portal with
+`docker compose up --wait`. A dirty development checkout therefore produces a safe failed job
+without interrupting the running portal.
+
+For private repositories, the project-specific runner must provide noninteractive Git
+credentials without exposing them to the browser. The portal repository is public, so its
+script rewrites its SSH remote to HTTPS for the fetch only.
+
+For a copy/paste prompt and complete integration checklist for other repositories, see
+[`docs/update-and-restart-integration-runbook.md`](docs/update-and-restart-integration-runbook.md).
+
+## Tests
+
+The project uses Node's built-in test runner and has no test-framework dependency:
+
+```sh
+npm test
+```
+
+The suite covers appearance behavior, start/stop forwarding, stopped-container discovery,
+update capability and path validation, runner construction, duplicate-job prevention,
+success/failure monitoring, log capture and persistence, sidebar confirmation/polling, and
+the update script's fail-closed command ordering.
+
 ## Customization
 
 - **Friendly names/descriptions**: edit `labels.json` — one entry per exact container name:
@@ -88,7 +194,8 @@ authentication of its own.
   "description": "..."}}'` (JSON string) to `docker run`; it takes precedence over
   `labels.json`.
 - **Wallpaper & appearance**: the gear button opens the Appearance panel — upload a
-  background image and tune opacity, wallpaper blur, scrim, and glass blur. The wallpaper
+  background image and tune wallpaper opacity, wallpaper blur, scrim, list-background
+  opacity (for both table and sidebar layouts), and glass blur. The wallpaper
   and settings are stored on the server in the `/data` volume, so every machine on the
   network sees the same appearance. Browsers that still hold a wallpaper from the old
   browser-only storage get it migrated to the server automatically on first load, then
@@ -102,8 +209,8 @@ authentication of its own.
   Hueless (gray) images leave the stock palette in place; removing or resetting the
   background restores the stock palette. Text and the status colors (ok/warn/bad) never
   change.
-- **Rename the portal**: change "Rosalina System Services" in the two places in
-  `index.html` (the `<title>` tag and the header `<div class="title" id="title">`), rebuild.
+- **Rename the portal**: set `PORTAL_TITLE` in `.env` when using Compose, or pass
+  `-e PORTAL_TITLE="My System Services"` to `docker run`. No rebuild is needed.
 - **Non-standard HTTPS ports**: edit the `schemeFor()` function in `index.html` to add host
   ports that should produce `https:` links.
 
@@ -120,6 +227,7 @@ docker rm -f service-portal && docker run -d --name service-portal \
   --restart unless-stopped -p 80:80 \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v /var/lib/service-portal:/data \
+  -e PORTAL_TITLE="Service Portal" \
   -e SELF_NAME=service-portal service-portal:latest
 ```
 
@@ -138,10 +246,13 @@ docker logs service-portal                            # → "service-portal list
 
 ```
 service-portal/
+├── package.json
 ├── Dockerfile
 ├── server.js
 ├── index.html
 ├── labels.json
+├── update and restart
+├── test/
 └── star.svg
 ```
 
