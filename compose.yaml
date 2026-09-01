@@ -11,6 +11,7 @@ services:
       - "${SERVICE_PORT:-8080}:80"
     environment:
       PORTAL_TITLE: "${PORTAL_TITLE:-Service Portal}"
+      PORTAL_FAVICON_FILE: /app/deployment-favicon
       SELF_NAME: service-portal
     labels:
       io.service-portal.update.enabled: "true"
@@ -20,6 +21,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - portal-data:/data
+      - "${PORTAL_FAVICON_PATH:-./star.svg}:/app/deployment-favicon:ro"
 
 volumes:
   portal-data:

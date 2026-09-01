@@ -10,12 +10,51 @@ const PORT = parseInt(process.env.PORT || '80', 10);
 const SOCKET = process.env.DOCKER_SOCKET || '/var/run/docker.sock';
 const SELF_NAME = process.env.SELF_NAME || '';
 const HTML_FILE = path.join(__dirname, 'index.html');
+const DEFAULT_FAVICON_FILE = path.join(__dirname, 'star.svg');
 const DEFAULT_PORTAL_TITLE = 'Service Portal';
 const PORTAL_TITLE = String(process.env.PORTAL_TITLE || DEFAULT_PORTAL_TITLE)
   .replace(/[\u0000-\u001f\u007f]/g, ' ')
   .replace(/\s+/g, ' ')
   .trim()
   .slice(0, 120) || DEFAULT_PORTAL_TITLE;
+
+function faviconMimeType(buf) {
+  if (buf.length >= 8 && buf.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])))
+    return 'image/png';
+  if (buf.length >= 4 && buf.readUInt32BE(0) === 0x00000100) return 'image/x-icon';
+  if (buf.length >= 6 && /^GIF8[79]a$/.test(buf.subarray(0, 6).toString('ascii'))) return 'image/gif';
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (buf.length >= 12 && buf.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      buf.subarray(8, 12).toString('ascii') === 'WEBP') return 'image/webp';
+  if (buf.length >= 12 && buf.subarray(4, 8).toString('ascii') === 'ftyp' &&
+      /^(avif|avis)$/.test(buf.subarray(8, 12).toString('ascii'))) return 'image/avif';
+  const start = buf.subarray(0, 1024).toString('utf8')
+    .replace(/^\ufeff?\s*(?:<\?xml[^>]*>\s*)?(?:<!doctype[^>]*>\s*)?/i, '');
+  if (/^<svg(?:\s|>)/i.test(start)) return 'image/svg+xml';
+  return '';
+}
+
+function loadFavicon() {
+  const configured = process.env.PORTAL_FAVICON_FILE;
+  const requestedFile = configured ? path.resolve(configured) : DEFAULT_FAVICON_FILE;
+  try {
+    const body = fs.readFileSync(requestedFile);
+    const mime = faviconMimeType(body);
+    if (!mime) throw new Error('unsupported image format');
+    return { body, mime, version: crypto.createHash('sha256').update(body).digest('hex').slice(0, 12) };
+  } catch (err) {
+    if (requestedFile === DEFAULT_FAVICON_FILE) throw err;
+    console.error('could not load favicon ' + requestedFile + ': ' + err.message + '; using the default');
+    const body = fs.readFileSync(DEFAULT_FAVICON_FILE);
+    return {
+      body,
+      mime: 'image/svg+xml',
+      version: crypto.createHash('sha256').update(body).digest('hex').slice(0, 12)
+    };
+  }
+}
+
+const FAVICON = loadFavicon();
 
 function escapeHtmlText(value) {
   return value.replace(/[&<>]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[ch]);
@@ -722,13 +761,25 @@ const server = http.createServer((req, res) => {
     fs.readFile(HTML_FILE, (err, buf) => {
       if (err) { res.writeHead(500, { 'Content-Type': 'text/plain' }); res.end('index.html missing'); return; }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-      res.end(buf.toString('utf8').replace(/\{\{PORTAL_TITLE\}\}/g, escapeHtmlText(PORTAL_TITLE)));
+      res.end(buf.toString('utf8')
+        .replace(/\{\{PORTAL_TITLE\}\}/g, escapeHtmlText(PORTAL_TITLE))
+        .replace(/\{\{FAVICON_MIME\}\}/g, FAVICON.mime)
+        .replace(/\{\{FAVICON_VERSION\}\}/g, FAVICON.version));
     });
     return;
   }
 
+  if (pathname === '/favicon.ico') {
+    res.writeHead(200, {
+      'Content-Type': FAVICON.mime,
+      'Content-Length': FAVICON.body.length,
+      'Cache-Control': 'public, max-age=0, must-revalidate'
+    });
+    res.end(FAVICON.body);
+    return;
+  }
+
   const staticFiles = {
-    '/favicon.ico': ['star.svg', 'image/svg+xml'],
     '/star.svg': ['star.svg', 'image/svg+xml'],
   };
   if (staticFiles[pathname]) {

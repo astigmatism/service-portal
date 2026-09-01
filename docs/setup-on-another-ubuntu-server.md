@@ -54,6 +54,7 @@ Perform the following work:
 4. Create `.env` from `.env.example`; `.env` is intentionally ignored by Git. Set:
 
    - `PORTAL_TITLE` to a clear title identifying this server;
+   - `PORTAL_FAVICON_PATH` to an image identifying this server, or leave the default star;
    - `SERVICE_PORT` to an unused TCP port appropriate for this host, retaining 8080 if it is free;
      and
    - `PORTAL_UPDATE_USER` to the numeric UID:GID that owns the checkout, determined from the actual

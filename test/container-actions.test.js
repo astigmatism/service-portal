@@ -72,7 +72,7 @@ function call(port, method, p) {
       let data = '';
       res.setEncoding('utf8');
       res.on('data', (c) => (data += c));
-      res.on('end', () => resolve({ status: res.statusCode, body: data }));
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: data }));
     });
     req.on('error', reject);
     req.end();
@@ -83,6 +83,9 @@ const json = (r) => JSON.parse(r.body);
 (async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sp-actions-test-'));
   const sockPath = path.join(dataDir, 'docker.sock');
+  const faviconPath = path.join(dataDir, 'test-favicon.svg');
+  const favicon = '<svg xmlns="http://www.w3.org/2000/svg"><circle fill="#f0c" r="8" cx="8" cy="8"/></svg>';
+  fs.writeFileSync(faviconPath, favicon);
   const calls = [];
   const docker = await fakeDocker(sockPath, calls);
   const port = await freePort();
@@ -93,7 +96,8 @@ const json = (r) => JSON.parse(r.body);
       DATA_DIR: dataDir,
       DOCKER_SOCKET: sockPath,
       SELF_NAME: 'test',
-      PORTAL_TITLE: 'Test & Portal'
+      PORTAL_TITLE: 'Test & Portal',
+      PORTAL_FAVICON_FILE: faviconPath
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });
@@ -121,6 +125,15 @@ const json = (r) => JSON.parse(r.body);
       home.body,
       /<div class="title" id="title">Test &amp; Portal<\/div>/,
       'header title comes from PORTAL_TITLE');
+    assert.match(
+      home.body,
+      /<link rel="icon" type="image\/svg\+xml" href="\/favicon\.ico\?v=[0-9a-f]{12}">/,
+      'favicon type and content version are injected into the page');
+
+    const faviconResponse = await call(port, 'GET', '/favicon.ico');
+    assert.strictEqual(faviconResponse.status, 200, 'favicon is available');
+    assert.strictEqual(faviconResponse.headers['content-type'], 'image/svg+xml', 'favicon type is detected');
+    assert.strictEqual(faviconResponse.body, favicon, 'configured favicon file is served');
 
     // The list route still works over the fake socket.
     const list = json(await call(port, 'GET', '/api/services'));

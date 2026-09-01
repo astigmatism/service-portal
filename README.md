@@ -36,7 +36,8 @@ reconfiguration, no restart.
 | `/api/appearance` | `GET` → `{settings: {...}}`; `PUT` → replaces the styling settings (opacity, blur, scrim, glass, dark flag, sampled accent; sanitized and clamped server-side) (`no-store`) |
 | `/api/appearance/background` | The shared wallpaper: `GET` → stored image bytes (404 if none) · `POST` → replace it (image/* bodies up to 200 MB) · `DELETE` → remove it (`no-store`) |
 | `/healthz` | Plain-text `ok` |
-| `/favicon.ico`, `/star.svg` | The star icon (`image/svg+xml`) |
+| `/favicon.ico` | The deployment's configured favicon (the star by default) |
+| `/star.svg` | The built-in star icon (`image/svg+xml`) |
 | anything else | `404 not found` |
 
 ## Quick start (Docker Compose)
@@ -64,11 +65,12 @@ Git. The available settings are:
 | Setting | Default | Purpose |
 |---|---|---|
 | `PORTAL_TITLE` | `Service Portal` | Browser and page-header title for this deployment |
+| `PORTAL_FAVICON_PATH` | `./star.svg` | Host path to this deployment's favicon image |
 | `SERVICE_PORT` | `8080` | Host port published by Docker Compose |
 | `PORTAL_UPDATE_USER` | `1000:1000` in `.env.example` | Numeric host UID:GID used by the updater when it writes to this checkout; use the output of `id -u` and `id -g` |
 
 Use the committed `.env.example` as the template for each machine. Changing
-either setting only requires `docker compose up -d` to recreate the container;
+any of these settings only requires `docker compose up -d` to recreate the container;
 the image does not need to be rebuilt.
 
 To choose another host port, set `SERVICE_PORT` when starting it:
@@ -214,6 +216,15 @@ the update script's fail-closed command ordering.
   change.
 - **Rename the portal**: set `PORTAL_TITLE` in `.env` when using Compose, or pass
   `-e PORTAL_TITLE="My System Services"` to `docker run`. No rebuild is needed.
+- **Change the favicon**: set `PORTAL_FAVICON_PATH` in `.env` to an SVG, PNG, ICO,
+  GIF, JPEG, WebP, or AVIF file on the Docker host. Relative paths are resolved from
+  the directory containing `compose.yaml`; run `docker compose up -d` after changing it.
+  If you replace the image at the same path, run `docker compose restart portal` so the
+  server reloads it.
+  For `docker run`, mount the file read-only and pass its container path as
+  `PORTAL_FAVICON_FILE`, for example with
+  `-v /host/prod.svg:/branding/favicon:ro` and
+  `-e PORTAL_FAVICON_FILE=/branding/favicon`.
 - **Non-standard HTTPS ports**: edit the `schemeFor()` function in `index.html` to add host
   ports that should produce `https:` links.
 
