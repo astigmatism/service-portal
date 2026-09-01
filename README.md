@@ -119,6 +119,9 @@ docker run -d --name service-portal \
 
 Then open `http://<machine-ip>/`.
 
+For a copy/paste prompt that guides an AI coding agent through a safe, machine-agnostic Ubuntu
+deployment, see [`docs/setup-on-another-ubuntu-server.md`](docs/setup-on-another-ubuntu-server.md).
+
 - `--restart unless-stopped` — survives reboots, honors explicit `docker stop`.
 - The socket mount lets the container talk to the Docker Engine. The app issues read-only
   `GET /containers/json?all=1` plus `POST /containers/<id>/start|stop` for the sidebar layout's
@@ -252,6 +255,7 @@ service-portal/
 ├── index.html
 ├── labels.json
 ├── update and restart
+├── docs/
 ├── test/
 └── star.svg
 ```
