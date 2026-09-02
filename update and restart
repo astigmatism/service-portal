@@ -78,12 +78,17 @@ git -c "safe.directory=$project_dir" \
   -c 'url.https://github.com/.insteadOf=git@github.com:' \
   -C "$project_dir" fetch --prune origin main
 target_commit=$(git_repo rev-parse FETCH_HEAD)
-if ! git_repo merge-base --is-ancestor "$before_commit" "$target_commit"; then
-  printf '%s\n' 'Error: refusing a non-fast-forward update.' >&2
-  exit 1
-fi
-if [ "$before_commit" != "$target_commit" ]; then
+deployed_commit=$before_commit
+if [ "$before_commit" = "$target_commit" ]; then
+  :
+elif git_repo merge-base --is-ancestor "$before_commit" "$target_commit"; then
   git_repo merge --ff-only "$target_commit"
+  deployed_commit=$target_commit
+elif git_repo merge-base --is-ancestor "$target_commit" "$before_commit"; then
+  printf '%s\n' 'Local main is ahead of origin/main; deploying the committed local HEAD without resetting it.'
+else
+  printf '%s\n' 'Error: refusing a divergent or rewritten origin/main history.' >&2
+  exit 1
 fi
 
 printf '%s\n' 'Validating the updated Compose configuration...'
@@ -97,4 +102,4 @@ docker compose up -d --wait --wait-timeout 120
 
 printf '%s\n' 'Deployment status:'
 docker compose ps
-printf 'Update complete: %s -> %s\n' "$before_commit" "$target_commit"
+printf 'Update complete: %s -> %s\n' "$before_commit" "$deployed_commit"

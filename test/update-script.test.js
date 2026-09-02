@@ -29,7 +29,10 @@ case "$*" in
   *'status --porcelain'*) [ -z "\${FAKE_DIRTY:-}" ] || printf '%s\\n' "$FAKE_DIRTY" ;;
   *'rev-parse HEAD'*) echo 1111111111111111111111111111111111111111 ;;
   *'rev-parse FETCH_HEAD'*) echo 2222222222222222222222222222222222222222 ;;
-  *'merge-base --is-ancestor'*) exit 0 ;;
+  *'merge-base --is-ancestor 1111111111111111111111111111111111111111 2222222222222222222222222222222222222222'*)
+    [ "\${FAKE_HISTORY:-behind}" = behind ] ;;
+  *'merge-base --is-ancestor 2222222222222222222222222222222222222222 1111111111111111111111111111111111111111'*)
+    [ "\${FAKE_HISTORY:-behind}" = ahead ] ;;
   *'fetch --prune origin main'*) exit 0 ;;
   *'merge --ff-only'*) exit 0 ;;
   *) echo "unexpected fake git call: $*" >&2; exit 2 ;;
@@ -49,7 +52,7 @@ esac
   return root;
 }
 
-function run(root, dirty) {
+function run(root, { dirty = '', history = 'behind' } = {}) {
   const gitLog = path.join(root, 'git.log');
   const dockerLog = path.join(root, 'docker.log');
   fs.writeFileSync(gitLog, '');
@@ -62,7 +65,8 @@ function run(root, dirty) {
       PATH: path.join(root, 'fake-bin') + path.delimiter + process.env.PATH,
       FAKE_GIT_LOG: gitLog,
       FAKE_DOCKER_LOG: dockerLog,
-      FAKE_DIRTY: dirty || ''
+      FAKE_DIRTY: dirty,
+      FAKE_HISTORY: history
     }
   });
   return {
@@ -76,7 +80,7 @@ test('update script fails closed before interruption and deploys in safe order',
   await t.test('a dirty checkout is rejected before fetch, build, or recreation', () => {
     const root = fixture();
     try {
-      const result = run(root, ' M server.js');
+      const result = run(root, { dirty: ' M server.js' });
       assert.notEqual(result.status, 0);
       assert.match(result.stderr, /uncommitted changes/);
       assert.doesNotMatch(result.gitLog, /fetch --prune/);
@@ -104,6 +108,33 @@ test('update script fails closed before interruption and deploys in safe order',
         'compose ps'
       ]);
       assert.equal(fs.existsSync(path.join(root, '.git', 'service-portal-update.lock')), false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  await t.test('a clean local-ahead checkout deploys committed HEAD without resetting it', () => {
+    const root = fixture();
+    try {
+      const result = run(root, { history: 'ahead' });
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /Local main is ahead of origin\/main/);
+      assert.match(result.stdout, /Update complete: 1111.* -> 1111/);
+      assert.doesNotMatch(result.gitLog, /merge --ff-only/);
+      assert.match(result.dockerLog, /compose up -d --wait --wait-timeout 120/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  await t.test('divergent history is rejected before build or recreation', () => {
+    const root = fixture();
+    try {
+      const result = run(root, { history: 'diverged' });
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /divergent or rewritten/);
+      assert.doesNotMatch(result.gitLog, /merge --ff-only/);
+      assert.equal(result.dockerLog.trim(), 'compose version');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

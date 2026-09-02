@@ -166,10 +166,10 @@ and the Docker socket into a new detached runner, and never accepts a command or
 browser. Every container in the same Compose project shares the same job and lock.
 
 The portal's own Compose service is opted in. Its `update and restart` script refuses dirty,
-detached, non-`main`, unexpected-origin, and non-fast-forward Git states; validates Compose;
-builds while the current portal remains available; and then recreates the portal with
-`docker compose up --wait`. A dirty development checkout therefore produces a safe failed job
-without interrupting the running portal.
+detached, non-`main`, unexpected-origin, and divergent or rewritten Git states; accepts clean
+local commits ahead of `origin/main`; validates Compose; builds while the current portal remains
+available; and then recreates the portal with `docker compose up --wait`. A dirty development
+checkout therefore produces a safe failed job without interrupting the running portal.
 
 For private repositories, the project-specific runner must provide noninteractive Git
 credentials without exposing them to the browser. The portal repository is public, so its
