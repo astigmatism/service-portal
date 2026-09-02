@@ -75,19 +75,23 @@ try {
   labels = {};
 }
 
-// ---- Appearance persistence (wallpaper + styling settings) ----------------
+// ---- Appearance persistence (wallpaper collection + styling settings) -----
 // Shared across all clients on the network: settings live in
-// <DATA_DIR>/appearance.json, the wallpaper in <DATA_DIR>/background.bin with
-// its MIME type in <DATA_DIR>/background.json. DATA_DIR defaults to ./data
-// next to this file; the container deployment bind-mounts a persistent host
-// volume at /data so the wallpaper survives container recreation.
+// <DATA_DIR>/appearance.json — the wallpaper collection (ordered entries with
+// MIME type, sampled darkness and sampled accent), the id of the active
+// wallpaper, and the global styling sliders — with one image file per
+// wallpaper in <DATA_DIR>/wallpapers/<id> (id = random UUID). DATA_DIR
+// defaults to ./data next to this file; the container deployment bind-mounts
+// a persistent host volume at /data so the wallpapers survive container
+// recreation.
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const SETTINGS_FILE = path.join(DATA_DIR, 'appearance.json');
-const IMAGE_FILE = path.join(DATA_DIR, 'background.bin');
-const IMAGE_META_FILE = path.join(DATA_DIR, 'background.json');
+const IMAGE_FILE = path.join(DATA_DIR, 'background.bin');       // legacy single-wallpaper storage
+const IMAGE_META_FILE = path.join(DATA_DIR, 'background.json'); // legacy single-wallpaper storage
+const WALLPAPERS_DIR = path.join(DATA_DIR, 'wallpapers');
 const MAINTENANCE_DIR = path.join(DATA_DIR, 'maintenance');
 const MAX_IMAGE_BYTES = 209715200; // 200 MB, matches the client input cap
-const SERVER_BG_TOKEN = 'server';
+const WALLPAPER_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_JOB_LOG_BYTES = 131072;
 const ACTIVE_JOB_STATES = new Set(['queued', 'running']);
 const UPDATE_LABELS = {
@@ -99,16 +103,14 @@ const UPDATE_LABELS = {
 const MAINTENANCE_LABEL = 'io.service-portal.maintenance';
 
 const APPEARANCE_DEFAULTS = {
-  backgroundImage: '',
+  wallpapers: [], // ordered collection: [{ id, type, imageDark, accent, accentTouched }]
+  activeWallpaperId: null, // id into wallpapers — the one currently on screen
   backgroundPosition: 'center',
-  imageDark: false,
   backgroundOpacity: 1,
   backgroundBlur: 0,
   scrim: 0,
   surfaceAlpha: 1, // service-list background opacity (table and sidebar)
   glassBlur: 0,
-  accent: '', // sampled wallpaper accent (#rrggbb); '' = stock palette
-  accentTouched: false, // true once a sample/reset decided the accent for the current wallpaper
 };
 // cover-crop anchors for the wallpaper (see --sp-bg-position in index.html)
 const APPEARANCE_POSITIONS = ['center', 'top', 'bottom', 'left', 'right'];
@@ -122,42 +124,75 @@ const APPEARANCE_BOUNDS = {
 
 try {
   fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.mkdirSync(WALLPAPERS_DIR, { recursive: true });
   fs.mkdirSync(MAINTENANCE_DIR, { recursive: true });
 } catch (err) {
   console.error('could not create data dir ' + DATA_DIR + ': ' + err.message);
 }
 
-function sanitizeAppearance(raw) {
-  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { ...APPEARANCE_DEFAULTS };
-  const out = { ...APPEARANCE_DEFAULTS };
-  if (typeof raw.imageDark === 'boolean') out.imageDark = raw.imageDark;
-  else if (raw.imageDark === 0) out.imageDark = false;
-  else if (raw.imageDark === 1) out.imageDark = true;
+function readSettingsFile() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
+    return (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) ? raw : {};
+  } catch (err) {
+    return {};
+  }
+}
+
+/* Validate one wallpaper entry; entries whose image file is missing on disk
+   are dropped, so the collection always matches what can actually be served. */
+function sanitizeWallpaperEntry(entry) {
+  if (!entry || typeof entry !== 'object' || typeof entry.id !== 'string' || !WALLPAPER_ID_RE.test(entry.id)) return null;
+  const id = entry.id.toLowerCase();
+  try {
+    if (!fs.existsSync(path.join(WALLPAPERS_DIR, id))) return null;
+  } catch (err) {}
+  return {
+    id,
+    type: typeof entry.type === 'string' && /^image\//.test(entry.type) ? entry.type : '',
+    imageDark: entry.imageDark === true || entry.imageDark === 1,
+    accent: typeof entry.accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(entry.accent) ? entry.accent.toLowerCase() : '',
+    accentTouched: entry.accentTouched === true || entry.accentTouched === 1,
+  };
+}
+
+/* Global styling sliders (position/opacity/blur/scrim/list-background/glass)
+   — shared by the whole portal, independent of which wallpaper is active. */
+function sanitizeSliders(raw) {
+  const out = { ...APPEARANCE_DEFAULTS, wallpapers: [], activeWallpaperId: null };
   if (APPEARANCE_POSITIONS.includes(raw.backgroundPosition)) out.backgroundPosition = raw.backgroundPosition;
-  if (typeof raw.accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.accent)) out.accent = raw.accent.toLowerCase();
-  if (typeof raw.accentTouched === 'boolean') out.accentTouched = raw.accentTouched;
-  else if (raw.accentTouched === 0) out.accentTouched = false;
-  else if (raw.accentTouched === 1) out.accentTouched = true;
   for (const [field, b] of Object.entries(APPEARANCE_BOUNDS)) {
     const v = raw[field];
     if (typeof v === 'number' && Number.isFinite(v)) out[field] = Math.min(b.max, Math.max(b.min, v));
   }
-  // The server stores exactly one wallpaper, so the token collapses to a flag:
-  // a non-empty token is normalized to SERVER_BG_TOKEN only when an image is
-  // on disk, otherwise to ''.
-  const hasImage = fs.existsSync(IMAGE_FILE);
-  out.backgroundImage =
-    typeof raw.backgroundImage === 'string' && raw.backgroundImage !== '' && hasImage
-      ? SERVER_BG_TOKEN : '';
   return out;
 }
 
-function readAppearanceSettings() {
-  try {
-    return sanitizeAppearance(JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')));
-  } catch (err) {
-    return { ...APPEARANCE_DEFAULTS, backgroundImage: fs.existsSync(IMAGE_FILE) ? SERVER_BG_TOKEN : '' };
+/* The one read model: sliders from the settings file, the collection
+   revalidated against disk, and the active pointer healed to a real entry
+   (the first one when the stored pointer is stale). */
+function loadAppearanceState() {
+  const raw = readSettingsFile();
+  const wallpapers = [];
+  const seen = new Set();
+  if (Array.isArray(raw.wallpapers)) {
+    for (const entry of raw.wallpapers) {
+      const clean = sanitizeWallpaperEntry(entry);
+      if (clean && !seen.has(clean.id)) {
+        seen.add(clean.id);
+        wallpapers.push(clean);
+      }
+    }
   }
+  const activeValid = wallpapers.some((w) => w.id === raw.activeWallpaperId) ? raw.activeWallpaperId : null;
+  const settings = sanitizeSliders(raw);
+  settings.wallpapers = wallpapers;
+  settings.activeWallpaperId = wallpapers.length ? (activeValid || wallpapers[0].id) : null;
+  return settings;
+}
+
+function readAppearanceSettings() {
+  return loadAppearanceState();
 }
 
 function saveAppearanceSettings(settings) {
@@ -170,6 +205,69 @@ function saveAppearanceSettings(settings) {
     throw err;
   }
 }
+
+/* Structural mutations (append/delete/replace) read-modify-write the settings
+   file, so they run one at a time; a plain settings PUT stays last-writer-
+   wins on the sliders it owns. */
+let stateLock = Promise.resolve();
+function withStateLock(fn) {
+  const run = stateLock.then(fn, fn);
+  stateLock = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+/* One-time migration from the single-wallpaper era: background.bin becomes
+   the first (and active) entry of the collection, keeping the sampled
+   accent/darkness the old settings file already held for it. */
+function migrateLegacyBackground() {
+  if (!fs.existsSync(IMAGE_FILE)) return;
+  const raw = readSettingsFile();
+  if (Array.isArray(raw.wallpapers) && raw.wallpapers.length > 0) {
+    // New schema already in use: the legacy single-image files are stale.
+    fs.rm(IMAGE_FILE, () => {});
+    fs.rm(IMAGE_META_FILE, () => {});
+    return;
+  }
+  let type = '';
+  try {
+    const meta = JSON.parse(fs.readFileSync(IMAGE_META_FILE, 'utf8'));
+    if (typeof meta.type === 'string' && meta.type.startsWith('image/')) type = meta.type;
+  } catch (err) {}
+  if (!type) {
+    try { type = faviconMimeType(fs.readFileSync(IMAGE_FILE)); } catch (err) {}
+  }
+  if (!type) type = 'application/octet-stream';
+  const id = crypto.randomUUID();
+  try {
+    fs.mkdirSync(WALLPAPERS_DIR, { recursive: true });
+    try {
+      fs.renameSync(IMAGE_FILE, path.join(WALLPAPERS_DIR, id));
+    } catch (err) {
+      fs.copyFileSync(IMAGE_FILE, path.join(WALLPAPERS_DIR, id));
+    }
+  } catch (err) {
+    console.error('could not migrate legacy wallpaper: ' + err.message);
+    return;
+  }
+  const entry = {
+    id,
+    type,
+    imageDark: raw.imageDark === true || raw.imageDark === 1,
+    accent: typeof raw.accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.accent) ? raw.accent.toLowerCase() : '',
+    accentTouched: raw.accentTouched === true || raw.accentTouched === 1,
+  };
+  const settings = loadAppearanceState();
+  settings.wallpapers = [entry];
+  settings.activeWallpaperId = id;
+  try {
+    saveAppearanceSettings(settings);
+  } catch (err) {
+    console.error('could not save migrated appearance settings: ' + err.message);
+  }
+  fs.rm(IMAGE_FILE, () => {});
+  fs.rm(IMAGE_META_FILE, () => {});
+}
+migrateLegacyBackground();
 
 function atomicWriteFileSync(file, data) {
   const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp';
@@ -708,10 +806,23 @@ const server = http.createServer((req, res) => {
         .then((buf) => {
           let raw;
           try { raw = JSON.parse(buf.toString('utf8')); } catch (err) { throw new Error('invalid JSON body'); }
-          const settings = sanitizeAppearance(raw);
-          saveAppearanceSettings(settings);
-          sendJson(res, 200, { ok: true, settings });
+          if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error('invalid settings body');
+          return withStateLock(() => {
+            const current = loadAppearanceState();
+            const settings = sanitizeSliders(raw);
+            // The wallpaper collection is managed by the wallpaper endpoints;
+            // the PUT only steers the sliders and the active pointer.
+            settings.wallpapers = current.wallpapers;
+            const requested = raw.activeWallpaperId;
+            settings.activeWallpaperId = current.wallpapers.length
+              ? (typeof requested === 'string' && current.wallpapers.some((w) => w.id === requested)
+                  ? requested : current.activeWallpaperId)
+              : null;
+            saveAppearanceSettings(settings);
+            return settings;
+          });
         })
+        .then((settings) => sendJson(res, 200, { ok: true, settings }))
         .catch((err) => sendJson(res, 400, { error: err.message }));
       return;
     }
@@ -719,13 +830,156 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* ---- wallpaper collection -------------------------------------------
+     POST   /api/appearance/wallpapers        append a wallpaper (image body;
+                                              x-sp-image-dark / x-sp-accent
+                                              headers) and make it active
+     GET    /api/appearance/wallpapers        the collection + active pointer
+     DELETE /api/appearance/wallpapers        remove every wallpaper
+     GET    /api/appearance/wallpapers/<id>   one wallpaper's bytes
+     PUT    /api/appearance/wallpapers/<id>   update its meta (imageDark,
+                                              accent, accentTouched)
+     DELETE /api/appearance/wallpapers/<id>   remove it; the collection closes
+                                              the gap and the active pointer
+                                              moves to the previous entry */
+  const wallpaperItem = pathname.match(/^\/api\/appearance\/wallpapers\/([0-9a-f-]{36})$/i);
+  if (pathname === '/api/appearance/wallpapers' || wallpaperItem) {
+    const id = wallpaperItem ? wallpaperItem[1].toLowerCase() : null;
+    const state = readAppearanceSettings();
+    const entry = id ? state.wallpapers.find((w) => w.id === id) : null;
+    if (id && !entry) {
+      sendJson(res, 404, { error: 'wallpaper not found' });
+      return;
+    }
+    if (pathname === '/api/appearance/wallpapers' && req.method === 'GET') {
+      sendJson(res, 200, {
+        wallpapers: state.wallpapers,
+        activeWallpaperId: state.activeWallpaperId,
+      });
+      return;
+    }
+    if (pathname === '/api/appearance/wallpapers' && req.method === 'POST') {
+      const type = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+      if (!type.startsWith('image/')) {
+        sendJson(res, 415, { error: 'content-type must be an image type' });
+        return;
+      }
+      const accentHeader = String(req.headers['x-sp-accent'] || '');
+      const imageDark = req.headers['x-sp-image-dark'] === '1';
+      readBody(req, MAX_IMAGE_BYTES)
+        .then((buf) => {
+          if (buf.length === 0) throw new Error('empty body');
+          return withStateLock(() => {
+            const current = loadAppearanceState();
+            const wallpaper = {
+              id: crypto.randomUUID(),
+              type,
+              imageDark,
+              accent: /^#[0-9a-fA-F]{6}$/.test(accentHeader) ? accentHeader.toLowerCase() : '',
+              accentTouched: true, // the client sampled it (or deliberately kept the stock palette)
+            };
+            const settings = {
+              ...current,
+              wallpapers: [...current.wallpapers, wallpaper],
+              activeWallpaperId: wallpaper.id,
+            };
+            fs.mkdirSync(WALLPAPERS_DIR, { recursive: true });
+            saveAppearanceSettings(settings);
+            atomicWriteFileSync(path.join(WALLPAPERS_DIR, wallpaper.id), buf);
+            return { ok: true, wallpaper, settings };
+          });
+        })
+        .then((body) => sendJson(res, 200, body))
+        .catch((err) => sendJson(res, err.message === 'payload too large' ? 413 : 400, { error: err.message }));
+      return;
+    }
+    if (pathname === '/api/appearance/wallpapers' && req.method === 'DELETE') {
+      withStateLock(() => {
+        const current = loadAppearanceState();
+        const settings = { ...current, wallpapers: [], activeWallpaperId: null };
+        saveAppearanceSettings(settings);
+        for (const w of current.wallpapers) fs.rm(path.join(WALLPAPERS_DIR, w.id), () => {});
+        return { ok: true, settings };
+      })
+        .then((body) => sendJson(res, 200, body))
+        .catch((err) => sendJson(res, 500, { error: err.message }));
+      return;
+    }
+    if (id && req.method === 'GET') {
+      fs.readFile(path.join(WALLPAPERS_DIR, id), (err, buf) => {
+        if (err) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('wallpaper not found'); return; }
+        res.writeHead(200, {
+          'Content-Type': entry.type || 'application/octet-stream',
+          'Cache-Control': 'no-store',
+        });
+        res.end(buf);
+      });
+      return;
+    }
+    if (id && req.method === 'PUT') {
+      readBody(req, 65536)
+        .then((buf) => {
+          let raw;
+          try { raw = JSON.parse(buf.toString('utf8')); } catch (err) { throw new Error('invalid JSON body'); }
+          return withStateLock(() => {
+            const current = loadAppearanceState();
+            const idx = current.wallpapers.findIndex((w) => w.id === id);
+            if (idx === -1) { const e = new Error('wallpaper not found'); e.httpStatus = 404; throw e; }
+            const wallpaper = { ...current.wallpapers[idx] };
+            if (raw.imageDark === true || raw.imageDark === false || raw.imageDark === 0 || raw.imageDark === 1)
+              wallpaper.imageDark = raw.imageDark === true || raw.imageDark === 1;
+            if (typeof raw.accent === 'string')
+              wallpaper.accent = /^#[0-9a-fA-F]{6}$/.test(raw.accent) ? raw.accent.toLowerCase() : '';
+            if (raw.accentTouched === true || raw.accentTouched === false || raw.accentTouched === 0 || raw.accentTouched === 1)
+              wallpaper.accentTouched = raw.accentTouched === true || raw.accentTouched === 1;
+            const wallpapers = [...current.wallpapers];
+            wallpapers[idx] = wallpaper;
+            const settings = { ...current, wallpapers };
+            saveAppearanceSettings(settings);
+            return { ok: true, wallpaper, settings };
+          });
+        })
+        .then((body) => sendJson(res, 200, body))
+        .catch((err) => sendJson(res, err.httpStatus || 400, { error: err.message }));
+      return;
+    }
+    if (id && req.method === 'DELETE') {
+      withStateLock(() => {
+        const current = loadAppearanceState();
+        const idx = current.wallpapers.findIndex((w) => w.id === id);
+        if (idx === -1) { const e = new Error('wallpaper not found'); e.httpStatus = 404; throw e; }
+        const wallpapers = current.wallpapers.filter((w) => w.id !== id);
+        let activeWallpaperId = current.activeWallpaperId;
+        if (wallpapers.length === 0) activeWallpaperId = null;
+        else if (activeWallpaperId === id) activeWallpaperId = wallpapers[Math.max(0, idx - 1)].id;
+        const settings = { ...current, wallpapers, activeWallpaperId };
+        saveAppearanceSettings(settings);
+        fs.rm(path.join(WALLPAPERS_DIR, id), () => {});
+        return { ok: true, settings };
+      })
+        .then((body) => sendJson(res, 200, body))
+        .catch((err) => sendJson(res, err.httpStatus || 500, { error: err.message }));
+      return;
+    }
+    sendJson(res, 405, { error: 'method not allowed' });
+    return;
+  }
+
+  /* ---- legacy single-wallpaper endpoint --------------------------------
+     Kept working for pre-collection clients: it always addresses the *active*
+     wallpaper (GET serves its bytes, POST replaces it in place or creates the
+     first one, DELETE removes it). */
   if (pathname === '/api/appearance/background') {
     if (req.method === 'GET') {
-      fs.readFile(IMAGE_FILE, (err, buf) => {
+      const state = readAppearanceSettings();
+      const entry = state.wallpapers.find((w) => w.id === state.activeWallpaperId) || null;
+      if (!entry) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('no background'); return; }
+      fs.readFile(path.join(WALLPAPERS_DIR, entry.id), (err, buf) => {
         if (err) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('no background'); return; }
-        let mime = 'application/octet-stream';
-        try { mime = JSON.parse(fs.readFileSync(IMAGE_META_FILE, 'utf8')).type || mime; } catch (e) {}
-        res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'no-store' });
+        res.writeHead(200, {
+          'Content-Type': entry.type || 'application/octet-stream',
+          'Cache-Control': 'no-store',
+        });
         res.end(buf);
       });
       return;
@@ -739,18 +993,70 @@ const server = http.createServer((req, res) => {
       readBody(req, MAX_IMAGE_BYTES)
         .then((buf) => {
           if (buf.length === 0) throw new Error('empty body');
-          atomicWriteFileSync(IMAGE_META_FILE, JSON.stringify({ type }, null, 2) + '\n');
-          atomicWriteFileSync(IMAGE_FILE, buf);
-          sendJson(res, 200, { ok: true, bytes: buf.length });
+          const accentHeader = String(req.headers['x-sp-accent'] || '');
+          const imageDark = req.headers['x-sp-image-dark'] === '1';
+          return withStateLock(() => {
+            const current = loadAppearanceState();
+            const active = current.wallpapers.find((w) => w.id === current.activeWallpaperId) || null;
+            let settings;
+            let wallpaper;
+            if (active) {
+              wallpaper = {
+                ...active,
+                type,
+                imageDark,
+                accent: /^#[0-9a-fA-F]{6}$/.test(accentHeader) ? accentHeader.toLowerCase() : '',
+                accentTouched: true,
+              };
+              settings = {
+                ...current,
+                wallpapers: current.wallpapers.map((w) => (w.id === active.id ? wallpaper : w)),
+              };
+            } else {
+              wallpaper = {
+                id: crypto.randomUUID(),
+                type,
+                imageDark,
+                accent: /^#[0-9a-fA-F]{6}$/.test(accentHeader) ? accentHeader.toLowerCase() : '',
+                accentTouched: true,
+              };
+              settings = {
+                ...current,
+                wallpapers: [...current.wallpapers, wallpaper],
+                activeWallpaperId: wallpaper.id,
+              };
+              fs.mkdirSync(WALLPAPERS_DIR, { recursive: true });
+            }
+            saveAppearanceSettings(settings);
+            atomicWriteFileSync(path.join(WALLPAPERS_DIR, wallpaper.id), buf);
+            return { ok: true, bytes: buf.length, wallpaper, settings };
+          });
         })
-        .catch((err) =>
-          sendJson(res, err.message === 'payload too large' ? 413 : 400, { error: err.message }));
+        .then((body) => sendJson(res, 200, body))
+        .catch((err) => sendJson(res, err.message === 'payload too large' ? 413 : 400, { error: err.message }));
       return;
     }
     if (req.method === 'DELETE') {
-      fs.rm(IMAGE_FILE, () => {});
-      fs.rm(IMAGE_META_FILE, () => {});
-      sendJson(res, 200, { ok: true });
+      const state = readAppearanceSettings();
+      if (!state.activeWallpaperId) {
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+      withStateLock(() => {
+        const current = loadAppearanceState();
+        const idx = current.wallpapers.findIndex((w) => w.id === current.activeWallpaperId);
+        if (idx === -1) return { ok: true, settings: current };
+        const wallpapers = current.wallpapers.filter((w) => w.id !== current.activeWallpaperId);
+        let activeWallpaperId = current.activeWallpaperId;
+        if (wallpapers.length === 0) activeWallpaperId = null;
+        else if (activeWallpaperId === current.activeWallpaperId) activeWallpaperId = wallpapers[Math.max(0, idx - 1)].id;
+        const settings = { ...current, wallpapers, activeWallpaperId };
+        saveAppearanceSettings(settings);
+        fs.rm(path.join(WALLPAPERS_DIR, current.activeWallpaperId), () => {});
+        return { ok: true, settings };
+      })
+        .then((body) => sendJson(res, 200, body))
+        .catch((err) => sendJson(res, 500, { error: err.message }));
       return;
     }
     sendJson(res, 405, { error: 'method not allowed' });

@@ -33,8 +33,10 @@ reconfiguration, no restart.
 | `POST /api/services/<id>/start` / `POST /api/services/<id>/stop` | Docker start/stop for that container: `200` `{ok, action}` on success, `502` + `error` when Docker refuses (`no-store`) |
 | `POST /api/projects/<project>/update` | Starts an opted-in detached update/restart job; requires `X-Service-Portal-Action: update`, returns `202` + job metadata, `409` if already active |
 | `GET /api/maintenance/<job-id>` | Persisted update state, exit code, error, and bounded runner logs (`no-store`) |
-| `/api/appearance` | `GET` → `{settings: {...}}`; `PUT` → replaces the styling settings (opacity, blur, scrim, glass, dark flag, sampled accent; sanitized and clamped server-side) (`no-store`) |
-| `/api/appearance/background` | The shared wallpaper: `GET` → stored image bytes (404 if none) · `POST` → replace it (image/* bodies up to 200 MB) · `DELETE` → remove it (`no-store`) |
+| `/api/appearance` | `GET` → `{settings: {...}}` including the wallpaper collection and active wallpaper; `PUT` → updates the global styling settings (position, opacity, blur, scrim, glass) and the active wallpaper pointer (sanitized and clamped server-side; the collection itself can only change through the wallpaper endpoints) (`no-store`) |
+| `/api/appearance/wallpapers` | The wallpaper collection: `GET` → `{wallpapers: [{id, type, imageDark, accent, accentTouched}], activeWallpaperId}` · `POST` → append a new wallpaper (image/* bodies up to 200 MB; optional `x-sp-image-dark: 1` and `x-sp-accent: #rrggbb` headers) and make it active · `DELETE` → remove every wallpaper (`no-store`) |
+| `/api/appearance/wallpapers/<id>` | One wallpaper: `GET` → its bytes (404 if unknown) · `PUT` → update its meta (`imageDark`, `accent`, `accentTouched`) · `DELETE` → remove it — the collection closes the gap and the active pointer falls back to the previous entry (`no-store`) |
+| `/api/appearance/background` | Legacy single-wallpaper endpoint, kept working: it always addresses the *active* wallpaper — `GET` → its bytes (404 if none) · `POST` → replace it in place, or create the first · `DELETE` → remove it (`no-store`) |
 | `/healthz` | Plain-text `ok` |
 | `/favicon.ico` | The deployment's configured favicon (the star by default) |
 | `/star.svg` | The built-in star icon (`image/svg+xml`) |
@@ -131,10 +133,12 @@ deployment, see [`docs/setup-on-another-ubuntu-server.md`](docs/setup-on-another
   that is the inherent trade-off of live container discovery.
 - If port 80 is unavailable, publish a different **host** port but keep the internal port 80:
   `-p <newport>:80` (do not renumber the internal port).
-- The `/data` volume holds the shared wallpaper and appearance settings
-  (`background.bin`, `background.json`, `appearance.json`) — the Appearance
-  panel is network-wide, not per-browser. It survives container recreation;
-  removing the host directory resets the appearance to defaults.
+- The `/data` volume holds the shared wallpaper collection and appearance
+  settings (`wallpapers/<id>` image files plus `appearance.json`) — the
+  Appearance panel is network-wide, not per-browser. It survives container
+  recreation; removing the host directory resets the appearance to defaults.
+  A pre-collection `background.bin`/`background.json` is migrated into the
+  collection automatically on first boot.
 
 ## Security note
 
@@ -198,22 +202,28 @@ the update script's fail-closed command ordering.
 - **Runtime label override (no rebuild)**: pass `-e SERVICE_LABELS='{"name": {"label": "...",
   "description": "..."}}'` (JSON string) to `docker run`; it takes precedence over
   `labels.json`.
-- **Wallpaper & appearance**: the gear button opens the Appearance panel — upload a
-  background image and tune wallpaper opacity, wallpaper blur, scrim, list-background
-  opacity (for both table and sidebar layouts), and glass blur. The wallpaper
-  and settings are stored on the server in the `/data` volume, so every machine on the
-  network sees the same appearance. Browsers that still hold a wallpaper from the old
-  browser-only storage get it migrated to the server automatically on first load, then
-  their local copies are cleared.
-- **Auto color scheme**: when a background is uploaded, the browser samples its dominant
+- **Wallpapers & appearance**: the gear button opens the Appearance panel — upload
+  background images and tune wallpaper opacity, wallpaper blur, scrim, list-background
+  opacity (for both table and sidebar layouts), and glass blur. Multiple wallpapers are
+  kept in an ordered collection on the server in the `/data` volume, shared by every
+  machine on the network. The **prev/next** buttons at the bottom of the panel walk the
+  collection (previous is hidden on the first wallpaper, next on the last, with an
+  "N of M" counter), an upload appends a new wallpaper — multi-file selections upload
+  each file in order — and **Remove** deletes the wallpaper you've landed on, closing
+  the gap. The active wallpaper is persisted server-side, so the portal always comes
+  back to the wallpaper you left on; **Reset** deletes every wallpaper and restores the
+  default settings. Browsers that still hold a wallpaper from the old browser-only
+  storage get it migrated to the server automatically on first load, then their local
+  copies are cleared.
+- **Auto color scheme**: when a wallpaper is uploaded, the browser samples its dominant
   hue (32×32 grid, 12 hue buckets, saturation-weighted; the accent is re-normalized to a
   fixed lightness/saturation so it always reads as an accent) and derives a coordinated
   dark palette around it — background, panels, inputs, borders, header, table head, hover
-  rows and pills all take on the wallpaper's hue. The sampled accent is stored in the
-  shared settings (field `accent`), so every client on the network gets the same theme.
-  Hueless (gray) images leave the stock palette in place; removing or resetting the
-  background restores the stock palette. Text and the status colors (ok/warn/bad) never
-  change.
+  rows and pills all take on the wallpaper's hue. The sampled accent is stored per
+  wallpaper, so each wallpaper keeps its own theme (and its own deliberate "reset
+  colors") and switching wallpaper switches the palette. Hueless (gray) images leave
+  the stock palette in place; deleting the last wallpaper restores it. Text and the
+  status colors (ok/warn/bad) never change.
 - **Rename the portal**: set `PORTAL_TITLE` in `.env` when using Compose, or pass
   `-e PORTAL_TITLE="My System Services"` to `docker run`. No rebuild is needed.
 - **Change the favicon**: set `PORTAL_FAVICON_PATH` in `.env` to an SVG, PNG, ICO,

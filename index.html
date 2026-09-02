@@ -119,6 +119,8 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
 .sp-drop.over{border-color:var(--accent);color:var(--text)}
 .sp-thumb{width:100%;height:110px;object-fit:cover;border-radius:8px}
 .sp-row{display:flex;gap:8px;margin:10px 0}
+.sp-nav{display:flex;align-items:center;justify-content:center;gap:10px;margin:10px 0 0}
+.sp-nav-count{font-size:12.5px;color:var(--muted);min-width:44px;text-align:center;font-variant-numeric:tabular-nums}
 .sp-slider{display:block;font-size:12.5px;color:var(--muted);margin-top:10px}
 .sp-slider output{float:right;color:var(--text);font-variant-numeric:tabular-nums}
 .sp-slider input[type=range]{width:100%;margin:4px 0 0;accent-color:var(--accent);cursor:pointer}
@@ -184,7 +186,7 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
     <span>Drop an image here, or</span>
     <button id="spUploadBtn" class="btn" type="button">Upload background&hellip;</button>
   </div>
-  <input type="file" id="spFile" class="hidden" accept="image/jpeg,image/png,image/webp,image/gif,image/avif">
+  <input type="file" id="spFile" class="hidden" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" multiple>
   <label class="sp-select" title="Which edge the wallpaper anchors to when it covers the screen">
     Position
     <select id="spPosition">
@@ -196,8 +198,8 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
     </select>
   </label>
   <div class="sp-row">
-    <button id="spRemove" class="btn" type="button">Remove</button>
-    <button id="spReset" class="btn" type="button">Reset</button>
+    <button id="spRemove" class="btn" type="button" title="Delete the wallpaper you have landed on (the collection closes the gap)">Remove</button>
+    <button id="spReset" class="btn" type="button" title="Delete every wallpaper and restore the default settings">Reset</button>
     <button id="spResetColors" class="btn" type="button" title="Drop the wallpaper-derived color scheme (the wallpaper stays)">Reset colors</button>
   </div>
   <label class="sp-slider">Opacity <output id="spOpacityOut">100%</output>
@@ -215,6 +217,15 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
   <label class="sp-slider">Glass blur <output id="spGlassOut">0px</output>
     <input type="range" id="spGlass" min="0" max="20" step="1" value="0">
   </label>
+  <div id="spNav" class="sp-nav hidden">
+    <button id="spPrev" class="btn iconbtn" type="button" title="Previous wallpaper" aria-label="Previous wallpaper">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
+    </button>
+    <span id="spNavCount" class="sp-nav-count"></span>
+    <button id="spNext" class="btn iconbtn" type="button" title="Next wallpaper" aria-label="Next wallpaper">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
+    </button>
+  </div>
   <div id="spStatus" class="sp-status" role="status"></div>
 </div>
 <script>
@@ -628,15 +639,23 @@ load();
 
 /* ===== Appearance (wallpaper + glass) =====================================
    Port of the Harness "Appearance" plugin, per
-   docs/appearance-background-handoff.md §6, now server-persisted: the
-   wallpaper and styling settings live on the server (GET/PUT
-   /api/appearance, POST/GET/DELETE /api/appearance/background), shared by
-   every client on the network. This browser keeps a localStorage
-   ('sp-appearance') copy as an offline fallback cache, and on first visit
-   with an empty server the wallpaper previously stored in this browser's
-   IndexedDB ('service-portal-appearance', store 'images') is migrated up
-   once, then the local copies are cleared. Every change applies live, in
-   the same tick, and syncs to the server debounced. */
+   docs/appearance-background-handoff.md §6, now server-persisted: a
+   collection of wallpapers plus the styling settings live on the server
+   (GET/PUT /api/appearance, GET/POST/DELETE
+   /api/appearance/wallpapers[/<id>]), shared by every client on the
+   network. The wallpapers form an ordered array; the *active* one is what
+   the portal shows. Prev/next walks the array (previous hidden on the first,
+   next hidden on the last), an upload appends a new wallpaper and makes it
+   active, and Remove deletes the one you've landed on — the active pointer
+   is persisted on the server, so you always come back to the wallpaper you
+   left on. Each wallpaper carries its own sampled accent + darkness (the
+   theme follows the wallpaper); the styling sliders stay global to the
+   portal. This browser keeps a localStorage ('sp-appearance') copy as an
+   offline fallback cache, and on first visit with an empty server the
+   wallpaper previously stored in this browser's IndexedDB
+   ('service-portal-appearance', store 'images') is migrated up once, then
+   the local copies are cleared. Every change applies live, in the same tick;
+   structural changes sync to the server immediately, slider drags debounced. */
 (function () {
   'use strict';
 
@@ -655,18 +674,14 @@ load();
   };
 
   const DEFAULTS = {
-    backgroundImage: '',     // 'server' = shared wallpaper on the server ('' = none)
+    wallpapers: [],            // the ordered collection: [{ id, type, imageDark, accent, accentTouched }]
+    activeWallpaperId: null,   // the wallpaper currently on screen (an id into wallpapers)
     backgroundPosition: 'center',
-    imageDark: false,        // sampled wallpaper darkness
     backgroundOpacity: 1,    // 0..1
     backgroundBlur: 0,       // 0..30 px
     scrim: 0,                // 0..1 readability veil
     surfaceAlpha: 1,         // 0..1 service-list background opacity
-    glassBlur: 0,            // 0..20 px (summed into the layer blur; optional per-surface pass)
-    accent: '',              // sampled wallpaper accent (#rrggbb); '' = stock palette
-    accentTouched: false     // true once a sample (or a reset) has decided the accent for the
-                             // current wallpaper — stops startup auto-sampling from re-applying
-                             // a theme the user deliberately cleared
+    glassBlur: 0             // 0..20 px (summed into the layer blur; optional per-surface pass)
   };
   const BOUNDS = {
     backgroundOpacity: { min: 0, max: 1 },
@@ -706,27 +721,48 @@ load();
     scrim: $id('spScrim'), scrimOut: $id('spScrimOut'),
     listOpacity: $id('spListOpacity'), listOpacityOut: $id('spListOpacityOut'),
     glass: $id('spGlass'), glassOut: $id('spGlassOut'),
+    nav: $id('spNav'),
+    prev: $id('spPrev'),
+    next: $id('spNext'),
+    navCount: $id('spNavCount'),
     status: $id('spStatus')
   };
 
   /* ---- settings: sanitized on read, so stale or hand-edited storage can
-         never produce invalid CSS ---- */
+          never produce invalid CSS. Also tolerates the pre-collection
+          shape still sitting in an offline localStorage cache. ---- */
   function sanitizeSettings(raw) {
-    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { ...DEFAULTS };
-    const out = { ...DEFAULTS };
-    if (typeof raw.backgroundImage === 'string') out.backgroundImage = raw.backgroundImage;
+    const wallpapers = [];
+    if (raw && typeof raw === 'object' && !Array.isArray(raw) && Array.isArray(raw.wallpapers)) {
+      for (const w of raw.wallpapers) {
+        if (!w || typeof w !== 'object' || typeof w.id !== 'string' || !w.id) continue;
+        wallpapers.push({
+          id: w.id,
+          type: typeof w.type === 'string' ? w.type : '',
+          imageDark: w.imageDark === true || w.imageDark === 1,
+          accent: typeof w.accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(w.accent) ? w.accent.toLowerCase() : '',
+          accentTouched: w.accentTouched === true || w.accentTouched === 1
+        });
+      }
+    }
+    const out = {
+      wallpapers,
+      activeWallpaperId: wallpapers.length
+        ? (wallpapers.some((w) => w.id === (raw && raw.activeWallpaperId)) ? raw.activeWallpaperId : wallpapers[0].id)
+        : null,
+      backgroundPosition: 'center',
+      backgroundOpacity: 1,
+      backgroundBlur: 0,
+      scrim: 0,
+      surfaceAlpha: 1,
+      glassBlur: 0
+    };
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return out;
     if (POSITION_VALUES.indexOf(raw.backgroundPosition) !== -1) out.backgroundPosition = raw.backgroundPosition;
-    if (typeof raw.imageDark === 'boolean') out.imageDark = raw.imageDark;
-    else if (raw.imageDark === 0) out.imageDark = false;
-    else if (raw.imageDark === 1) out.imageDark = true;
     for (const [field, b] of Object.entries(BOUNDS)) {
       const v = raw[field];
       if (typeof v === 'number' && Number.isFinite(v)) out[field] = Math.min(b.max, Math.max(b.min, v));
     }
-    if (typeof raw.accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.accent)) out.accent = raw.accent.toLowerCase();
-    if (typeof raw.accentTouched === 'boolean') out.accentTouched = raw.accentTouched;
-    else if (raw.accentTouched === 0) out.accentTouched = false;
-    else if (raw.accentTouched === 1) out.accentTouched = true;
     return out;
   }
 
@@ -737,44 +773,77 @@ load();
       const raw = localStorage.getItem(LS_KEY);
       return sanitizeSettings(raw === null ? undefined : JSON.parse(raw));
     } catch (e) {
-      return { ...DEFAULTS };
+      return sanitizeSettings(undefined);
     }
   }
 
-  /* ---- server sync: settings PUT (debounced) + wallpaper endpoints ---- */
-  const BG_URL = '/api/appearance/background';
+  /* ---- server sync: settings PUT (debounced for slider drags, immediate
+         for structural changes) + the wallpaper endpoints ---- */
+  const WALLPAPERS_URL = '/api/appearance/wallpapers';
+  const wallpaperUrl = (id) => WALLPAPERS_URL + '/' + encodeURIComponent(id);
   const PUT_DEBOUNCE_MS = 250;
   let putTimer = 0;
 
-  function putSettings(applySettings) {
+  function putSettings(body) {
     return fetch('/api/appearance', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(applySettings)
+      body: JSON.stringify(body)
     }).then((r) => {
       if (!r.ok) throw new Error('settings save failed (HTTP ' + r.status + ')');
       return r.json();
     });
   }
 
-  /* Debounced settings push; the localStorage cache is refreshed either way
-     (on success from the server's sanitized copy, on failure from intent) so
-     a later offline visit still shows the last configuration. */
-  function queuePut(next) {
+  /* The PUT carries the global sliders and the active pointer; the wallpaper
+     collection itself is only ever changed by the wallpaper endpoints, so a
+     stale client can never clobber it. */
+  function putBodyOf(next) {
+    return {
+      backgroundPosition: next.backgroundPosition,
+      backgroundOpacity: next.backgroundOpacity,
+      backgroundBlur: next.backgroundBlur,
+      scrim: next.scrim,
+      surfaceAlpha: next.surfaceAlpha,
+      glassBlur: next.glassBlur,
+      activeWallpaperId: next.activeWallpaperId
+    };
+  }
+
+  /* Merge the server's authoritative collection + active pointer into our
+     intent, keeping whichever slider values are fresher (ours). Returns the
+     same object when the server state matches, so callers can detect real
+     changes. */
+  function adoptServerSettings(next, data) {
+    if (!data || !data.settings || !Array.isArray(data.settings.wallpapers)) return next;
+    const s = data.settings;
+    const active = s.wallpapers.some((w) => w.id === s.activeWallpaperId) ? s.activeWallpaperId : null;
+    const changed = JSON.stringify(s.wallpapers) !== JSON.stringify(next.wallpapers) ||
+      active !== next.activeWallpaperId;
+    return changed ? { ...next, wallpapers: s.wallpapers, activeWallpaperId: active } : next;
+  }
+
+  /* Debounced settings push for slider drags; structural changes (upload,
+     delete, switch, reset) push immediately so "the wallpaper you landed on"
+     survives a tab close before the debounce would fire. The localStorage
+     cache is refreshed either way (on success from the server's copy, on
+     failure from intent) so a later offline visit still shows the last
+     configuration. */
+  function pushSettings(next, urgent) {
+    const run = () => {
+      putSettings(putBodyOf(next)).then((data) => {
+        const merged = adoptServerSettings(next, data);
+        settings = merged;
+        if (merged !== next) {
+          applyAppearance(settings);
+          syncPanel();
+        }
+        cacheSettings(settings);
+      }).catch(() => cacheSettings(next));
+    };
     clearTimeout(putTimer);
-    putTimer = setTimeout(() => {
-      putSettings(next)
-        .then((data) => {
-          if (data && data.settings) {
-            if (typeof data.settings.backgroundImage === 'string' &&
-                data.settings.backgroundImage !== next.backgroundImage) {
-              next = { ...next, backgroundImage: data.settings.backgroundImage };
-            }
-          }
-          cacheSettings(next);
-        })
-        .catch(() => cacheSettings(next));
-    }, PUT_DEBOUNCE_MS);
+    if (urgent) run();
+    else putTimer = setTimeout(run, PUT_DEBOUNCE_MS);
   }
 
   function cacheSettings(s) {
@@ -782,9 +851,8 @@ load();
   }
 
   /* ---- legacy IndexedDB blob store (ported from blob-db.ts / image-store.ts)
-         — kept read-only-ish: the wallpaper now lives on the server; this is
-         only consulted to (a) show a not-yet-migrated wallpaper in this
-         browser and (b) feed the one-time startup migration. ---- */
+          — kept read-only-ish: the wallpapers now live on the server; this is
+          only consulted to feed the one-time startup migration. ---- */
   function openBlobDb() {
     return new Promise((resolve, reject) => {
       const request = indexedDB.open(DB_NAME, 1);
@@ -821,7 +889,7 @@ load();
   }
 
   /* ---- image preparation (ported from image.ts: 200 MB cap, 24×24 darkness
-         sample, ≤4096 px keep-original-else-WebP-0.95 resample) ---- */
+          sample, ≤4096 px keep-original-else-WebP-0.95 resample) ---- */
   function fitWithin(width, height, maxEdge) {
     const safe = (v) => (Number.isFinite(v) && v > 0 ? Math.round(v) : 1);
     if (!Number.isFinite(width) || !Number.isFinite(height) || !Number.isFinite(maxEdge) || maxEdge <= 0)
@@ -853,7 +921,7 @@ load();
   }
 
   /* ---- color math + accent extraction (ported from the harness plugin's
-         image.ts: "bucket pixels by hue, weight by saturation, normalize") ----
+          image.ts: "bucket pixels by hue, weight by saturation, normalize") ----
      The sampled accent keeps the image's dominant hue but is re-normalized to
      fixed S/L so it always works as an accent; derivePalette() then builds the
      whole dark surface family (header → background → panel → input → border)
@@ -1023,6 +1091,11 @@ load();
   let settings = readSettings();
   let imageToken = '';
 
+  const activeWallpaper = (s) => {
+    const list = Array.isArray(s.wallpapers) ? s.wallpapers : [];
+    return list.find((w) => w && w.id === s.activeWallpaperId) || null;
+  };
+
   /* ---- render: the four body variables are the single source of truth ---- */
   function applyAppearance(s) {
     const body = document.body;
@@ -1038,14 +1111,15 @@ load();
       body.removeAttribute('data-sp-glass');
       body.style.removeProperty('--sp-glass-blur');
     }
-    body.toggleAttribute('data-sp-bg', s.backgroundImage !== '');
+    body.toggleAttribute('data-sp-bg', activeWallpaper(s) !== null);
     applyTheme(s);
-    syncImage(s.backgroundImage);
+    syncWallpaper();
   }
 
   /* The wallpaper-derived palette, applied as CSS variables on <body>. Every
      themed variable has a stock value in :root, so removing the variables
-     (no accent / not a hex) restores the default look exactly. */
+     (no accent / not a hex) restores the default look exactly. The accent is
+     per wallpaper: switching wallpaper switches its theme. */
   const THEME_VARS = [
     '--bg', '--panel', '--panel-rgb', '--panel-2', '--panel-2-rgb', '--line',
     '--accent', '--header-a-rgb', '--header-b-rgb', '--head-rgb', '--hover-rgb',
@@ -1053,8 +1127,10 @@ load();
   ];
   function applyTheme(s) {
     const body = document.body;
-    if (typeof s.accent === 'string' && /^#[0-9a-f]{6}$/.test(s.accent)) {
-      const p = derivePalette(s.accent);
+    const w = activeWallpaper(s);
+    const accent = (w && w.accent) || '';
+    if (/^#[0-9a-f]{6}$/.test(accent)) {
+      const p = derivePalette(accent);
       body.style.setProperty('--bg', p.background);
       body.style.setProperty('--panel', p.panel);
       body.style.setProperty('--panel-rgb', p.panelRgb);
@@ -1074,12 +1150,12 @@ load();
     }
   }
 
-  /* Apply the wallpaper for a background token. The server serves the
-     wallpaper at BG_URL (Cache-Control: no-store), so any non-empty token is
-     just that URL — shared by every client on the network. A token left
-     behind by the old browser-only storage ('data:' or an IndexedDB key)
-     that we don't have a blob for resolves to none. */
-  function syncImage(token) {
+  /* Apply the active wallpaper. The server serves each wallpaper at
+     /api/appearance/wallpapers/<id> (Cache-Control: no-store), shared by
+     every client on the network. */
+  function syncWallpaper() {
+    const w = activeWallpaper(settings);
+    const token = w ? wallpaperUrl(w.id) : '';
     if (token === imageToken) return;
     imageToken = token;
     const body = document.body;
@@ -1088,30 +1164,8 @@ load();
       setThumb(undefined);
       return;
     }
-    if (token === 'server') {
-      body.style.setProperty('--sp-bg-image', 'url("' + BG_URL + '")');
-      setThumb(BG_URL);
-      return;
-    }
-    if (token.startsWith('data:')) {          // legacy inline data URL
-      body.style.setProperty('--sp-bg-image', 'url("' + token + '")');
-      setThumb(token);
-      return;
-    }
-    /* Legacy IndexedDB key from the browser-only era: keep it visible in this
-       browser if the blob is still here (until startup migration uploads it). */
-    return getImage(token).catch(() => undefined).then((blob) => {
-      if (imageToken !== token) return;       // a newer token superseded this one
-      if (blob === undefined) {
-        imageToken = '';
-        body.style.setProperty('--sp-bg-image', 'none');
-        setThumb(undefined);
-        return;
-      }
-      const url = URL.createObjectURL(blob);
-      body.style.setProperty('--sp-bg-image', 'url("' + url + '")');
-      setThumb(url);
-    });
+    body.style.setProperty('--sp-bg-image', 'url("' + token + '")');
+    setThumb(token);
   }
 
   function setThumb(url) {
@@ -1130,78 +1184,98 @@ load();
 
   /* ---- apply + persist in the same tick (no save button) ----
      Styling applies live locally; the settings blob lands on the server
-     debounced, so dragging a slider across the LAN costs one small PUT. */
-  function commit() {
+     (slider drags debounced, structural changes immediately). */
+  function commit(urgent) {
     applyAppearance(settings);
     syncPanel();
     cacheSettings(settings);
-    queuePut(settings);
+    pushSettings(settings, urgent);
   }
 
-  /* ---- upload / remove / reset ---- */
-  function handleFile(file) {
-    if (!file) return;
-    setStatus('');
-    prepareImage(file).then((prepared) => {
-      setStatus('Uploading…');
-      return fetch(BG_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': prepared.blob.type || 'image/webp' },
-        body: prepared.blob
-      }).then((r) => {
+  /* ---- upload: every file becomes a new wallpaper appended to the end of
+         the collection, and the server makes the newest one active. The
+         sampled darkness + accent ride custom headers (the server stores the
+         raw image and the meta, it does not decode pixels). Multi-select and
+         multi-file drops upload each file in order. ---- */
+  async function handleFiles(fileList) {
+    const files = Array.prototype.slice.call(fileList || [])
+      .filter((f) => f && typeof f.type === 'string' && f.type.startsWith('image/'));
+    if (!files.length) return;
+    for (let i = 0; i < files.length; i++) {
+      setStatus(i === 0 ? 'Uploading…' : 'Uploading ' + (i + 1) + ' of ' + files.length + '…');
+      try {
+        const prepared = await prepareImage(files[i]);
+        const r = await fetch(WALLPAPERS_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': prepared.blob.type || 'image/webp',
+            'x-sp-image-dark': prepared.imageDark ? '1' : '0',
+            'x-sp-accent': prepared.accent || ''
+          },
+          body: prepared.blob
+        });
         if (!r.ok) throw new Error('upload failed (HTTP ' + r.status + ')');
-        return r.json();
-      }).then(() => {
-        settings.backgroundImage = 'server';
-        settings.imageDark = prepared.imageDark;
-        settings.accent = prepared.accent || '';   // '' for hueless (gray) images: stock palette stays
-        settings.accentTouched = true;             // this wallpaper's accent is decided
+        const data = await r.json();
         if (prepared.imageDark && settings.scrim === 0) settings.scrim = AUTO_SCRIM;
-        setStatus('');
-        commit();
-      });
-    }).catch((e) => {
-      setStatus(e && e.message ? e.message : 'could not use that file');
-    });
+        settings = adoptServerSettings(settings, data);
+        commit(true);
+      } catch (e) {
+        setStatus(e && e.message ? e.message : 'could not use that file');
+        return;
+      }
+    }
+    setStatus('');
   }
 
   function resetColors() {
+    const w = activeWallpaper(settings);
+    if (!w) return;
     setStatus('');
-    settings.accent = '';       // back to the stock palette; the wallpaper itself stays
-    settings.accentTouched = true; // …and that choice sticks: no auto re-sampling on reload
-    commit();
+    fetch(wallpaperUrl(w.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accent: '', accentTouched: true })
+    }).then((r) => {
+      if (!r.ok) throw new Error('reset colors failed (HTTP ' + r.status + ')');
+      return r.json();
+    }).then((data) => {
+      settings = adoptServerSettings(settings, data);
+      commit(true);
+    }).catch((e) => setStatus(e && e.message ? e.message : 'could not reset colors'));
   }
 
-  function removeBackground() {
+  /* Delete the wallpaper you've landed on; the collection closes the gap and
+     the server re-selects the neighbor (the entry before it, when possible). */
+  function removeCurrentWallpaper() {
+    const w = activeWallpaper(settings);
+    if (!w) return;
     setStatus('');
-    fetch(BG_URL, { method: 'DELETE' }).then((r) => {
-      if (!r.ok) throw new Error('remove failed (HTTP ' + r.status + ')');
-      settings.backgroundImage = '';
-      settings.imageDark = false;
-      settings.accent = '';       // no wallpaper → no sampled theme
-      settings.accentTouched = false;
-      commit();
-    }).catch((e) => {
-      setStatus(e && e.message ? e.message : 'could not remove background');
-    });
+    fetch(wallpaperUrl(w.id), { method: 'DELETE' }).then((r) => {
+      if (!r.ok) throw new Error('delete failed (HTTP ' + r.status + ')');
+      return r.json();
+    }).then((data) => {
+      settings = adoptServerSettings(settings, data);
+      commit(true);
+    }).catch((e) => setStatus(e && e.message ? e.message : 'could not delete wallpaper'));
   }
 
   function resetAppearance() {
     setStatus('');
-    fetch(BG_URL, { method: 'DELETE' }).then((r) => {
+    fetch(WALLPAPERS_URL, { method: 'DELETE' }).then((r) => {
       if (!r.ok) throw new Error('reset failed (HTTP ' + r.status + ')');
-      settings = { ...DEFAULTS };
-      commit();
-    }).catch((e) => {
-      setStatus(e && e.message ? e.message : 'could not reset appearance');
-    });
+      return r.json();
+    }).then((data) => {
+      settings = adoptServerSettings(settings, data);
+      settings = sanitizeSettings(undefined); // wipe everything: no collection, default sliders
+      commit(true);
+    }).catch((e) => setStatus(e && e.message ? e.message : 'could not reset appearance'));
   }
 
   function isDefault() {
-    return settings.backgroundImage === '' && settings.backgroundPosition === 'center' && !settings.imageDark &&
+    const list = Array.isArray(settings.wallpapers) ? settings.wallpapers : [];
+    return list.length === 0 && settings.backgroundPosition === 'center' &&
       settings.backgroundOpacity === 1 && settings.backgroundBlur === 0 &&
-      settings.scrim === 0 && settings.surfaceAlpha === 1 && settings.glassBlur === 0 &&
-      settings.accent === '';
+      settings.scrim === 0 && settings.surfaceAlpha === 1 && settings.glassBlur === 0;
   }
 
   function syncPanel() {
@@ -1217,9 +1291,15 @@ load();
     els.listOpacityOut.textContent = Math.round(settings.surfaceAlpha * 100) + '%';
     els.glass.value = String(settings.glassBlur);
     els.glassOut.textContent = settings.glassBlur + 'px';
-    els.remove.disabled = settings.backgroundImage === '';
+    const list = Array.isArray(settings.wallpapers) ? settings.wallpapers : [];
+    const idx = settings.activeWallpaperId ? list.findIndex((w) => w.id === settings.activeWallpaperId) : -1;
+    els.nav.classList.toggle('hidden', list.length === 0);
+    els.prev.classList.toggle('hidden', idx <= 0);
+    els.next.classList.toggle('hidden', idx === -1 || idx >= list.length - 1);
+    els.navCount.textContent = list.length ? (idx + 1) + ' of ' + list.length : 'none';
+    els.remove.disabled = list.length === 0;
     els.reset.disabled = isDefault();
-    els.resetColors.disabled = settings.accent === '';
+    els.resetColors.disabled = idx === -1 || !list[idx] || list[idx].accent === '';
   }
 
   /* ---- panel wiring ---- */
@@ -1232,10 +1312,25 @@ load();
     if (e.key === 'Escape' && panelOpen()) openPanel(false);
   });
 
+  /* Walk the collection: previous hidden on the first wallpaper, next hidden
+     on the last. The active pointer is persisted immediately (not debounced),
+     so the page always comes back to the wallpaper you landed on. */
+  function stepActive(delta) {
+    const list = Array.isArray(settings.wallpapers) ? settings.wallpapers : [];
+    if (!list.length) return;
+    const idx = settings.activeWallpaperId ? list.findIndex((w) => w.id === settings.activeWallpaperId) : -1;
+    const target = idx + delta;
+    if (target < 0 || target >= list.length) return;
+    settings.activeWallpaperId = list[target].id;
+    commit(true);
+  }
+  els.prev.addEventListener('click', () => stepActive(-1));
+  els.next.addEventListener('click', () => stepActive(1));
+
   els.upload.addEventListener('click', () => els.file.click());
   els.file.addEventListener('change', () => {
-    handleFile(els.file.files[0]);
-    els.file.value = '';   // reset so the same file can be picked again
+    handleFiles(els.file.files);
+    els.file.value = '';   // reset so the same files can be picked again
   });
 
   let dragDepth = 0;
@@ -1253,8 +1348,7 @@ load();
     e.preventDefault();
     dragDepth = 0;
     els.drop.classList.remove('over');
-    const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-    handleFile(file);
+    handleFiles(e.dataTransfer && e.dataTransfer.files);
   });
 
   els.position.addEventListener('change', () => {
@@ -1262,7 +1356,7 @@ load();
     commit();
   });
 
-  els.remove.addEventListener('click', removeBackground);
+  els.remove.addEventListener('click', removeCurrentWallpaper);
   els.reset.addEventListener('click', resetAppearance);
   els.resetColors.addEventListener('click', resetColors);
 
@@ -1290,78 +1384,79 @@ load();
   });
 
   /* ---- one-time migration from the browser-only era ----
-     If the server has no wallpaper yet but this browser still holds one in
-     its old IndexedDB (or a legacy inline data URL), push it up once and
-     clear the local copies. The server's existing settings stay authoritative
-     for the sliders; only the wallpaper (and its dark flag) comes along. */
+     If the server has no wallpapers yet but this browser still holds one in
+     its old IndexedDB (or a legacy inline data URL), push it up as the first
+     wallpaper of the collection and clear the local copies. The server's
+     existing sliders stay authoritative; only the wallpaper (and its dark
+     flag) comes along. */
   function migrateLegacy(serverSettings) {
-    if (serverSettings.backgroundImage !== '') return;
-    let local;
+    if (Array.isArray(serverSettings.wallpapers) && serverSettings.wallpapers.length > 0) return;
+    let legacyToken = '';
     try {
-      const raw = localStorage.getItem(LS_KEY);
-      local = sanitizeSettings(raw === null ? undefined : JSON.parse(raw));
+      const rawJson = localStorage.getItem(LS_KEY);
+      const raw = rawJson === null ? {} : JSON.parse(rawJson);
+      if (raw && typeof raw.backgroundImage === 'string' &&
+          raw.backgroundImage !== '' && raw.backgroundImage !== 'server') {
+        legacyToken = raw.backgroundImage;
+      }
     } catch (e) { return; }
-    if (!local || local.backgroundImage === '' || local.backgroundImage === 'server') return;
-    const token = local.backgroundImage;
-    const source = token.startsWith('data:')
-      ? fetch(token).then((r) => r.blob()).catch(() => undefined)
-      : getImage(token).catch(() => undefined);
+    if (!legacyToken) return;
+    const source = legacyToken.startsWith('data:')
+      ? fetch(legacyToken).then((r) => r.blob()).catch(() => undefined)
+      : getImage(legacyToken).catch(() => undefined);
     source.then(async (blob) => {
       if (blob === undefined) {
-        if (!token.startsWith('data:')) deleteImage(token).catch(() => {});
+        if (!legacyToken.startsWith('data:')) deleteImage(legacyToken).catch(() => {});
         return;
       }
-      /* Sample the migrated wallpaper fresh (darkness + accent) so the shared
-         theme matches what the server now serves, rather than trusting the
-         possibly-stale local copy. */
-      let imageDark = !!local.imageDark;
-      let accent = '';
-      const bmp = await tryDecode(blob);
-      if (bmp !== undefined) {
-        try {
-          imageDark = sampleImageDarkness(bmp);
-          accent = sampleAccentColor(bmp) || '';
-        } finally {
-          bmp.close();
-        }
-      }
-      const merged = { ...serverSettings, backgroundImage: 'server', imageDark, accent, accentTouched: true };
-      if (merged.imageDark && merged.scrim === 0) merged.scrim = AUTO_SCRIM;
-      return fetch(BG_URL, {
+      const prepared = await prepareImage(blob);
+      const r = await fetch(WALLPAPERS_URL, {
         method: 'POST',
-        headers: { 'Content-Type': blob.type || 'image/webp' },
-        body: blob
-      }).then((r) => {
-        if (!r.ok) throw new Error('migration upload failed (HTTP ' + r.status + ')');
-        return putSettings(merged).then(() => merged);
-      }).then((mergedSettings) => {
-        if (!token.startsWith('data:')) deleteImage(token).catch(() => {});
-        settings = mergedSettings;
-        cacheSettings(settings);
-        applyAppearance(settings);
-        syncPanel();
+        headers: {
+          'Content-Type': blob.type || 'image/webp',
+          'x-sp-image-dark': prepared.imageDark ? '1' : '0',
+          'x-sp-accent': prepared.accent || ''
+        },
+        body: prepared.blob
       });
+      if (!r.ok) throw new Error('migration upload failed (HTTP ' + r.status + ')');
+      const data = await r.json();
+      if (!legacyToken.startsWith('data:')) deleteImage(legacyToken).catch(() => {});
+      if (prepared.imageDark && settings.scrim === 0) settings.scrim = AUTO_SCRIM;
+      settings = adoptServerSettings(settings, data);
+      cacheSettings(settings);
+      applyAppearance(settings);
+      syncPanel();
+      pushSettings(settings, true);
     }).catch(() => {});
   }
 
-  /* ---- one-time theme adoption for the shared wallpaper: fires only while
-     the server has a wallpaper whose accent has never been decided
-     (accentTouched still false — i.e. it predates the auto color scheme).
-     Samples it once and stores the accent plus the touched marker, so a
-     hueless wallpaper (accent stays '') and a deliberately cleared theme
-     are never re-sampled. */
+  /* ---- one-time theme adoption: fires only for an active wallpaper whose
+     accent has never been decided (accentTouched still false — i.e. it
+     predates the auto color scheme). Samples it once and records the accent
+     plus the touched marker on that wallpaper's entry, so a hueless
+     wallpaper (accent stays '') and a deliberately cleared theme are never
+     re-sampled. */
   function maybeSampleAccent(serverSettings) {
-    if (serverSettings.backgroundImage !== 'server' || serverSettings.accentTouched) return;
-    fetch(BG_URL).then((r) => (r.ok ? r.blob() : undefined)).then((blob) => {
+    const w = activeWallpaper(serverSettings);
+    if (!w || w.accentTouched) return;
+    fetch(wallpaperUrl(w.id)).then((r) => (r.ok ? r.blob() : undefined)).then((blob) => {
       if (blob === undefined) return;
       return tryDecode(blob).then((bmp) => {
         if (bmp === undefined) return;
         const accent = sampleAccentColor(bmp) || '';
         bmp.close();
-        return putSettings({ ...serverSettings, accent, accentTouched: true }).then((data) => {
-          if (settings.accentTouched) return;     // superseded by a newer upload
-          const updated = sanitizeSettings(data && data.settings);
-          settings = updated;
+        return fetch(wallpaperUrl(w.id), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accent, accentTouched: true })
+        }).then((r) => {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        }).then((data) => {
+          const cur = activeWallpaper(settings);
+          if (!cur || cur.id !== w.id || cur.accentTouched) return; // superseded by newer activity
+          settings = adoptServerSettings(settings, data);
           cacheSettings(settings);
           applyAppearance(settings);
           syncPanel();
