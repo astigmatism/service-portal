@@ -323,6 +323,7 @@ for (const needle of [
   'rgb(var(--header-a-rgb))', 'rgb(var(--panel-2-rgb))', 'rgb(var(--hover-rgb))',
   'border:1px solid var(--selftag-line)',
   'id="spNav"', 'id="spPrev"', 'id="spNext"', 'id="spNavCount"',
+  'id="bgPrev"', 'id="bgNext"', '.seg-arrow{',
   '.sp-nav{', 'accept="image/jpeg,image/png,image/webp,image/gif,image/avif" multiple>'
 ]) {
   assert.ok(html.includes(needle), 'index.html missing: ' + needle);
@@ -719,6 +720,53 @@ function spawnServer(dataDir, port) {
       proc.kill();
       fs.rmSync(dataDir, { recursive: true, force: true });
     }
+  }
+
+  /* ---- Scenario 14: header stepper — walks, dims at the ends, no-op on
+     empty. The header arrows stay mounted at all times; only their
+     disabled state tracks the active pointer. ---- */
+  {
+    const mk = (id, accent) => ({ id, type: 'image/png', imageDark: true, accent, accentTouched: true });
+    const wps = [
+      mk('11111111-1111-4111-8111-111111111111', '#b03b3b'),
+      mk('22222222-2222-4222-8222-222222222222', '#3b3bb0'),
+      mk('33333333-3333-4333-8333-333333333333', '#3bb05e')
+    ];
+    const t = boot(() => makeBitmap(1, 1, () => [128, 128, 128]),
+      { wallpapers: wps, activeWallpaperId: wps[1].id });
+    await sleep(30); // let the startup fetch settle
+    assert.strictEqual(t.body.style.props['--sp-bg-image'],
+      'url("/api/appearance/wallpapers/' + wps[1].id + '")', 'boots on the middle wallpaper');
+    assert.ok(!t.elements.bgPrev.disabled, 'header previous enabled in the middle');
+    assert.ok(!t.elements.bgNext.disabled, 'header next enabled in the middle');
+
+    click(t.elements, 'bgPrev');
+    await sleep(400);
+    assert.strictEqual(t.fetchState.settings.activeWallpaperId, wps[0].id, 'header previous steps back');
+    assert.strictEqual(t.body.style.props['--accent'], '#b03b3b', 'theme follows the header step');
+    assert.ok(t.elements.bgPrev.disabled, 'header previous dimmed on the first');
+    assert.ok(!t.elements.bgNext.disabled, 'header next still enabled on the first');
+    assert.strictEqual(t.fetchState.putBodies[t.fetchState.putBodies.length - 1].activeWallpaperId, wps[0].id,
+      'header step persisted immediately');
+
+    click(t.elements, 'bgNext');
+    await sleep(400);
+    click(t.elements, 'bgNext');
+    await sleep(400);
+    assert.strictEqual(t.fetchState.settings.activeWallpaperId, wps[2].id, 'header next steps forward to the last');
+    assert.ok(!t.elements.bgPrev.disabled, 'header previous enabled off the last');
+    assert.ok(t.elements.bgNext.disabled, 'header next dimmed on the last');
+
+    // Empty collection: both arrows stay mounted and dimmed, and clicking
+    // a dimmed arrow changes nothing.
+    const t2 = boot(() => makeBitmap(1, 1, () => [128, 128, 128]));
+    await sleep(30);
+    assert.ok(t2.elements.bgPrev.disabled, 'header previous dimmed with no wallpapers');
+    assert.ok(t2.elements.bgNext.disabled, 'header next dimmed with no wallpapers');
+    click(t2.elements, 'bgNext');
+    await sleep(300);
+    assert.strictEqual(t2.fetchState.settings.activeWallpaperId, null, 'clicking a dimmed arrow changes nothing');
+    console.log('  ok 14. header arrows walk the collection and dim at the ends (and when empty)');
   }
 
   console.log('all appearance tests passed');
