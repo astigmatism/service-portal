@@ -168,7 +168,9 @@ function mkFetch(state) {
       const sent = JSON.parse(opts.body);
       state.putBodies.push(sent);
       const has = state.settings.wallpapers.some((w) => w.id === sent.activeWallpaperId);
-      state.settings.backgroundPosition = sent.backgroundPosition;
+      // Mirrors the server merge: a PUT that omits the (legacy) position
+      // field leaves the stored value untouched.
+      if (sent.backgroundPosition !== undefined) state.settings.backgroundPosition = sent.backgroundPosition;
       state.settings.backgroundOpacity = sent.backgroundOpacity;
       state.settings.backgroundBlur = sent.backgroundBlur;
       state.settings.scrim = sent.scrim;
@@ -249,7 +251,7 @@ const SERVER_DEFAULTS = {
   glassBlur: 0
 };
 
-function boot(bitmapFactory, serverSettings) {
+function boot(bitmapFactory, serverSettings, preLS) {
   const elements = {};
   const getEl = (id) => (elements[id] = elements[id] || mkEl(id));
   const body = getEl('body');
@@ -288,9 +290,10 @@ function boot(bitmapFactory, serverSettings) {
   };
   sandbox.window = sandbox;
   sandbox.addEventListener = () => {};
+  if (preLS) for (const [k, v] of Object.entries(preLS)) sandbox.localStorage.setItem(k, v);
   vm.createContext(sandbox);
   vm.runInContext(code, sandbox);
-  return { elements, body, fetchState };
+  return { elements, body, fetchState, localStorage: sandbox.localStorage };
 }
 
 /* Fire the file input's change listener with the given fake file(s). */
@@ -325,8 +328,9 @@ for (const needle of [
   'id="spNav"', 'id="spPrev"', 'id="spNext"', 'id="spNavCount"',
   'id="bgPrev"', 'id="bgNext"', '.seg-arrow{',
   '.sp-nav{', 'accept="image/jpeg,image/png,image/webp,image/gif,image/avif" multiple>',
-  'id="spPosGrid"', 'id="spPos-br"', '.sp-pos{', 'id="spPosX"', 'id="spPosY"',
-  'background-position:var(--sp-bg-position,50% 50%)'
+  'id="spPosGrid"', 'id="spPos-br"', '.sp-pos{', '.sp-pos:disabled{', 'id="spPosX"', 'id="spPosY"',
+  'background-position:var(--sp-bg-position,50% 50%)',
+  "const POS_LS_KEY = 'sp-wallpaper-positions'"
 ]) {
   assert.ok(html.includes(needle), 'index.html missing: ' + needle);
 }
@@ -784,59 +788,120 @@ function spawnServer(dataDir, port) {
     console.log('  ok 14. header arrows walk the collection and dim at the ends (and when empty)');
   }
 
-  /* ---------- Scenario 15: position — 3×3 origin grid + offset sliders ---
-     The position is a single (x, y) origin point on 0–100 per axis. Legacy
-     anchor strings migrate onto the grid, a cell click sets the corner
-     anchor, the sliders carry the free offset between anchors and magnetize
-     back to the 0/50/100 detents, and numpad keys 1–9 jump between anchors. */
+  /* ---------- Scenario 15: position — per wallpaper, per client ---------
+     The position is a (x, y) origin point on 0–100 per axis, stored in
+     localStorage per wallpaper id and never sent to the server. A one-time
+     migration hands the legacy global value to every wallpaper in the
+     collection, each wallpaper keeps its own origin when you switch, the
+     sliders keep their magnetic snap + hysteresis, and the controls dim
+     when the collection is empty (pruning the map with it). */
   {
-    const t = boot(() => makeBitmap(1, 1, () => [128, 128, 128]), { backgroundPosition: 'top' });
+    const mk = (id) => ({ id, type: 'image/png', imageDark: false, accent: '', accentTouched: true });
+    const wps = [
+      mk('11111111-1111-4111-8111-111111111111'),
+      mk('22222222-2222-4222-8222-222222222222')
+    ];
+    const t = boot(() => makeBitmap(1, 1, () => [128, 128, 128]),
+      { wallpapers: wps, activeWallpaperId: wps[1].id, backgroundPosition: 'top' });
     await sleep(30); // let the startup fetch settle
     assert.strictEqual(t.body.style.props['--sp-bg-position'], '50% 0%',
-      'legacy "top" migrates to the (50, 0) origin');
+      'the legacy global "top" migrates onto the active wallpaper');
+    let map = JSON.parse(t.localStorage.getItem('sp-wallpaper-positions'));
+    assert.deepStrictEqual(map[wps[0].id], { x: 50, y: 0 }, 'the other wallpaper was migrated too');
+    assert.strictEqual(t.localStorage.getItem('sp-wallpaper-positions-migrated'), '1', 'the migration is one-shot');
     assert.strictEqual(t.elements.spPosX.value, '50', 'horizontal slider reflects the migrated origin');
     assert.strictEqual(t.elements.spPosY.value, '0', 'vertical slider reflects the migrated origin');
     assert.strictEqual(t.elements['spPos-tc'].attrs['aria-pressed'], 'true', 'top-center cell pressed');
-    assert.strictEqual(t.elements['spPos-mc'].attrs['aria-pressed'], 'false', 'center cell not pressed');
+    assert.ok(!t.elements.spPosX.disabled, 'controls enabled while a wallpaper is active');
 
     click(t.elements, 'spPos-br');
     assert.strictEqual(t.body.style.props['--sp-bg-position'], '100% 100%', 'corner anchor applied live');
-    assert.strictEqual(t.elements['spPos-br'].attrs['aria-pressed'], 'true', 'bottom-right cell pressed');
-    await sleep(400);
-    assert.deepStrictEqual(
-      t.fetchState.putBodies[t.fetchState.putBodies.length - 1].backgroundPosition,
-      { x: 100, y: 100 }, 'origin persisted as the point, not an enum');
+    map = JSON.parse(t.localStorage.getItem('sp-wallpaper-positions'));
+    assert.deepStrictEqual(map[wps[1].id], { x: 100, y: 100 }, 'the active wallpaper stores its origin locally');
+    assert.deepStrictEqual(map[wps[0].id], { x: 50, y: 0 }, 'the other wallpaper is untouched');
 
+    // A settings PUT (driven by any slider) no longer carries the position.
+    const oIn = t.elements.spOpacity.listeners.input;
+    t.elements.spOpacity.value = '90';
+    oIn[0]();
+    await sleep(400);
+    const lastPut = t.fetchState.putBodies[t.fetchState.putBodies.length - 1];
+    assert.ok('backgroundOpacity' in lastPut && !('backgroundPosition' in lastPut),
+      'the position no longer rides the settings PUT');
+    t.elements.spOpacity.value = '100';
+    oIn[0]();
+
+    // The sliders carry the free offset, with the magnetic snap + hysteresis.
     const yIn = t.elements.spPosY.listeners.input;
-    assert.ok(yIn && yIn.length, 'vertical offset slider wired');
     t.elements.spPosY.value = '63';
     yIn[0]();
     assert.strictEqual(t.body.style.props['--sp-bg-position'], '100% 63%', 'off-detent offset applied live');
-    assert.strictEqual(t.elements['spPos-br'].attrs['aria-pressed'], 'false',
-      'no anchor pressed in the open space between anchors');
-
     t.elements.spPosY.value = '53';
     yIn[0]();
-    assert.strictEqual(t.elements.spPosY.value, '50', 'slider magnetized to the nearest detent');
+    assert.strictEqual(t.elements.spPosY.value, '50', 'magnetized onto the detent');
     assert.strictEqual(t.body.style.props['--sp-bg-position'], '100% 50%', 'snapped onto the right-edge anchor');
-    assert.strictEqual(t.elements['spPos-mr'].attrs['aria-pressed'], 'true', 'right cell pressed after the snap');
-
-    // Hysteresis: from on the detent you can step out again, one step at a
-    // time, instead of being pinned to the magnet.
     t.elements.spPosY.value = '49';
     yIn[0]();
     assert.strictEqual(t.elements.spPosY.value, '49', 'can step out of a detent one step at a time');
     assert.strictEqual(t.body.style.props['--sp-bg-position'], '100% 49%', 'free value held next to the anchor');
 
+    // Switching wallpaper switches the origin with it.
+    click(t.elements, 'spPrev');
+    await sleep(400);
+    assert.strictEqual(t.body.style.props['--sp-bg-position'], '50% 0%', 'the previous wallpaper keeps its own origin');
+    assert.strictEqual(t.elements['spPos-tc'].attrs['aria-pressed'], 'true', 'its own anchor is pressed');
+
+    // Keyboard anchor: numpad 7 jumps to top-left.
     const kd = t.elements.spPosGrid.listeners.keydown;
-    assert.ok(kd && kd.length, 'grid has a keydown listener');
     kd[0]({ key: '7', preventDefault() {} });
     assert.strictEqual(t.body.style.props['--sp-bg-position'], '0% 0%', 'numpad 7 jumps to top-left');
-    await sleep(400);
-    assert.deepStrictEqual(
-      t.fetchState.putBodies[t.fetchState.putBodies.length - 1].backgroundPosition,
-      { x: 0, y: 0 }, 'keyboard anchor change persisted');
-    console.log('  ok 15. position: 3×3 origin grid + magnetic offset sliders (legacy strings migrate)');
+    map = JSON.parse(t.localStorage.getItem('sp-wallpaper-positions'));
+    assert.deepStrictEqual(map[wps[0].id], { x: 0, y: 0 }, 'the keyboard anchor lands in the local map');
+
+    // Removing wallpapers: the survivor keeps its origin, and an empty
+    // collection dims the controls and prunes the map.
+    click(t.elements, 'spRemove');
+    await sleep(400); // removes wps[0]; wps[1] is re-selected
+    assert.strictEqual(t.body.style.props['--sp-bg-position'], '100% 49%', 'the surviving wallpaper keeps its own origin');
+    click(t.elements, 'spRemove');
+    await sleep(400); // removes wps[1]; the collection is empty
+    assert.ok(t.elements.spPosX.disabled, 'horizontal slider disabled with no wallpaper');
+    assert.ok(t.elements.spPosY.disabled, 'vertical slider disabled with no wallpaper');
+    assert.ok(t.elements['spPos-tl'].disabled, 'the grid is disabled with no wallpaper');
+    assert.strictEqual(t.body.style.props['--sp-bg-position'], '50% 50%', 'the origin falls back to center');
+    map = JSON.parse(t.localStorage.getItem('sp-wallpaper-positions'));
+    assert.deepStrictEqual(map, {}, 'orphaned positions are pruned');
+    console.log('  ok 15. position: per-wallpaper and per-client (local map, one-time migration)');
+  }
+
+  /* ---------- Scenario 16: the migration is not fooled by stale cache ----
+     A pre-rollout local cache (old wallpaper id + the old global position)
+     must not burn the one-time migration flag before the server's real
+     collection is seen. */
+  {
+    const mk = (id) => ({ id, type: 'image/png', imageDark: false, accent: '', accentTouched: true });
+    const oldId = '99999999-9999-4999-8999-999999999999';
+    const newId = '33333333-3333-4333-8333-333333333333';
+    const staleCache = {
+      wallpapers: [{ id: oldId, type: 'image/png', imageDark: false, accent: '', accentTouched: true }],
+      activeWallpaperId: oldId,
+      backgroundPosition: { x: 50, y: 0 },
+      backgroundOpacity: 1, backgroundBlur: 0, scrim: 0, surfaceAlpha: 1, glassBlur: 0
+    };
+    const t = boot(
+      () => makeBitmap(1, 1, () => [128, 128, 128]),
+      { wallpapers: [mk(newId)], activeWallpaperId: newId, backgroundPosition: { x: 100, y: 100 } },
+      { 'sp-appearance': JSON.stringify(staleCache) }
+    );
+    await sleep(30); // let the startup fetch settle
+    assert.strictEqual(t.body.style.props['--sp-bg-position'], '100% 100%',
+      'the server-side legacy value wins the migration');
+    const map = JSON.parse(t.localStorage.getItem('sp-wallpaper-positions'));
+    assert.deepStrictEqual(map[newId], { x: 100, y: 100 }, 'the real wallpaper got the legacy origin');
+    assert.strictEqual(map[oldId], undefined, 'the stale cache id was not seeded');
+    assert.strictEqual(t.localStorage.getItem('sp-wallpaper-positions-migrated'), '1',
+      'migration flagged only once the server state was seen');
+    console.log('  ok 16. one-time migration ignores a stale local cache');
   }
 
   console.log('all appearance tests passed');

@@ -149,6 +149,8 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
 .sp-pos[aria-pressed=true]{border-color:var(--accent)}
 .sp-pos[aria-pressed=true]::after{background:var(--accent)}
 .sp-pos:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.sp-pos:disabled{opacity:.45;cursor:default}
+.sp-slider input[type=range]:disabled{opacity:.45;cursor:default}
 .sp-status{font-size:12.5px;color:var(--bad);min-height:16px;margin-top:8px;overflow-wrap:anywhere}
 </style>
 </head>
@@ -218,7 +220,7 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
     <button id="spUploadBtn" class="btn" type="button">Upload background&hellip;</button>
   </div>
   <input type="file" id="spFile" class="hidden" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" multiple>
-  <div class="sp-select" title="Where the wallpaper's origin sits in the cover crop: pick an anchor (or press 1–9), then fine-tune with the sliders — 0–100% of the way between the cropped edges, snapping back to an anchor near 0/50/100">
+  <div class="sp-select" title="Where this wallpaper's origin sits in the cover crop — remembered per wallpaper, on this machine only: pick an anchor (or press 1–9), then fine-tune with the sliders — 0–100% of the way between the cropped edges, snapping back to an anchor near 0/50/100">
     Position
     <div class="sp-posgrid" id="spPosGrid" role="group" aria-label="Wallpaper origin anchor">
       <button id="spPos-tl" class="sp-pos" type="button" data-dot="tl" aria-pressed="false" aria-label="Top left" title="Top left (7)"></button>
@@ -728,10 +730,81 @@ load();
     return { x: axis(ax[0]), y: axis(ax[1]) };
   }
 
+  /* Per-client, per-wallpaper positions: the origin is local to this browser
+     (one entry per wallpaper id in localStorage) and never rides the settings
+     PUT — two machines can frame the same wallpaper differently. Wallpapers
+     without an entry fall back to center. The server's shared
+     backgroundPosition field is kept only so pre-rollout clients keep
+     working and the one-time migration below has something to consume. */
+  const POS_LS_KEY = 'sp-wallpaper-positions';
+  const POS_MIGRATION_KEY = 'sp-wallpaper-positions-migrated';
+  let positionMap = readPositionMap();
+  /* Hysteresis reference for the magnetic sliders: the (x, y) they last
+     showed and which wallpaper it was (reset on every wallpaper switch).
+     Declared up top — syncPanel touches it during the first paint, before
+     the wiring below has run. */
+  let lastPos = null;
+  let lastPosWp = null;
+  function readPositionMap() {
+    let raw = {};
+    try {
+      const parsed = JSON.parse(localStorage.getItem(POS_LS_KEY));
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) raw = parsed;
+    } catch (e) {}
+    const out = {};
+    for (const id of Object.keys(raw)) {
+      if (id) out[id] = sanitizePosition(raw[id]);
+    }
+    return out;
+  }
+  function writePositionMap() {
+    try { localStorage.setItem(POS_LS_KEY, JSON.stringify(positionMap)); } catch (e) {}
+  }
+  /* Drop entries whose wallpaper no longer exists in the collection. */
+  function prunePositionMap(s) {
+    const ids = {};
+    for (const w of (Array.isArray(s.wallpapers) ? s.wallpapers : [])) if (w && w.id) ids[w.id] = true;
+    let changed = false;
+    for (const id of Object.keys(positionMap)) {
+      if (!ids[id]) { delete positionMap[id]; changed = true; }
+    }
+    if (changed) writePositionMap();
+  }
+  /* The origin that applyAppearance/syncPanel should show: the active
+     wallpaper's stored point, or center. */
+  function positionFor(s) {
+    const w = activeWallpaper(s);
+    return (w && positionMap[w.id]) || { x: 50, y: 50 };
+  }
+  /* One-time migration: before the per-wallpaper point, the position was a
+     single global value shared by every wallpaper. The first time this
+     machine sees the collection, hand that legacy value to every wallpaper
+     so the existing look is preserved, then stop consulting it. New
+     wallpapers default to center. The flag is deferred until a non-empty
+     collection is seen, so a profile that boots before any wallpaper exists
+     can still migrate on a later load. */
+  function migrateGlobalPosition(s) {
+    let migrated = false;
+    try { migrated = localStorage.getItem(POS_MIGRATION_KEY) === '1'; } catch (e) {}
+    if (migrated) return;
+    const wps = (s && Array.isArray(s.wallpapers)) ? s.wallpapers : [];
+    const legacy = sanitizePosition(s && s.backgroundPosition);
+    if ((legacy.x !== 50 || legacy.y !== 50) && !Object.keys(positionMap).length && wps.length) {
+      for (const w of wps) {
+        if (w && typeof w.id === 'string') positionMap[w.id] = { x: legacy.x, y: legacy.y };
+      }
+      writePositionMap();
+    }
+    if (wps.length || Object.keys(positionMap).length) {
+      try { localStorage.setItem(POS_MIGRATION_KEY, '1'); } catch (e) {}
+    }
+  }
+
   const DEFAULTS = {
     wallpapers: [],            // the ordered collection: [{ id, type, imageDark, accent, accentTouched }]
     activeWallpaperId: null,   // the wallpaper currently on screen (an id into wallpapers)
-    backgroundPosition: { x: 50, y: 50 },  // origin point in the cover crop, 0..100 per axis
+    // (the background origin is per wallpaper + per client: positionMap in
+    //  localStorage, not a shared setting — see POS_LS_KEY above)
     backgroundOpacity: 1,    // 0..1
     backgroundBlur: 0,       // 0..30 px
     scrim: 0,                // 0..1 readability veil
@@ -825,6 +898,8 @@ load();
       glassBlur: 0
     };
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return out;
+    /* Legacy shared position: kept validated so migrateGlobalPosition() can
+       consume it exactly once; the per-wallpaper UI never reads it. */
     out.backgroundPosition = sanitizePosition(raw.backgroundPosition);
     for (const [field, b] of Object.entries(BOUNDS)) {
       const v = raw[field];
@@ -867,7 +942,6 @@ load();
      stale client can never clobber it. */
   function putBodyOf(next) {
     return {
-      backgroundPosition: next.backgroundPosition,
       backgroundOpacity: next.backgroundOpacity,
       backgroundBlur: next.backgroundBlur,
       scrim: next.scrim,
@@ -1156,6 +1230,11 @@ load();
      Boot starts on the (local) cache so the page paints immediately, then the
      startup fetch below replaces it with the server's copy. */
   let settings = readSettings();
+  /* The one-time legacy migration deliberately does NOT run on this cached
+     view: the cache may predate the server's current collection, and a
+     stale view could burn the migration flag on wallpaper ids that no
+     longer exist. It runs only on the server's copy (or the cache when
+     offline) in the startup fetch below. */
   let imageToken = '';
 
   const activeWallpaper = (s) => {
@@ -1166,11 +1245,13 @@ load();
   /* ---- render: the four body variables are the single source of truth ---- */
   function applyAppearance(s) {
     const body = document.body;
+    prunePositionMap(s); // the map must never outlive the collection
     body.style.setProperty('--sp-bg-opacity', String(s.backgroundOpacity));
     body.style.setProperty('--sp-bg-blur', (s.backgroundBlur + s.glassBlur) + 'px');
     body.style.setProperty('--sp-scrim', String(s.scrim));
     body.style.setProperty('--sp-list-alpha', String(s.surfaceAlpha));
-    body.style.setProperty('--sp-bg-position', s.backgroundPosition.x + '% ' + s.backgroundPosition.y + '%');
+    const p = positionFor(s); // per wallpaper, per client
+    body.style.setProperty('--sp-bg-position', p.x + '% ' + p.y + '%');
     if (s.glassBlur > 0) {
       body.style.setProperty('--sp-glass-blur', s.glassBlur + 'px');
       body.setAttribute('data-sp-glass', '');
@@ -1259,6 +1340,13 @@ load();
     pushSettings(settings, urgent);
   }
 
+  /* Local-only commit: the per-client position map never rides the settings
+     PUT, so it needs no cache refresh or push — just repaint and resync. */
+  function commitLocal() {
+    applyAppearance(settings);
+    syncPanel();
+  }
+
   /* ---- upload: every file becomes a new wallpaper appended to the end of
          the collection, and the server makes the newest one active. The
          sampled darkness + accent ride custom headers (the server stores the
@@ -1334,35 +1422,44 @@ load();
     }).then((data) => {
       settings = adoptServerSettings(settings, data);
       settings = sanitizeSettings(undefined); // wipe everything: no collection, default sliders
+      positionMap = {}; // the wallpapers are gone — so are their per-client origins
+      writePositionMap();
       commit(true);
     }).catch((e) => setStatus(e && e.message ? e.message : 'could not reset appearance'));
   }
 
   function isDefault() {
     const list = Array.isArray(settings.wallpapers) ? settings.wallpapers : [];
-    return list.length === 0 && settings.backgroundPosition.x === 50 && settings.backgroundPosition.y === 50 &&
+    return list.length === 0 &&
       settings.backgroundOpacity === 1 && settings.backgroundBlur === 0 &&
       settings.scrim === 0 && settings.surfaceAlpha === 1 && settings.glassBlur === 0;
-  }
-
-  /* Press the grid cell that matches the current origin — none, when the
-     origin sits in the open space between anchors. */
-  function syncPosGrid() {
-    const p = settings.backgroundPosition;
-    for (const key of POS_CELLS) {
-      const a = ANCHORS[key];
-      els.posCells[key].setAttribute('aria-pressed', String(a[0] === p.x && a[1] === p.y));
-    }
   }
 
   function syncPanel() {
     els.opacity.value = String(Math.round(settings.backgroundOpacity * 100));
     els.opacityOut.textContent = Math.round(settings.backgroundOpacity * 100) + '%';
-    els.posX.value = String(Math.round(settings.backgroundPosition.x));
-    els.posXOut.textContent = Math.round(settings.backgroundPosition.x) + '%';
-    els.posY.value = String(Math.round(settings.backgroundPosition.y));
-    els.posYOut.textContent = Math.round(settings.backgroundPosition.y) + '%';
-    syncPosGrid();
+    /* Position controls track the active wallpaper's own origin (stored per
+       client). With no wallpaper they dim, and the magnetic hysteresis
+       reference is dropped so a stale value from the previous wallpaper
+       cannot snap the new one. */
+    const wp = activeWallpaper(settings);
+    const pos = positionFor(settings);
+    const hasWp = wp !== null;
+    els.posX.value = String(Math.round(pos.x));
+    els.posXOut.textContent = Math.round(pos.x) + '%';
+    els.posY.value = String(Math.round(pos.y));
+    els.posYOut.textContent = Math.round(pos.y) + '%';
+    els.posX.disabled = !hasWp;
+    els.posY.disabled = !hasWp;
+    for (const key of POS_CELLS) {
+      const a = ANCHORS[key];
+      els.posCells[key].disabled = !hasWp;
+      els.posCells[key].setAttribute('aria-pressed', String(hasWp && a[0] === pos.x && a[1] === pos.y));
+    }
+    if (lastPosWp !== (hasWp ? wp.id : null)) {
+      lastPosWp = hasWp ? wp.id : null;
+      lastPos = null;
+    }
     els.blur.value = String(settings.backgroundBlur);
     els.blurOut.textContent = settings.backgroundBlur + 'px';
     els.scrim.value = String(Math.round(settings.scrim * 100));
@@ -1436,15 +1533,19 @@ load();
   });
 
   /* Position: a numpad-style 3×3 anchor grid plus two sliders carrying the
-     free offset between anchors. The sliders are magnetic — near 0/50/100
-     they snap to the nearest detent, so the anchor stays crisp unless you
-     deliberately aim for the open space between anchors. */
+     free offset between anchors — all of it scoped to the *active*
+     wallpaper and stored per client (the map never rides the settings PUT).
+     The sliders are magnetic: a value snaps to a 0/50/100 detent only when
+     it *enters* the detent's zone from outside, so you can always step out
+     of an anchor again (arrow keys included) instead of being pinned to it. */
   const setAnchor = (key) => {
     const a = ANCHORS[key];
-    if (!a) return;
-    settings.backgroundPosition = { x: a[0], y: a[1] };
+    const w = activeWallpaper(settings);
+    if (!a || !w) return;
+    positionMap[w.id] = { x: a[0], y: a[1] };
     lastPos = { x: a[0], y: a[1] }; // the anchor becomes the hysteresis reference
-    commit();
+    writePositionMap();
+    commitLocal();
   };
   for (const key of POS_CELLS) {
     els.posCells[key].addEventListener('click', () => setAnchor(key));
@@ -1454,23 +1555,23 @@ load();
     const key = NUMPAD_KEYS[e.key];
     if (key) { e.preventDefault(); setAnchor(key); }
   });
-  let lastPos = null; // last (x, y) the sliders were at; the hysteresis reference
   const bindPosSlider = (axis, input, out) => {
     input.addEventListener('input', () => {
-      if (!lastPos) lastPos = { x: settings.backgroundPosition.x, y: settings.backgroundPosition.y };
+      const w = activeWallpaper(settings);
+      if (!w) return;
+      if (!lastPos) lastPos = { x: positionFor(settings).x, y: positionFor(settings).y };
       let v = Number(input.value);
-      /* Magnet with hysteresis: only snap when the value *enters* a detent's
-         zone from outside, so you can always step out of an anchor again
-         (arrow keys included) instead of being pinned to the detent. */
       for (const d of POS_DETENTS) {
         const inZone = (val) => Math.abs(val - d) <= POS_SNAP;
         if (inZone(v) && !inZone(lastPos[axis])) { v = d; input.value = String(d); break; }
       }
       lastPos[axis] = v;
-      settings.backgroundPosition[axis] = v;
+      const pos = positionMap[w.id] || { x: 50, y: 50 };
+      pos[axis] = v;
+      positionMap[w.id] = pos;
+      writePositionMap();
       out.textContent = v + '%';
-      syncPosGrid();
-      commit();
+      commitLocal();
     });
   };
   bindPosSlider('x', els.posX, els.posXOut);
@@ -1592,6 +1693,7 @@ load();
     return r.json();
   }).then((data) => {
     const serverSettings = sanitizeSettings(data && data.settings);
+    migrateGlobalPosition(serverSettings); // same one-time rule, server's copy
     settings = serverSettings;
     applyAppearance(settings);
     syncPanel();
@@ -1602,6 +1704,7 @@ load();
     /* server unreachable: keep the cached appearance, changes will sync once
        the network returns (the next PUT retries on any edit) */
     settings = readSettings();
+    migrateGlobalPosition(settings); // same one-time rule, cached copy
     applyAppearance(settings);
     syncPanel();
   });
