@@ -108,7 +108,7 @@ a.sname:hover{color:var(--accent);text-decoration:underline}
    The scrim is a second background-image layer — a flat veil whose alpha is --sp-scrim —
    so the slider re-rasterizes live with zero extra JS. Blur = wallpaper blur + glass blur,
    summed into one variable; no backdrop-filter on the app (the layer itself is blurred). */
-#sp-bg-layer{position:fixed;inset:-48px;z-index:-1;pointer-events:none;background-repeat:no-repeat;background-position:var(--sp-bg-position,center);background-size:cover;background-image:linear-gradient(rgba(8,10,18,var(--sp-scrim,0)) 0%,rgba(8,10,18,var(--sp-scrim,0)) 100%),var(--sp-bg-image,none);opacity:var(--sp-bg-opacity,1);filter:blur(var(--sp-bg-blur,0px))}
+#sp-bg-layer{position:fixed;inset:-48px;z-index:-1;pointer-events:none;background-repeat:no-repeat;background-position:var(--sp-bg-position,50% 50%);background-size:cover;background-image:linear-gradient(rgba(8,10,18,var(--sp-scrim,0)) 0%,rgba(8,10,18,var(--sp-scrim,0)) 100%),var(--sp-bg-image,none);opacity:var(--sp-bg-opacity,1);filter:blur(var(--sp-bg-blur,0px))}
 /* "This portal" / "internal" pills sit on the translucent table: give them a
    translucent base too, but only while a wallpaper is active (default stays
    pixel-identical to the stock look). */
@@ -131,7 +131,24 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
 .sp-slider output{float:right;color:var(--text);font-variant-numeric:tabular-nums}
 .sp-slider input[type=range]{width:100%;margin:4px 0 0;accent-color:var(--accent);cursor:pointer}
 .sp-select{display:block;font-size:12.5px;color:var(--muted);margin-top:10px}
-.sp-select select{width:100%;margin:4px 0 0;padding:4px 8px;font-size:13px;color:var(--text);background:var(--panel-2);border:1px solid var(--line);border-radius:7px;cursor:pointer}
+/* Origin grid: a numpad-style 3×3 of anchor points (7 8 9 / 4 5 6 / 1 2 3).
+   Each cell's dot marks where the wallpaper's origin sits; the two sliders
+   under the grid carry the free offset between anchors. */
+.sp-posgrid{display:grid;grid-template-columns:repeat(3,40px);gap:5px;margin:6px 0 0}
+.sp-pos{position:relative;height:30px;padding:0;border:1px solid var(--line);border-radius:7px;background:rgb(var(--panel-2-rgb));cursor:pointer}
+.sp-pos::after{content:'';position:absolute;width:6px;height:6px;border-radius:50%;background:var(--muted);left:50%;top:50%;transform:translate(-50%,-50%)}
+.sp-pos[data-dot=tl]::after{left:25%;top:25%}
+.sp-pos[data-dot=tc]::after{left:50%;top:25%}
+.sp-pos[data-dot=tr]::after{left:75%;top:25%}
+.sp-pos[data-dot=ml]::after{left:25%;top:50%}
+.sp-pos[data-dot=mr]::after{left:75%;top:50%}
+.sp-pos[data-dot=bl]::after{left:25%;top:75%}
+.sp-pos[data-dot=bc]::after{left:50%;top:75%}
+.sp-pos[data-dot=br]::after{left:75%;top:75%}
+.sp-pos:hover{border-color:var(--accent)}
+.sp-pos[aria-pressed=true]{border-color:var(--accent)}
+.sp-pos[aria-pressed=true]::after{background:var(--accent)}
+.sp-pos:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .sp-status{font-size:12.5px;color:var(--bad);min-height:16px;margin-top:8px;overflow-wrap:anywhere}
 </style>
 </head>
@@ -201,16 +218,26 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
     <button id="spUploadBtn" class="btn" type="button">Upload background&hellip;</button>
   </div>
   <input type="file" id="spFile" class="hidden" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" multiple>
-  <label class="sp-select" title="Which edge the wallpaper anchors to when it covers the screen">
+  <div class="sp-select" title="Where the wallpaper's origin sits in the cover crop: pick an anchor (or press 1–9), then fine-tune with the sliders — 0–100% of the way between the cropped edges, snapping back to an anchor near 0/50/100">
     Position
-    <select id="spPosition">
-      <option value="center" selected>Centered</option>
-      <option value="top">Pinned to top</option>
-      <option value="bottom">Pinned to bottom</option>
-      <option value="left">Pinned to left</option>
-      <option value="right">Pinned to right</option>
-    </select>
-  </label>
+    <div class="sp-posgrid" id="spPosGrid" role="group" aria-label="Wallpaper origin anchor">
+      <button id="spPos-tl" class="sp-pos" type="button" data-dot="tl" aria-pressed="false" aria-label="Top left" title="Top left (7)"></button>
+      <button id="spPos-tc" class="sp-pos" type="button" data-dot="tc" aria-pressed="false" aria-label="Top" title="Top (8)"></button>
+      <button id="spPos-tr" class="sp-pos" type="button" data-dot="tr" aria-pressed="false" aria-label="Top right" title="Top right (9)"></button>
+      <button id="spPos-ml" class="sp-pos" type="button" data-dot="ml" aria-pressed="false" aria-label="Left" title="Left (4)"></button>
+      <button id="spPos-mc" class="sp-pos" type="button" data-dot="mc" aria-pressed="true" aria-label="Center" title="Center (5)"></button>
+      <button id="spPos-mr" class="sp-pos" type="button" data-dot="mr" aria-pressed="false" aria-label="Right" title="Right (6)"></button>
+      <button id="spPos-bl" class="sp-pos" type="button" data-dot="bl" aria-pressed="false" aria-label="Bottom left" title="Bottom left (1)"></button>
+      <button id="spPos-bc" class="sp-pos" type="button" data-dot="bc" aria-pressed="false" aria-label="Bottom" title="Bottom (2)"></button>
+      <button id="spPos-br" class="sp-pos" type="button" data-dot="br" aria-pressed="false" aria-label="Bottom right" title="Bottom right (3)"></button>
+    </div>
+    <label class="sp-slider" title="Origin's horizontal offset: 0 = flush left, 50 = centered, 100 = flush right">Horizontal <output id="spPosXOut">50%</output>
+      <input type="range" id="spPosX" min="0" max="100" step="1" value="50">
+    </label>
+    <label class="sp-slider" title="Origin's vertical offset: 0 = flush top, 50 = centered, 100 = flush bottom">Vertical <output id="spPosYOut">50%</output>
+      <input type="range" id="spPosY" min="0" max="100" step="1" value="50">
+    </label>
+  </div>
   <div class="sp-row">
     <button id="spRemove" class="btn" type="button" title="Delete the wallpaper you have landed on (the collection closes the gap)">Remove</button>
     <button id="spReset" class="btn" type="button" title="Delete every wallpaper and restore the default settings">Reset</button>
@@ -677,20 +704,34 @@ load();
   const IMAGE_STORE = 'images';
   const LS_KEY = 'sp-appearance';
 
-  /* cover-crop anchors: which edge the wallpaper keeps visible */
-  const POSITION_VALUES = ['center', 'top', 'bottom', 'left', 'right'];
-  const POSITION_CSS = {
-    center: 'center center',
-    top: 'center top',
-    bottom: 'center bottom',
-    left: 'left center',
-    right: 'right center',
+  /* Wallpaper origin in the cover crop: a single point (x, y) on 0–100 each
+     axis (0 = flush that edge, 50 = centered, 100 = flush the far edge). The
+     3×3 grid in the panel is the nine anchor points — the old dropdown's five
+     are a subset of them; anything in between is a free offset. Because the
+     range is bounded, cover keeps the layer fully covered at every position. */
+  const ANCHORS = {
+    tl: [0, 0], tc: [50, 0], tr: [100, 0],
+    ml: [0, 50], mc: [50, 50], mr: [100, 50],
+    bl: [0, 100], bc: [50, 100], br: [100, 100]
   };
+  const POS_CELLS = Object.keys(ANCHORS);
+  const POS_DETENTS = [0, 50, 100];  // the offset sliders' magnets
+  const POS_SNAP = 4;                // magnet radius, in % points
+  /* Pre-grid versions stored one of the five anchor strings; map them onto
+     the grid so old settings keep working. */
+  const LEGACY_POSITIONS = { center: [50, 50], top: [50, 0], bottom: [50, 100], left: [0, 50], right: [100, 50] };
+  function sanitizePosition(raw) {
+    if (typeof raw === 'string') raw = LEGACY_POSITIONS[raw];
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) raw = [raw.x, raw.y];
+    const ax = Array.isArray(raw) ? raw : [];
+    const axis = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(100, Math.max(0, v)) : 50);
+    return { x: axis(ax[0]), y: axis(ax[1]) };
+  }
 
   const DEFAULTS = {
     wallpapers: [],            // the ordered collection: [{ id, type, imageDark, accent, accentTouched }]
     activeWallpaperId: null,   // the wallpaper currently on screen (an id into wallpapers)
-    backgroundPosition: 'center',
+    backgroundPosition: { x: 50, y: 50 },  // origin point in the cover crop, 0..100 per axis
     backgroundOpacity: 1,    // 0..1
     backgroundBlur: 0,       // 0..30 px
     scrim: 0,                // 0..1 readability veil
@@ -726,7 +767,14 @@ load();
     thumb: $id('spThumb'),
     file: $id('spFile'),
     upload: $id('spUploadBtn'),
-    position: $id('spPosition'),
+    posGrid: $id('spPosGrid'),
+    posCells: {
+      tl: $id('spPos-tl'), tc: $id('spPos-tc'), tr: $id('spPos-tr'),
+      ml: $id('spPos-ml'), mc: $id('spPos-mc'), mr: $id('spPos-mr'),
+      bl: $id('spPos-bl'), bc: $id('spPos-bc'), br: $id('spPos-br')
+    },
+    posX: $id('spPosX'), posXOut: $id('spPosXOut'),
+    posY: $id('spPosY'), posYOut: $id('spPosYOut'),
     remove: $id('spRemove'),
     reset: $id('spReset'),
     resetColors: $id('spResetColors'),
@@ -769,7 +817,7 @@ load();
       activeWallpaperId: wallpapers.length
         ? (wallpapers.some((w) => w.id === (raw && raw.activeWallpaperId)) ? raw.activeWallpaperId : wallpapers[0].id)
         : null,
-      backgroundPosition: 'center',
+      backgroundPosition: { x: 50, y: 50 },
       backgroundOpacity: 1,
       backgroundBlur: 0,
       scrim: 0,
@@ -777,7 +825,7 @@ load();
       glassBlur: 0
     };
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return out;
-    if (POSITION_VALUES.indexOf(raw.backgroundPosition) !== -1) out.backgroundPosition = raw.backgroundPosition;
+    out.backgroundPosition = sanitizePosition(raw.backgroundPosition);
     for (const [field, b] of Object.entries(BOUNDS)) {
       const v = raw[field];
       if (typeof v === 'number' && Number.isFinite(v)) out[field] = Math.min(b.max, Math.max(b.min, v));
@@ -1122,7 +1170,7 @@ load();
     body.style.setProperty('--sp-bg-blur', (s.backgroundBlur + s.glassBlur) + 'px');
     body.style.setProperty('--sp-scrim', String(s.scrim));
     body.style.setProperty('--sp-list-alpha', String(s.surfaceAlpha));
-    body.style.setProperty('--sp-bg-position', POSITION_CSS[s.backgroundPosition] || POSITION_CSS.center);
+    body.style.setProperty('--sp-bg-position', s.backgroundPosition.x + '% ' + s.backgroundPosition.y + '%');
     if (s.glassBlur > 0) {
       body.style.setProperty('--sp-glass-blur', s.glassBlur + 'px');
       body.setAttribute('data-sp-glass', '');
@@ -1292,16 +1340,29 @@ load();
 
   function isDefault() {
     const list = Array.isArray(settings.wallpapers) ? settings.wallpapers : [];
-    return list.length === 0 && settings.backgroundPosition === 'center' &&
+    return list.length === 0 && settings.backgroundPosition.x === 50 && settings.backgroundPosition.y === 50 &&
       settings.backgroundOpacity === 1 && settings.backgroundBlur === 0 &&
       settings.scrim === 0 && settings.surfaceAlpha === 1 && settings.glassBlur === 0;
+  }
+
+  /* Press the grid cell that matches the current origin — none, when the
+     origin sits in the open space between anchors. */
+  function syncPosGrid() {
+    const p = settings.backgroundPosition;
+    for (const key of POS_CELLS) {
+      const a = ANCHORS[key];
+      els.posCells[key].setAttribute('aria-pressed', String(a[0] === p.x && a[1] === p.y));
+    }
   }
 
   function syncPanel() {
     els.opacity.value = String(Math.round(settings.backgroundOpacity * 100));
     els.opacityOut.textContent = Math.round(settings.backgroundOpacity * 100) + '%';
-    els.position.value = POSITION_VALUES.indexOf(settings.backgroundPosition) !== -1
-      ? settings.backgroundPosition : 'center';
+    els.posX.value = String(Math.round(settings.backgroundPosition.x));
+    els.posXOut.textContent = Math.round(settings.backgroundPosition.x) + '%';
+    els.posY.value = String(Math.round(settings.backgroundPosition.y));
+    els.posYOut.textContent = Math.round(settings.backgroundPosition.y) + '%';
+    syncPosGrid();
     els.blur.value = String(settings.backgroundBlur);
     els.blurOut.textContent = settings.backgroundBlur + 'px';
     els.scrim.value = String(Math.round(settings.scrim * 100));
@@ -1374,10 +1435,46 @@ load();
     handleFiles(e.dataTransfer && e.dataTransfer.files);
   });
 
-  els.position.addEventListener('change', () => {
-    settings.backgroundPosition = els.position.value;
+  /* Position: a numpad-style 3×3 anchor grid plus two sliders carrying the
+     free offset between anchors. The sliders are magnetic — near 0/50/100
+     they snap to the nearest detent, so the anchor stays crisp unless you
+     deliberately aim for the open space between anchors. */
+  const setAnchor = (key) => {
+    const a = ANCHORS[key];
+    if (!a) return;
+    settings.backgroundPosition = { x: a[0], y: a[1] };
+    lastPos = { x: a[0], y: a[1] }; // the anchor becomes the hysteresis reference
     commit();
+  };
+  for (const key of POS_CELLS) {
+    els.posCells[key].addEventListener('click', () => setAnchor(key));
+  }
+  const NUMPAD_KEYS = { '7': 'tl', '8': 'tc', '9': 'tr', '4': 'ml', '5': 'mc', '6': 'mr', '1': 'bl', '2': 'bc', '3': 'br' };
+  els.posGrid.addEventListener('keydown', (e) => {
+    const key = NUMPAD_KEYS[e.key];
+    if (key) { e.preventDefault(); setAnchor(key); }
   });
+  let lastPos = null; // last (x, y) the sliders were at; the hysteresis reference
+  const bindPosSlider = (axis, input, out) => {
+    input.addEventListener('input', () => {
+      if (!lastPos) lastPos = { x: settings.backgroundPosition.x, y: settings.backgroundPosition.y };
+      let v = Number(input.value);
+      /* Magnet with hysteresis: only snap when the value *enters* a detent's
+         zone from outside, so you can always step out of an anchor again
+         (arrow keys included) instead of being pinned to the detent. */
+      for (const d of POS_DETENTS) {
+        const inZone = (val) => Math.abs(val - d) <= POS_SNAP;
+        if (inZone(v) && !inZone(lastPos[axis])) { v = d; input.value = String(d); break; }
+      }
+      lastPos[axis] = v;
+      settings.backgroundPosition[axis] = v;
+      out.textContent = v + '%';
+      syncPosGrid();
+      commit();
+    });
+  };
+  bindPosSlider('x', els.posX, els.posXOut);
+  bindPosSlider('y', els.posY, els.posYOut);
 
   els.remove.addEventListener('click', removeCurrentWallpaper);
   els.reset.addEventListener('click', resetAppearance);

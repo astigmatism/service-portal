@@ -244,7 +244,7 @@ function mkFetch(state) {
 }
 
 const SERVER_DEFAULTS = {
-  wallpapers: [], activeWallpaperId: null, backgroundPosition: 'center',
+  wallpapers: [], activeWallpaperId: null, backgroundPosition: { x: 50, y: 50 },
   backgroundOpacity: 1, backgroundBlur: 0, scrim: 0, surfaceAlpha: 1,
   glassBlur: 0
 };
@@ -324,7 +324,9 @@ for (const needle of [
   'border:1px solid var(--selftag-line)',
   'id="spNav"', 'id="spPrev"', 'id="spNext"', 'id="spNavCount"',
   'id="bgPrev"', 'id="bgNext"', '.seg-arrow{',
-  '.sp-nav{', 'accept="image/jpeg,image/png,image/webp,image/gif,image/avif" multiple>'
+  '.sp-nav{', 'accept="image/jpeg,image/png,image/webp,image/gif,image/avif" multiple>',
+  'id="spPosGrid"', 'id="spPos-br"', '.sp-pos{', 'id="spPosX"', 'id="spPosY"',
+  'background-position:var(--sp-bg-position,50% 50%)'
 ]) {
   assert.ok(html.includes(needle), 'index.html missing: ' + needle);
 }
@@ -635,6 +637,19 @@ function spawnServer(dataDir, port) {
       assert.deepStrictEqual(s.wallpapers, [], 'fresh server has an empty collection');
       assert.strictEqual(s.activeWallpaperId, null, 'fresh server has no active wallpaper');
 
+      // Origin point round-trip: free points persist, legacy anchor strings
+      // migrate onto the grid, and out-of-range values are clamped.
+      assert.deepStrictEqual(s.backgroundPosition, { x: 50, y: 50 }, 'fresh server defaults the origin to center');
+      s = await put({ backgroundPosition: { x: 12, y: 88 } });
+      assert.deepStrictEqual(s.backgroundPosition, { x: 12, y: 88 }, 'free origin point persists');
+      s = await put({ backgroundPosition: 'bottom' });
+      assert.deepStrictEqual(s.backgroundPosition, { x: 50, y: 100 }, 'legacy anchor string migrates server-side');
+      s = await put({ backgroundPosition: { x: 400, y: -5 } });
+      assert.deepStrictEqual(s.backgroundPosition, { x: 100, y: 0 }, 'out-of-range origin clamped to the crop');
+      s = await put({ scrim: 0.3 });
+      assert.deepStrictEqual(s.backgroundPosition, { x: 100, y: 0 }, 'origin survives a slider-only PUT');
+      s = await put({ backgroundPosition: { x: 50, y: 50 } });
+
       const a = (await postWp(Buffer.from('img-a'))).wallpaper;
       assert.match(a.id, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, 'server mints a uuid id');
       s = await get();
@@ -767,6 +782,61 @@ function spawnServer(dataDir, port) {
     await sleep(300);
     assert.strictEqual(t2.fetchState.settings.activeWallpaperId, null, 'clicking a dimmed arrow changes nothing');
     console.log('  ok 14. header arrows walk the collection and dim at the ends (and when empty)');
+  }
+
+  /* ---------- Scenario 15: position — 3×3 origin grid + offset sliders ---
+     The position is a single (x, y) origin point on 0–100 per axis. Legacy
+     anchor strings migrate onto the grid, a cell click sets the corner
+     anchor, the sliders carry the free offset between anchors and magnetize
+     back to the 0/50/100 detents, and numpad keys 1–9 jump between anchors. */
+  {
+    const t = boot(() => makeBitmap(1, 1, () => [128, 128, 128]), { backgroundPosition: 'top' });
+    await sleep(30); // let the startup fetch settle
+    assert.strictEqual(t.body.style.props['--sp-bg-position'], '50% 0%',
+      'legacy "top" migrates to the (50, 0) origin');
+    assert.strictEqual(t.elements.spPosX.value, '50', 'horizontal slider reflects the migrated origin');
+    assert.strictEqual(t.elements.spPosY.value, '0', 'vertical slider reflects the migrated origin');
+    assert.strictEqual(t.elements['spPos-tc'].attrs['aria-pressed'], 'true', 'top-center cell pressed');
+    assert.strictEqual(t.elements['spPos-mc'].attrs['aria-pressed'], 'false', 'center cell not pressed');
+
+    click(t.elements, 'spPos-br');
+    assert.strictEqual(t.body.style.props['--sp-bg-position'], '100% 100%', 'corner anchor applied live');
+    assert.strictEqual(t.elements['spPos-br'].attrs['aria-pressed'], 'true', 'bottom-right cell pressed');
+    await sleep(400);
+    assert.deepStrictEqual(
+      t.fetchState.putBodies[t.fetchState.putBodies.length - 1].backgroundPosition,
+      { x: 100, y: 100 }, 'origin persisted as the point, not an enum');
+
+    const yIn = t.elements.spPosY.listeners.input;
+    assert.ok(yIn && yIn.length, 'vertical offset slider wired');
+    t.elements.spPosY.value = '63';
+    yIn[0]();
+    assert.strictEqual(t.body.style.props['--sp-bg-position'], '100% 63%', 'off-detent offset applied live');
+    assert.strictEqual(t.elements['spPos-br'].attrs['aria-pressed'], 'false',
+      'no anchor pressed in the open space between anchors');
+
+    t.elements.spPosY.value = '53';
+    yIn[0]();
+    assert.strictEqual(t.elements.spPosY.value, '50', 'slider magnetized to the nearest detent');
+    assert.strictEqual(t.body.style.props['--sp-bg-position'], '100% 50%', 'snapped onto the right-edge anchor');
+    assert.strictEqual(t.elements['spPos-mr'].attrs['aria-pressed'], 'true', 'right cell pressed after the snap');
+
+    // Hysteresis: from on the detent you can step out again, one step at a
+    // time, instead of being pinned to the magnet.
+    t.elements.spPosY.value = '49';
+    yIn[0]();
+    assert.strictEqual(t.elements.spPosY.value, '49', 'can step out of a detent one step at a time');
+    assert.strictEqual(t.body.style.props['--sp-bg-position'], '100% 49%', 'free value held next to the anchor');
+
+    const kd = t.elements.spPosGrid.listeners.keydown;
+    assert.ok(kd && kd.length, 'grid has a keydown listener');
+    kd[0]({ key: '7', preventDefault() {} });
+    assert.strictEqual(t.body.style.props['--sp-bg-position'], '0% 0%', 'numpad 7 jumps to top-left');
+    await sleep(400);
+    assert.deepStrictEqual(
+      t.fetchState.putBodies[t.fetchState.putBodies.length - 1].backgroundPosition,
+      { x: 0, y: 0 }, 'keyboard anchor change persisted');
+    console.log('  ok 15. position: 3×3 origin grid + magnetic offset sliders (legacy strings migrate)');
   }
 
   console.log('all appearance tests passed');

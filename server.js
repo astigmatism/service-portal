@@ -105,15 +105,24 @@ const MAINTENANCE_LABEL = 'io.service-portal.maintenance';
 const APPEARANCE_DEFAULTS = {
   wallpapers: [], // ordered collection: [{ id, type, imageDark, accent, accentTouched }]
   activeWallpaperId: null, // id into wallpapers — the one currently on screen
-  backgroundPosition: 'center',
+  backgroundPosition: { x: 50, y: 50 }, // origin in the cover crop, 0..100 per axis
   backgroundOpacity: 1,
   backgroundBlur: 0,
   scrim: 0,
   surfaceAlpha: 1, // service-list background opacity (table and sidebar)
   glassBlur: 0,
 };
-// cover-crop anchors for the wallpaper (see --sp-bg-position in index.html)
-const APPEARANCE_POSITIONS = ['center', 'top', 'bottom', 'left', 'right'];
+// Wallpaper origin in the cover crop (see --sp-bg-position in index.html): a
+// (x, y) point on 0..100 per axis. Pre-grid versions stored one of the five
+// anchor strings; those map onto the grid so old settings keep working.
+const LEGACY_POSITIONS = { center: [50, 50], top: [50, 0], bottom: [50, 100], left: [0, 50], right: [100, 50] };
+function sanitizePosition(raw) {
+  if (typeof raw === 'string') raw = LEGACY_POSITIONS[raw];
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) raw = [raw.x, raw.y];
+  const ax = Array.isArray(raw) ? raw : [];
+  const axis = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(100, Math.max(0, v)) : 50);
+  return { x: axis(ax[0]), y: axis(ax[1]) };
+}
 const APPEARANCE_BOUNDS = {
   backgroundOpacity: { min: 0, max: 1 },
   backgroundBlur: { min: 0, max: 30 },
@@ -160,7 +169,7 @@ function sanitizeWallpaperEntry(entry) {
    — shared by the whole portal, independent of which wallpaper is active. */
 function sanitizeSliders(raw) {
   const out = { ...APPEARANCE_DEFAULTS, wallpapers: [], activeWallpaperId: null };
-  if (APPEARANCE_POSITIONS.includes(raw.backgroundPosition)) out.backgroundPosition = raw.backgroundPosition;
+  out.backgroundPosition = sanitizePosition(raw.backgroundPosition);
   for (const [field, b] of Object.entries(APPEARANCE_BOUNDS)) {
     const v = raw[field];
     if (typeof v === 'number' && Number.isFinite(v)) out[field] = Math.min(b.max, Math.max(b.min, v));
@@ -809,7 +818,9 @@ const server = http.createServer((req, res) => {
           if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error('invalid settings body');
           return withStateLock(() => {
             const current = loadAppearanceState();
-            const settings = sanitizeSliders(raw);
+            // Missing slider fields fall back to the stored values, so a
+            // partial PUT cannot silently reset the ones it doesn't touch.
+            const settings = sanitizeSliders({ ...current, ...raw });
             // The wallpaper collection is managed by the wallpaper endpoints;
             // the PUT only steers the sliders and the active pointer.
             settings.wallpapers = current.wallpapers;
