@@ -85,7 +85,23 @@ header{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:
 .seg-arrow:disabled:hover{color:var(--muted)}
 body[data-layout="sidebar"] #listView{display:flex;gap:18px;overflow:hidden}
 body[data-layout="sidebar"] #empty{flex:1}
-#sidebar{display:flex;flex-direction:column;align-self:flex-start;flex:0 1 calc(100%/3);min-width:280px;max-width:720px;min-height:0;max-height:100%;background:rgba(var(--panel-rgb),var(--sp-list-alpha,1));border:1px solid var(--line);border-radius:12px;overflow:hidden}
+#sidebar{position:relative;display:flex;flex-direction:column;align-self:flex-start;flex:0 1 calc(100%/3);min-width:280px;max-width:720px;min-height:0;max-height:100%;background:rgba(var(--panel-rgb),var(--sp-list-alpha,1));border:1px solid var(--line);border-radius:12px;overflow:hidden}
+/* Right-edge drag handle. It lives inside the panel (the panel clips to its
+   rounded corners) over the rows' right padding, so it never covers a control.
+   The list reads clean by default: the grip is invisible until the pointer
+   comes within ~36px of the panel's right edge (see SIDE_NEAR), where it fades
+   in; it stays up while dragging and while keyboard-focused. Drag it toward
+   the centre to widen the list, back to the left to narrow it; double-click or
+   Enter snaps back to the default third. */
+.side-grip{position:absolute;z-index:3;right:0;top:0;bottom:0;width:10px;padding:0;border:0;background:transparent;cursor:col-resize;touch-action:none;opacity:0;transition:opacity .16s ease}
+.side-grip.near,.side-grip.dragging,.side-grip:focus-visible{opacity:1}
+.side-grip::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:3px;height:36px;border-radius:3px;background:rgba(139,152,184,.55);transition:background .12s}
+.side-grip:hover::after,.side-grip.dragging::after{background:var(--accent)}
+.side-grip:focus-visible{outline:none}
+.side-grip:focus-visible::after{background:var(--accent);box-shadow:0 0 0 3px rgba(90,167,255,.3)}
+@media (prefers-reduced-motion:reduce){.side-grip{transition:none}}
+body.sp-side-resizing{cursor:col-resize;user-select:none}
+body.sp-side-resizing *{cursor:col-resize}
 .side-rows{list-style:none;margin:0;padding:0;flex:1;min-height:0;overflow-y:auto}
 .srow{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line);min-width:0}
 .side-rows .srow:last-child{border-bottom:0}
@@ -205,6 +221,7 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
     </div>
     <div class="hidden" id="sidebar">
       <ul class="side-rows" id="sideRows"></ul>
+      <div class="side-grip" id="sideGrip" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Sidebar width" title="Drag to resize the sidebar &#183; double-click or press Enter for the default width"></div>
     </div>
     <div class="empty hidden" id="empty"></div>
   </main>
@@ -671,10 +688,122 @@ function setLayout(next){
   try { localStorage.setItem(LAYOUT_KEY, layout); } catch (e) {}
   syncLayoutButtons();
   renderList();
+  if (layout === 'sidebar') applySideWidth(); // re-clamp against the row's width
 }
 layoutTableBtn.addEventListener('click', () => setLayout('table'));
 layoutSidebarBtn.addEventListener('click', () => setLayout('sidebar'));
 syncLayoutButtons();
+
+/* ===== Resizable sidebar =================================================
+   In the sidebar layout the panel is one third of the row by default; the
+   handle on its right edge lets you pull that edge toward the centre (or back
+   out to the left). Width is clamped between 280px (the panel's own
+   min-width) and "row minus a 240px wallpaper strip", remembered in
+   localStorage ('sp-sidebar-width'), and re-clamped when the window shrinks.
+   Double-click (or Enter/Space) drops back to the default third; arrow keys
+   nudge by 24px so the handle is usable without a pointer. */
+const SIDE_W_KEY = 'sp-sidebar-width';
+const SIDE_MIN = 280;
+const SIDE_KEEP = 240;
+const SIDE_STEP = 24;
+let sideWidth = 0; // 0 = default (one third of the row)
+try {
+  const storedSide = parseInt(localStorage.getItem(SIDE_W_KEY), 10);
+  if (Number.isFinite(storedSide) && storedSide >= SIDE_MIN) sideWidth = storedSide;
+} catch (e) {}
+
+function sideMax(){
+  const row = $('#listView').clientWidth || window.innerWidth || 1200;
+  return Math.max(SIDE_MIN, row - SIDE_KEEP);
+}
+function clampSideWidth(w){
+  return Math.min(Math.max(Math.round(w), SIDE_MIN), sideMax());
+}
+function applySideWidth(){
+  const side = $('#sidebar');
+  const grip = $('#sideGrip');
+  if (!sideWidth){
+    side.style.removeProperty('flex');
+    side.style.removeProperty('max-width');
+    grip.removeAttribute('aria-valuenow');
+    grip.removeAttribute('aria-valuetext');
+    return;
+  }
+  sideWidth = clampSideWidth(sideWidth);
+  side.style.flex = '0 0 ' + sideWidth + 'px';
+  side.style.maxWidth = sideWidth + 'px';
+  grip.setAttribute('aria-valuenow', String(sideWidth));
+  grip.setAttribute('aria-valuetext', sideWidth + ' pixels');
+}
+function storeSideWidth(){
+  try {
+    if (sideWidth) localStorage.setItem(SIDE_W_KEY, String(sideWidth));
+    else localStorage.removeItem(SIDE_W_KEY);
+  } catch (e) {}
+}
+function setSideWidth(w){ sideWidth = clampSideWidth(w); applySideWidth(); storeSideWidth(); }
+function resetSideWidth(){ sideWidth = 0; applySideWidth(); storeSideWidth(); }
+
+const sideGrip = $('#sideGrip');
+let sideDrag = null;
+
+/* Hover-reveal: the grip is invisible until the pointer gets close to the
+   panel's right edge. The proximity test runs on the whole row (not the grip
+   itself) so the handle can announce itself before the pointer is on it, and
+   it uses left+width rather than rect.right so it behaves the same in the
+   headless test DOM. */
+const SIDE_NEAR = 36;
+function sideNear(x){
+  const r = $('#sidebar').getBoundingClientRect();
+  const edge = r.left + r.width;
+  return x >= edge - SIDE_NEAR && x <= edge + SIDE_NEAR;
+}
+function syncSideGripHover(x){
+  if (sideDrag) return; // .dragging already holds it visible
+  sideGrip.classList.toggle('near', sideNear(x));
+}
+$('#listView').addEventListener('pointermove', (e) => syncSideGripHover(e.clientX));
+$('#listView').addEventListener('pointerleave', () => {
+  if (!sideDrag) sideGrip.classList.remove('near');
+});
+
+sideGrip.addEventListener('pointerdown', (e) => {
+  if (e.button) return;
+  e.preventDefault();
+  sideDrag = { startX: e.clientX, startW: sideWidth || $('#sidebar').getBoundingClientRect().width };
+  sideGrip.classList.add('dragging');
+  document.body.classList.add('sp-side-resizing');
+});
+window.addEventListener('pointermove', (e) => {
+  if (!sideDrag) return;
+  sideDrag.lastX = e.clientX;
+  sideWidth = clampSideWidth(sideDrag.startW + (e.clientX - sideDrag.startX));
+  applySideWidth();
+});
+function endSideDrag(){
+  if (!sideDrag) return;
+  const lastX = sideDrag.lastX;
+  sideDrag = null;
+  sideGrip.classList.remove('dragging');
+  document.body.classList.remove('sp-side-resizing');
+  storeSideWidth();
+  syncSideGripHover(lastX); // stay revealed if the pointer is still by the edge
+}
+window.addEventListener('pointerup', endSideDrag);
+window.addEventListener('pointercancel', endSideDrag);
+sideGrip.addEventListener('dblclick', (e) => { e.preventDefault(); resetSideWidth(); });
+sideGrip.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight'){
+    e.preventDefault();
+    const base = sideWidth || $('#sidebar').getBoundingClientRect().width;
+    setSideWidth(base + (e.key === 'ArrowRight' ? SIDE_STEP : -SIDE_STEP));
+  } else if (e.key === 'Enter' || e.key === ' '){
+    e.preventDefault();
+    resetSideWidth();
+  }
+});
+window.addEventListener('resize', () => { if (sideWidth) applySideWidth(); });
+applySideWidth();
 
 $('#refreshBtn').addEventListener('click', () => load());
 setInterval(() => load(), 20000);

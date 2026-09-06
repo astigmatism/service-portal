@@ -20,7 +20,12 @@ reconfiguration, no restart.
   localStorage, a Table/Sidebar layout switch also persisted in localStorage (the Sidebar
   layout is a narrow single-column list on the left third of the screen — status dot, name
   link, a per-row start/stop toggle, and an opt-in update/restart control — leaving the rest of the viewport for the
-  wallpaper), and 20-second auto-refresh.
+  wallpaper — whose right edge carries a drag handle for pulling the list wider toward the
+  centre or back to the left. The handle stays invisible until the pointer comes within ~36px
+  of that edge, so the list reads clean by default (clamped between 280px and the row minus a
+  240px wallpaper strip, the finalized width remembered per browser in localStorage so a
+  return visit lands where you left it, double-click or Enter for the default third),
+  and 20-second auto-refresh.
 - Project updates run in detached maintenance containers, so an updater survives replacing
   the target container or the portal itself. Job status and bounded logs persist in `/data`.
 
