@@ -608,11 +608,13 @@ async function startProjectUpdate(project) {
   ];
   const runnerMounts = [];
   if (capability.runnerHostHome) {
+    const hostUserUnitDir = path.posix.join(
+      capability.runnerHostHome, '.config/systemd/user');
     runnerEnv.push('SERVICE_PORTAL_UPDATE_HOST_HOME=' + capability.runnerHostHome);
     runnerMounts.push({
       Type: 'bind',
-      Source: capability.runnerHostHome,
-      Target: capability.runnerHostHome,
+      Source: hostUserUnitDir,
+      Target: hostUserUnitDir,
       ReadOnly: false,
     });
   }

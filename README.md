@@ -173,9 +173,11 @@ browser. Every container in the same Compose project shares the same job and loc
 
 Projects whose update also manages files in the deploying user's home can set the optional
 `io.service-portal.update.host-home` label to an absolute, non-root POSIX path. The portal
-validates the path, asks Docker for a missing-source-safe bind mount at the same location, and
-exposes it to the runner as `SERVICE_PORTAL_UPDATE_HOST_HOME`. Invalid paths disable the
-project's update action instead of creating or mounting an unintended directory.
+validates the path and exposes it to the runner as `SERVICE_PORTAL_UPDATE_HOST_HOME`. Only the
+home's `.config/systemd/user` directory is bound at the same path using Docker's
+missing-source-safe mount form; the home itself is not mounted. Invalid paths disable the
+project's update action instead of creating or mounting an unintended directory, and a missing
+user-unit directory makes runner creation fail closed.
 
 The portal's own Compose service is opted in. Its `update and restart` script refuses dirty,
 detached, non-`main`, unexpected-origin, and divergent or rewritten Git states; accepts clean

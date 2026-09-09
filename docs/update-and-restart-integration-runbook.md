@@ -133,8 +133,10 @@ The control will appear only when all of these conditions are true:
   the service's numeric configured user is used when possible, otherwise the runner falls back
   to `0:0`.
 - `io.service-portal.update.host-home`, when supplied, is an absolute, non-root POSIX path.
-  Service Portal bind-mounts it at the same path and exposes it as
-  `SERVICE_PORTAL_UPDATE_HOST_HOME`; omit it when the updater does not manage home-directory files.
+  Service Portal exposes it as `SERVICE_PORTAL_UPDATE_HOST_HOME`, but bind-mounts only its
+  `.config/systemd/user` directory at the same path. The missing-source-safe mount fails runner
+  creation when that directory does not exist instead of creating it or exposing the broader
+  home. Omit the label when the updater does not manage user-systemd files.
 - Every opted-in container in the same Compose project has identical effective project
   directory, script, image, user, and optional host-home settings.
 

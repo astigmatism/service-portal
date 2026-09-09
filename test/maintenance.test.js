@@ -328,7 +328,10 @@ test('project updates are validated, detached, monitored, and persisted', async 
     assert.ok(spec.HostConfig.Binds.includes('/srv/portal project:/srv/portal project'));
     assert.ok(spec.HostConfig.Binds.includes(socketPath + ':' + socketPath));
     assert.deepEqual(spec.HostConfig.Mounts, [{
-      Type: 'bind', Source: '/home/tester', Target: '/home/tester', ReadOnly: false
+      Type: 'bind',
+      Source: '/home/tester/.config/systemd/user',
+      Target: '/home/tester/.config/systemd/user',
+      ReadOnly: false
     }]);
     assert.ok(spec.Env.includes('SERVICE_PORTAL_UPDATE_HOST_HOME=/home/tester'));
     assert.equal(spec.Labels['io.service-portal.maintenance'], 'true');
