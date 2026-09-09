@@ -161,6 +161,7 @@ labels:
   io.service-portal.update.script: "scripts/update-and-restart.sh"
   io.service-portal.update.image: "my-project-updater:latest"
   io.service-portal.update.user: "1000:1000"
+  io.service-portal.update.host-home: "/home/operator" # optional
 ```
 
 The script must be an executable relative path inside the Compose project working directory.
@@ -169,6 +170,12 @@ normally Git, Docker CLI, and the Compose plugin. The portal derives the absolut
 directory from Docker's `com.docker.compose.project.working_dir` label, mounts that directory
 and the Docker socket into a new detached runner, and never accepts a command or path from the
 browser. Every container in the same Compose project shares the same job and lock.
+
+Projects whose update also manages files in the deploying user's home can set the optional
+`io.service-portal.update.host-home` label to an absolute, non-root POSIX path. The portal
+validates the path, asks Docker for a missing-source-safe bind mount at the same location, and
+exposes it to the runner as `SERVICE_PORTAL_UPDATE_HOST_HOME`. Invalid paths disable the
+project's update action instead of creating or mounting an unintended directory.
 
 The portal's own Compose service is opted in. Its `update and restart` script refuses dirty,
 detached, non-`main`, unexpected-origin, and divergent or rewritten Git states; accepts clean

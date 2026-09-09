@@ -99,6 +99,7 @@ const UPDATE_LABELS = {
   script: 'io.service-portal.update.script',
   image: 'io.service-portal.update.image',
   user: 'io.service-portal.update.user',
+  hostHome: 'io.service-portal.update.host-home',
 };
 const MAINTENANCE_LABEL = 'io.service-portal.maintenance';
 
@@ -367,6 +368,13 @@ function safeRelativeScript(value) {
   return /^[A-Za-z0-9._ /-]+$/.test(normalized) ? normalized : null;
 }
 
+function safeHostHome(value) {
+  if (value === undefined || value === '') return '';
+  if (typeof value !== 'string' || !path.posix.isAbsolute(value)) return null;
+  if (value === '/' || value.includes(':') || value.includes('\0')) return null;
+  return path.posix.normalize(value);
+}
+
 function updateCapability(c) {
   const dockerLabels = c && c.Labels || {};
   if (dockerLabels[UPDATE_LABELS.enabled] !== 'true') return null;
@@ -375,11 +383,13 @@ function updateCapability(c) {
   const script = safeRelativeScript(dockerLabels[UPDATE_LABELS.script]);
   const runnerImage = dockerLabels[UPDATE_LABELS.image] || c.Image;
   const runnerUser = dockerLabels[UPDATE_LABELS.user] || '';
+  const runnerHostHome = safeHostHome(dockerLabels[UPDATE_LABELS.hostHome]);
   if (!project || typeof projectDir !== 'string' || !path.posix.isAbsolute(projectDir) ||
       projectDir === '/' || projectDir.includes(':') || projectDir.includes('\0') || !script) return null;
   if (typeof runnerImage !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,254}$/.test(runnerImage)) return null;
   if (runnerUser && !/^\d+:\d+$/.test(runnerUser)) return null;
-  return { project, projectDir, script, runnerImage, runnerUser, targetId: c.Id };
+  if (runnerHostHome === null) return null;
+  return { project, projectDir, script, runnerImage, runnerUser, runnerHostHome, targetId: c.Id };
 }
 
 function updateCapabilities(containers) {
@@ -396,7 +406,8 @@ function updateCapabilities(containers) {
     const same = existing.projectDir === capability.projectDir &&
       existing.script === capability.script &&
       existing.runnerImage === capability.runnerImage &&
-      existing.runnerUser === capability.runnerUser;
+      existing.runnerUser === capability.runnerUser &&
+      existing.runnerHostHome === capability.runnerHostHome;
     if (!same) {
       out.delete(capability.project);
       conflicts.add(capability.project);
@@ -588,6 +599,23 @@ async function startProjectUpdate(project) {
   const id = crypto.randomUUID();
   const runnerName = ('service-portal-update-' + project + '-' + id.slice(0, 8)).slice(0, 63);
   const scriptPath = path.posix.join(capability.projectDir, capability.script);
+  const runnerEnv = [
+    'HOME=/tmp',
+    'SERVICE_PORTAL_UPDATE_DELEGATED=1',
+    'SERVICE_PORTAL_UPDATE_JOB_ID=' + id,
+    'DSH_UPDATE_DELEGATED=1',
+    'DSH_UPDATE_CONTAINER_NAME=' + runnerName,
+  ];
+  const runnerMounts = [];
+  if (capability.runnerHostHome) {
+    runnerEnv.push('SERVICE_PORTAL_UPDATE_HOST_HOME=' + capability.runnerHostHome);
+    runnerMounts.push({
+      Type: 'bind',
+      Source: capability.runnerHostHome,
+      Target: capability.runnerHostHome,
+      ReadOnly: false,
+    });
+  }
   let socketGid = 0;
   try { socketGid = fs.statSync(SOCKET).gid; } catch (err) {}
   const job = {
@@ -615,13 +643,7 @@ async function startProjectUpdate(project) {
         Cmd: [],
         WorkingDir: capability.projectDir,
         User: runnerUser,
-        Env: [
-          'HOME=/tmp',
-          'SERVICE_PORTAL_UPDATE_DELEGATED=1',
-          'SERVICE_PORTAL_UPDATE_JOB_ID=' + id,
-          'DSH_UPDATE_DELEGATED=1',
-          'DSH_UPDATE_CONTAINER_NAME=' + runnerName,
-        ],
+        Env: runnerEnv,
         Labels: {
           [MAINTENANCE_LABEL]: 'true',
           'io.service-portal.maintenance.job': id,
@@ -634,6 +656,7 @@ async function startProjectUpdate(project) {
             capability.projectDir + ':' + capability.projectDir,
             SOCKET + ':' + SOCKET,
           ],
+          Mounts: runnerMounts,
           GroupAdd: [String(socketGid)],
         },
       }, 30000);

@@ -55,6 +55,7 @@ function fakeDocker(socketPath, state) {
   const helperId = 'd'.repeat(64);
   const conflictOneId = 'f'.repeat(64);
   const conflictTwoId = '9'.repeat(64);
+  const badHomeId = '8'.repeat(64);
   state.portalId = portalId;
   state.runners = new Map();
   state.calls = [];
@@ -73,7 +74,8 @@ function fakeDocker(socketPath, state) {
         'io.service-portal.update.enabled': 'true',
         'io.service-portal.update.script': 'scripts/update-and-restart.sh',
         'io.service-portal.update.image': 'portal-updater:test',
-        'io.service-portal.update.user': '123:456'
+        'io.service-portal.update.user': '123:456',
+        'io.service-portal.update.host-home': '/home/tester'
       }
     },
     {
@@ -110,6 +112,21 @@ function fakeDocker(socketPath, state) {
       Status: 'Up',
       Ports: [],
       Labels: { 'io.service-portal.maintenance': 'true' }
+    },
+    {
+      Id: badHomeId,
+      Names: ['/bad-home'],
+      Image: 'runner:test',
+      State: 'running',
+      Status: 'Up',
+      Ports: [],
+      Labels: {
+        'com.docker.compose.project': 'bad-home',
+        'com.docker.compose.project.working_dir': '/srv/bad-home',
+        'io.service-portal.update.enabled': 'true',
+        'io.service-portal.update.script': 'scripts/update.sh',
+        'io.service-portal.update.host-home': '/'
+      }
     },
     {
       Id: conflictOneId,
@@ -269,10 +286,11 @@ test('project updates are validated, detached, monitored, and persisted', async 
     assert.equal(response.status, 200);
     const services = json(response).services;
     assert.deepEqual(services.map((service) => service.name),
-      ['conflict-one', 'conflict-two', 'portal', 'portal-worker', 'unsafe']);
+      ['bad-home', 'conflict-one', 'conflict-two', 'portal', 'portal-worker', 'unsafe']);
     assert.equal(services.find((service) => service.name === 'portal-worker').state, 'exited');
     assert.equal(services.find((service) => service.name === 'portal-worker').update.project, 'portal-project');
     assert.equal(services.find((service) => service.name === 'unsafe').update, null);
+    assert.equal(services.find((service) => service.name === 'bad-home').update, null);
     assert.equal(services.find((service) => service.name === 'conflict-one').update, null);
     assert.ok(state.calls.some((entry) => entry.path === '/containers/json?all=1'));
   });
@@ -309,6 +327,10 @@ test('project updates are validated, detached, monitored, and persisted', async 
     assert.equal(spec.HostConfig.AutoRemove, false);
     assert.ok(spec.HostConfig.Binds.includes('/srv/portal project:/srv/portal project'));
     assert.ok(spec.HostConfig.Binds.includes(socketPath + ':' + socketPath));
+    assert.deepEqual(spec.HostConfig.Mounts, [{
+      Type: 'bind', Source: '/home/tester', Target: '/home/tester', ReadOnly: false
+    }]);
+    assert.ok(spec.Env.includes('SERVICE_PORTAL_UPDATE_HOST_HOME=/home/tester'));
     assert.equal(spec.Labels['io.service-portal.maintenance'], 'true');
     firstRunnerId = [...state.runners.keys()][0];
 

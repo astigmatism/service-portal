@@ -27,6 +27,8 @@ labels:
   io.service-portal.update.script: "scripts/update-and-restart.sh"
   io.service-portal.update.image: "${PROJECT_RUNNER_IMAGE:-your-local-runner-image:latest}"
   io.service-portal.update.user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+  # Optional when the updater manages files below the deploying user's home:
+  io.service-portal.update.host-home: "${HOST_HOME:-/home/operator}"
 
 Requirements for the labels:
 
@@ -130,8 +132,11 @@ The control will appear only when all of these conditions are true:
 - `io.service-portal.update.user`, when supplied, is an explicit numeric `UID:GID`. If omitted,
   the service's numeric configured user is used when possible, otherwise the runner falls back
   to `0:0`.
+- `io.service-portal.update.host-home`, when supplied, is an absolute, non-root POSIX path.
+  Service Portal bind-mounts it at the same path and exposes it as
+  `SERVICE_PORTAL_UPDATE_HOST_HOME`; omit it when the updater does not manage home-directory files.
 - Every opted-in container in the same Compose project has identical effective project
-  directory, script, image, and user settings.
+  directory, script, image, user, and optional host-home settings.
 
 The button is project-scoped even though it is rendered beside service rows. Service Portal
 allows only one active maintenance job per Compose project, hides its own maintenance helper
@@ -151,6 +156,7 @@ services:
       io.service-portal.update.script: "scripts/update-and-restart.sh"
       io.service-portal.update.image: "${PROJECT_RUNNER_IMAGE:-local/example-app:latest}"
       io.service-portal.update.user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+      io.service-portal.update.host-home: "${HOST_HOME:-/home/operator}"
 ```
 
 Example environment documentation:
