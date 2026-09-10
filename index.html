@@ -180,7 +180,7 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
 .sp-thumb-item.current{border-color:var(--accent);box-shadow:0 0 0 1.5px var(--accent)}
 .sp-thumb-del{position:absolute;top:2px;right:2px;width:17px;height:17px;line-height:15px;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:13px;cursor:pointer}
 .sp-thumb-del:hover{background:var(--bad)}
-.sp-nav{display:flex;align-items:center;justify-content:center;gap:10px;margin:10px 0 0}
+.sp-nav{display:flex;align-items:center;justify-content:flex-start;gap:10px;margin:10px 0 0}
 .sp-nav-count{font-size:12.5px;color:var(--muted);min-width:44px;text-align:center;font-variant-numeric:tabular-nums}
 .sp-slider{display:block;font-size:12.5px;color:var(--muted);margin-top:10px}
 .sp-slider output{float:right;color:var(--text);font-variant-numeric:tabular-nums}
@@ -2026,8 +2026,8 @@ let refreshActivity = () => {};
     const list = Array.isArray(settings.slots) ? settings.slots : [];
     const idx = settings.activeSlotId ? list.findIndex((s) => s.id === settings.activeSlotId) : -1;
     els.nav.classList.toggle('hidden', list.length === 0);
-    els.prev.classList.toggle('hidden', idx <= 0);
-    els.next.classList.toggle('hidden', idx === -1 || idx >= list.length - 1);
+    els.prev.disabled = idx <= 0;
+    els.next.disabled = idx === -1 || idx >= list.length - 1;
     bgPrev.disabled = idx <= 0;
     bgNext.disabled = idx === -1 || idx >= list.length - 1;
     els.navCount.textContent = list.length ? (idx + 1) + ' of ' + list.length : 'none';
@@ -2050,8 +2050,9 @@ let refreshActivity = () => {};
     if (e.key === 'Escape' && panelOpen()) openPanel(false);
   });
 
-  /* Walk the slot collection: previous hidden on the first slot, next hidden
-     on the last. Every step re-rolls the random wallpaper of the newly
+  /* Walk the slot collection: previous disabled on the first slot, next
+     disabled on the last — both stay visible, dimmed like the move buttons.
+     Every step re-rolls the random wallpaper of the newly
      active slot (that's the whole point of multi-wallpaper slots), and the
      active-slot pointer is persisted immediately (not debounced), so the
      page always comes back to the slot you left on — with a fresh roll. */

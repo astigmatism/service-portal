@@ -536,11 +536,14 @@ function spawnServer(dataDir, port) {
       relLum(s['--panel-2']) < relLum(s['--line']), 'bg < panel < input < border lightness');
     assert.strictEqual(s['--text'], undefined, 'text color is left untouched');
     assert.ok('data-sp-theme' in t.body.attrs, 'themed flag set on body');
-    // First and only slot, single wallpaper: neither nav button shows, the
-    // counter reads 1 of 1, and the wallpaper gets a thumbnail in the slot.
+    // First and only slot, single wallpaper: neither nav button is enabled
+    // (both stay visible, dimmed), the counter reads 1 of 1, and the
+    // wallpaper gets a thumbnail in the slot.
     assert.ok(!t.elements.spNav.classList.contains('hidden'), 'nav row visible');
-    assert.ok(t.elements.spPrev.classList.contains('hidden'), 'previous hidden on the first');
-    assert.ok(t.elements.spNext.classList.contains('hidden'), 'next hidden on the last');
+    assert.ok(!t.elements.spPrev.classList.contains('hidden'), 'previous stays visible on the first');
+    assert.ok(t.elements.spPrev.disabled, 'previous disabled on the first');
+    assert.ok(!t.elements.spNext.classList.contains('hidden'), 'next stays visible on the last');
+    assert.ok(t.elements.spNext.disabled, 'next disabled on the last');
     assert.strictEqual(t.elements.spNavCount.textContent, '1 of 1');
     assert.ok(!t.elements.spThumbsWrap.classList.contains('hidden'), 'thumb strip shown for a non-empty slot');
     assert.strictEqual(t.elements.spThumbs.children.length, 1, 'one thumbnail for the slot wallpaper');
@@ -698,8 +701,8 @@ function spawnServer(dataDir, port) {
       'url("/api/appearance/wallpapers/' + slotB.wallpapers[0].id + '")', 'boots onto the active slot pick');
     assert.strictEqual(t.body.style.props['--accent'], '#3b3bb0', 'theme follows the displayed wallpaper');
     assert.strictEqual(t.elements.spNavCount.textContent, '2 of 2');
-    assert.ok(!t.elements.spPrev.classList.contains('hidden'), 'previous visible off the first');
-    assert.ok(t.elements.spNext.classList.contains('hidden'), 'next hidden on the last');
+    assert.ok(!t.elements.spPrev.disabled, 'previous enabled off the first');
+    assert.ok(t.elements.spNext.disabled, 'next disabled on the last');
 
     click(t.elements, 'spPrev');
     await sleep(400);
@@ -708,8 +711,8 @@ function spawnServer(dataDir, port) {
     assert.strictEqual(t.body.style.props['--sp-bg-image'],
       'url("/api/appearance/wallpapers/' + slotA.wallpapers[0].id + '")', 'background switched to the previous slot');
     assert.strictEqual(t.elements.spNavCount.textContent, '1 of 2');
-    assert.ok(t.elements.spPrev.classList.contains('hidden'), 'previous hidden on the first');
-    assert.ok(!t.elements.spNext.classList.contains('hidden'), 'next visible off the first');
+    assert.ok(t.elements.spPrev.disabled, 'previous disabled on the first');
+    assert.ok(!t.elements.spNext.disabled, 'next enabled off the first');
     // The switch is a structural change: persisted immediately (no debounce).
     assert.strictEqual(t.fetchState.putBodies[t.fetchState.putBodies.length - 1].activeSlotId, slotA.id,
       'active slot persisted right away');
@@ -1239,7 +1242,7 @@ function spawnServer(dataDir, port) {
       'url("/api/appearance/wallpapers/' + slotA.wallpapers[0].id + '")', 'the previous slot wallpaper is now displayed');
     assert.strictEqual(t.body.style.props['--accent'], '#b03b3b', 'the theme follows the fallback pick');
     assert.strictEqual(t.elements.spNavCount.textContent, '1 of 1');
-    assert.ok(t.elements.spPrev.classList.contains('hidden'), 'previous dimmed on the (new) first slot');
+    assert.ok(t.elements.spPrev.disabled, 'previous dimmed on the (new) first slot');
     console.log('  ok 19. removing a slot last wallpaper auto-removes the slot and falls back to the previous one');
   }
 

@@ -250,8 +250,9 @@ confirmation/polling, and the update script's fail-closed command ordering.
   active slot one position in the navigation order — its wallpapers, and each
   browser's current pick, travel with it (moving, unlike prev/next, does not
   switch to a different slot). Prev/next (and the
-  header arrows) move between slots — previous is hidden on the first, next on the
-  last, with an "N of M" counter — and an upload appends its wallpapers to the
+  header arrows) move between slots — previous is disabled on the first, next on
+  the last (both stay visible, dimmed like the move buttons), with an "N of M"
+  counter — and an upload appends its wallpapers to the
   active slot, multi-file selections in order. **Remove wallpaper** deletes the
   currently displayed wallpaper. The active slot is persisted server-side, so the
   portal always comes back to the slot you left on (showing a fresh roll of it);
