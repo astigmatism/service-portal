@@ -75,15 +75,26 @@ try {
   labels = {};
 }
 
-// ---- Appearance persistence (wallpaper collection + styling settings) -----
+// ---- Appearance persistence (wallpaper slots + styling settings) ----------
 // Shared across all clients on the network: settings live in
-// <DATA_DIR>/appearance.json — the wallpaper collection (ordered entries with
-// MIME type, sampled darkness and sampled accent), the id of the active
-// wallpaper, and the global styling sliders — with one image file per
-// wallpaper in <DATA_DIR>/wallpapers/<id> (id = random UUID). DATA_DIR
-// defaults to ./data next to this file; the container deployment bind-mounts
-// a persistent host volume at /data so the wallpapers survive container
-// recreation.
+// <DATA_DIR>/appearance.json — the wallpaper slots (an ordered collection of
+// slots, each holding an ordered list of wallpaper entries with MIME type,
+// sampled darkness and sampled accent), the id of the active slot, and the
+// global styling sliders — with one image file per wallpaper in
+// <DATA_DIR>/wallpapers/<id> (id = random UUID). DATA_DIR defaults to ./data
+// next to this file; the container deployment bind-mounts a persistent host
+// volume at /data so the wallpapers survive container recreation.
+//
+// The server tracks the active *slot* only. Which wallpaper of the active
+// slot a client displays is a per-browser random roll (re-rolled on every
+// page refresh and every slot navigation), so there is no shared
+// active-wallpaper pointer. The slot collection is owned by its own endpoints
+// (below) — the settings PUT only steers the global sliders and the
+// active-slot pointer — and every mutation runs under a promise lock so a
+// concurrent upload can never clobber another. Slots are the single source of
+// truth; pre-slot state (the single background.bin + background.json files,
+// then the flat wallpaper-collection era) is migrated into slots once on
+// first boot.
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const SETTINGS_FILE = path.join(DATA_DIR, 'appearance.json');
 const IMAGE_FILE = path.join(DATA_DIR, 'background.bin');       // legacy single-wallpaper storage
@@ -104,8 +115,8 @@ const UPDATE_LABELS = {
 const MAINTENANCE_LABEL = 'io.service-portal.maintenance';
 
 const APPEARANCE_DEFAULTS = {
-  wallpapers: [], // ordered collection: [{ id, type, imageDark, accent, accentTouched }]
-  activeWallpaperId: null, // id into wallpapers — the one currently on screen
+  slots: [], // ordered collection: [{ id, wallpapers: [{ id, type, imageDark, accent, accentTouched }] }]
+  activeSlotId: null, // id into slots — the slot clients navigate between
   backgroundPosition: { x: 50, y: 50 }, // origin in the cover crop, 0..100 per axis
   backgroundOpacity: 1,
   backgroundBlur: 0,
@@ -150,7 +161,7 @@ function readSettingsFile() {
 }
 
 /* Validate one wallpaper entry; entries whose image file is missing on disk
-   are dropped, so the collection always matches what can actually be served. */
+   are dropped, so the slots always match what can actually be served. */
 function sanitizeWallpaperEntry(entry) {
   if (!entry || typeof entry !== 'object' || typeof entry.id !== 'string' || !WALLPAPER_ID_RE.test(entry.id)) return null;
   const id = entry.id.toLowerCase();
@@ -166,10 +177,28 @@ function sanitizeWallpaperEntry(entry) {
   };
 }
 
+/* Validate one slot entry: its wallpapers revalidated against disk, deduped
+   across the whole collection (a wallpaper file belongs to at most one
+   slot — the first occurrence wins). */
+function sanitizeSlotEntry(slot, seenWallpapers) {
+  if (!slot || typeof slot !== 'object' || typeof slot.id !== 'string' || !WALLPAPER_ID_RE.test(slot.id)) return null;
+  const wallpapers = [];
+  if (Array.isArray(slot.wallpapers)) {
+    for (const entry of slot.wallpapers) {
+      const clean = sanitizeWallpaperEntry(entry);
+      if (clean && !seenWallpapers.has(clean.id)) {
+        seenWallpapers.add(clean.id);
+        wallpapers.push(clean);
+      }
+    }
+  }
+  return { id: slot.id.toLowerCase(), wallpapers };
+}
+
 /* Global styling sliders (position/opacity/blur/scrim/list-background/glass)
-   — shared by the whole portal, independent of which wallpaper is active. */
+   — shared by the whole portal, independent of which slot is active. */
 function sanitizeSliders(raw) {
-  const out = { ...APPEARANCE_DEFAULTS, wallpapers: [], activeWallpaperId: null };
+  const out = { ...APPEARANCE_DEFAULTS, slots: [], activeSlotId: null };
   out.backgroundPosition = sanitizePosition(raw.backgroundPosition);
   for (const [field, b] of Object.entries(APPEARANCE_BOUNDS)) {
     const v = raw[field];
@@ -178,26 +207,27 @@ function sanitizeSliders(raw) {
   return out;
 }
 
-/* The one read model: sliders from the settings file, the collection
-   revalidated against disk, and the active pointer healed to a real entry
-   (the first one when the stored pointer is stale). */
+/* The one read model: sliders from the settings file, the slot collection
+   revalidated against disk, and the active-slot pointer healed to a real
+   slot (the first one when the stored pointer is stale). */
 function loadAppearanceState() {
   const raw = readSettingsFile();
-  const wallpapers = [];
-  const seen = new Set();
-  if (Array.isArray(raw.wallpapers)) {
-    for (const entry of raw.wallpapers) {
-      const clean = sanitizeWallpaperEntry(entry);
-      if (clean && !seen.has(clean.id)) {
-        seen.add(clean.id);
-        wallpapers.push(clean);
+  const slots = [];
+  const seenSlots = new Set();
+  const seenWallpapers = new Set();
+  if (Array.isArray(raw.slots)) {
+    for (const slot of raw.slots) {
+      const clean = sanitizeSlotEntry(slot, seenWallpapers);
+      if (clean && !seenSlots.has(clean.id)) {
+        seenSlots.add(clean.id);
+        slots.push(clean);
       }
     }
   }
-  const activeValid = wallpapers.some((w) => w.id === raw.activeWallpaperId) ? raw.activeWallpaperId : null;
+  const activeValid = slots.some((s) => s.id === raw.activeSlotId) ? raw.activeSlotId : null;
   const settings = sanitizeSliders(raw);
-  settings.wallpapers = wallpapers;
-  settings.activeWallpaperId = wallpapers.length ? (activeValid || wallpapers[0].id) : null;
+  settings.slots = slots;
+  settings.activeSlotId = slots.length ? (activeValid || slots[0].id) : null;
   return settings;
 }
 
@@ -227,13 +257,15 @@ function withStateLock(fn) {
 }
 
 /* One-time migration from the single-wallpaper era: background.bin becomes
-   the first (and active) entry of the collection, keeping the sampled
+   the only wallpaper of the first (and active) slot, keeping the sampled
    accent/darkness the old settings file already held for it. */
 function migrateLegacyBackground() {
   if (!fs.existsSync(IMAGE_FILE)) return;
   const raw = readSettingsFile();
-  if (Array.isArray(raw.wallpapers) && raw.wallpapers.length > 0) {
-    // New schema already in use: the legacy single-image files are stale.
+  if ((Array.isArray(raw.slots) && raw.slots.length > 0) ||
+      (Array.isArray(raw.wallpapers) && raw.wallpapers.length > 0)) {
+    // A slot collection (new or flat-era schema) already in use: the legacy
+    // single-image files are stale.
     fs.rm(IMAGE_FILE, () => {});
     fs.rm(IMAGE_META_FILE, () => {});
     return;
@@ -266,9 +298,10 @@ function migrateLegacyBackground() {
     accent: typeof raw.accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.accent) ? raw.accent.toLowerCase() : '',
     accentTouched: raw.accentTouched === true || raw.accentTouched === 1,
   };
+  const slot = { id: crypto.randomUUID(), wallpapers: [entry] };
   const settings = loadAppearanceState();
-  settings.wallpapers = [entry];
-  settings.activeWallpaperId = id;
+  settings.slots = [slot];
+  settings.activeSlotId = slot.id;
   try {
     saveAppearanceSettings(settings);
   } catch (err) {
@@ -278,6 +311,46 @@ function migrateLegacyBackground() {
   fs.rm(IMAGE_META_FILE, () => {});
 }
 migrateLegacyBackground();
+
+/* One-time migration from the flat wallpaper-collection era: each wallpaper
+   becomes its own slot (same order), and the slot holding the stored active
+   wallpaper becomes the active slot. Runs after the legacy single-image
+   migration, which may have just written the old flat schema. */
+function migrateLegacyWallpapers() {
+  const raw = readSettingsFile();
+  const hasSlots = Array.isArray(raw.slots) && raw.slots.length > 0;
+  const wallpapers = [];
+  if (Array.isArray(raw.wallpapers)) {
+    const seen = new Set();
+    for (const entry of raw.wallpapers) {
+      const clean = sanitizeWallpaperEntry(entry);
+      if (clean && !seen.has(clean.id)) {
+        seen.add(clean.id);
+        wallpapers.push(clean);
+      }
+    }
+  }
+  if (hasSlots) {
+    if (wallpapers.length) {
+      // New schema in use: the flat field is stale — rewrite the file
+      // without it so the slot collection is the single source of truth.
+      try { saveAppearanceSettings(loadAppearanceState()); } catch (err) {}
+    }
+    return;
+  }
+  if (!wallpapers.length) return;
+  const slots = wallpapers.map((w) => ({ id: crypto.randomUUID(), wallpapers: [w] }));
+  const activeIdx = Math.max(0, wallpapers.findIndex((w) => w.id === raw.activeWallpaperId));
+  const settings = sanitizeSliders(raw);
+  settings.slots = slots;
+  settings.activeSlotId = slots[activeIdx].id;
+  try {
+    saveAppearanceSettings(settings);
+  } catch (err) {
+    console.error('could not save migrated appearance settings: ' + err.message);
+  }
+}
+migrateLegacyWallpapers();
 
 function atomicWriteFileSync(file, data) {
   const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp';
@@ -475,6 +548,75 @@ function activeMaintenanceJob(project) {
     if (job.project === project && ACTIVE_JOB_STATES.has(job.state)) return job;
   }
   return null;
+}
+
+/* ---- Activity feed ------------------------------------------------------
+   The portal used to report actions only through transient toasts in the
+   browser that triggered them — gone after 5 s, invisible to other clients,
+   and lost on reload. The activity feed makes that history durable: update
+   events are derived from the persisted maintenance jobs (one event per job,
+   carrying its full logs), and container start/stop actions are appended to
+   an append-only JSONL file next to them. GET /api/activity merges both,
+   newest first. */
+const ACTIVITY_FILE = path.join(DATA_DIR, 'activity.jsonl');
+const ACTIVITY_MAX_BYTES = 262144;   // rotate the log past 256 KB…
+const ACTIVITY_KEEP_LINES = 500;     // …keeping the most recent events
+const ACTIVITY_MAX_EVENTS = 200;     // cap one feed page
+
+function logActivityEvent(ev) {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.appendFileSync(ACTIVITY_FILE, JSON.stringify(ev) + '\n');
+    if (fs.statSync(ACTIVITY_FILE).size > ACTIVITY_MAX_BYTES) {
+      const lines = fs.readFileSync(ACTIVITY_FILE, 'utf8').split('\n').filter(Boolean);
+      fs.writeFileSync(ACTIVITY_FILE, lines.slice(-ACTIVITY_KEEP_LINES).join('\n') + '\n');
+    }
+  } catch (err) {
+    console.error('could not record activity event: ' + err.message);
+  }
+}
+
+function readActivityEvents() {
+  let text = '';
+  try { text = fs.readFileSync(ACTIVITY_FILE, 'utf8'); } catch (err) { return []; }
+  const out = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const ev = JSON.parse(line);
+      if (ev && typeof ev.at === 'string' && typeof ev.kind === 'string') out.push(ev);
+    } catch (err) { /* skip a torn line */ }
+  }
+  return out;
+}
+
+function updateActivityMessage(job) {
+  if (job.state === 'queued') return 'Update queued for ' + job.project;
+  if (job.state === 'running') return 'Update running for ' + job.project;
+  if (job.state === 'succeeded') return 'Updated and restarted ' + job.project;
+  if (job.state === 'failed') return 'Update failed for ' + job.project;
+  return 'Update ' + job.state + ' for ' + job.project;
+}
+
+function activityEvents() {
+  const events = [];
+  for (const job of maintenanceJobs.values()) {
+    events.push({
+      id: job.id,
+      kind: 'update',
+      at: job.finishedAt || job.startedAt || job.createdAt,
+      createdAt: job.createdAt,
+      finishedAt: job.finishedAt || null,
+      project: job.project,
+      state: job.state,
+      message: updateActivityMessage(job),
+      error: job.error || null,
+      hasLogs: true,
+    });
+  }
+  events.push(...readActivityEvents());
+  events.sort((a, b) => (String(a.at) < String(b.at) ? 1 : String(a.at) > String(b.at) ? -1 : 0));
+  return events.slice(0, ACTIVITY_MAX_EVENTS);
 }
 
 function decodeDockerLogs(buffer) {
@@ -782,10 +924,39 @@ const server = http.createServer((req, res) => {
       return;
     }
     // Docker allows a stopped container its 10 s grace period, so this gets a
-    // longer budget than the read-only list fetch.
-    dockerApiRequest('POST', '/containers/' + svcAction[1] + '/' + svcAction[2], 35000)
-      .then(() => sendJson(res, 200, { ok: true, action: svcAction[2] }))
-      .catch((err) => sendJson(res, 502, { error: 'docker api error: ' + err.message }));
+    // longer budget than the read-only list fetch. The inspect is only for a
+    // friendly name in the activity log — never let it fail the action.
+    const action = svcAction[2];
+    dockerApiRequest('GET', '/containers/' + svcAction[1] + '/json', 10000)
+      .then((info) => String((info && info.Name) || '').replace(/^\//, ''))
+      .catch(() => '')
+      .then((name) => name || svcAction[1].slice(0, 12))
+      .then((name) => dockerApiRequest('POST', '/containers/' + svcAction[1] + '/' + action, 35000)
+        .then(() => {
+          logActivityEvent({
+            id: crypto.randomUUID(), at: new Date().toISOString(),
+            kind: 'container', action, service: name, state: 'ok',
+            message: (action === 'start' ? 'Started ' : 'Stopped ') + name,
+          });
+          sendJson(res, 200, { ok: true, action });
+        }, (err) => {
+          logActivityEvent({
+            id: crypto.randomUUID(), at: new Date().toISOString(),
+            kind: 'container', action, service: name, state: 'error',
+            message: 'Could not ' + action + ' ' + name + ': ' + err.message,
+            error: err.message,
+          });
+          sendJson(res, 502, { error: 'docker api error: ' + err.message });
+        }));
+    return;
+  }
+
+  if (pathname === '/api/activity') {
+    if (req.method !== 'GET') {
+      sendJson(res, 405, { error: 'method not allowed' });
+      return;
+    }
+    sendJson(res, 200, { generatedAt: new Date().toISOString(), events: activityEvents() });
     return;
   }
 
@@ -846,13 +1017,13 @@ const server = http.createServer((req, res) => {
             // Missing slider fields fall back to the stored values, so a
             // partial PUT cannot silently reset the ones it doesn't touch.
             const settings = sanitizeSliders({ ...current, ...raw });
-            // The wallpaper collection is managed by the wallpaper endpoints;
-            // the PUT only steers the sliders and the active pointer.
-            settings.wallpapers = current.wallpapers;
-            const requested = raw.activeWallpaperId;
-            settings.activeWallpaperId = current.wallpapers.length
-              ? (typeof requested === 'string' && current.wallpapers.some((w) => w.id === requested)
-                  ? requested : current.activeWallpaperId)
+            // The slot collection is managed by the slot/wallpaper endpoints;
+            // the PUT only steers the sliders and the active-slot pointer.
+            settings.slots = current.slots;
+            const requested = raw.activeSlotId;
+            settings.activeSlotId = current.slots.length
+              ? (typeof requested === 'string' && current.slots.some((s) => s.id === requested)
+                  ? requested : current.activeSlotId)
               : null;
             saveAppearanceSettings(settings);
             return settings;
@@ -866,31 +1037,192 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  /* ---- wallpaper collection -------------------------------------------
-     POST   /api/appearance/wallpapers        append a wallpaper (image body;
-                                              x-sp-image-dark / x-sp-accent
-                                              headers) and make it active
-     GET    /api/appearance/wallpapers        the collection + active pointer
-     DELETE /api/appearance/wallpapers        remove every wallpaper
-     GET    /api/appearance/wallpapers/<id>   one wallpaper's bytes
-     PUT    /api/appearance/wallpapers/<id>   update its meta (imageDark,
-                                              accent, accentTouched)
-     DELETE /api/appearance/wallpapers/<id>   remove it; the collection closes
-                                              the gap and the active pointer
-                                              moves to the previous entry */
+  /* ---- wallpaper slots ---------------------------------------------------
+     POST   /api/appearance/slots                  append an empty slot and
+                                                   make it the active slot
+     DELETE /api/appearance/slots                  remove every slot and all
+                                                   wallpapers in them
+     DELETE /api/appearance/slots/<id>             remove one slot and every
+                                                   wallpaper in it; the active
+                                                   slot moves to the previous
+                                                   slot (next, if it was the
+                                                   first)
+     POST   /api/appearance/slots/<id>/move        move the slot one position
+                                                   ({delta: -1 | 1}); the
+                                                   active-slot pointer rides
+                                                   along by id; 422 when the
+                                                   slot is already at the end
+                                                   it wants to move toward
+     POST   /api/appearance/slots/<id>/wallpapers  upload a wallpaper (image
+                                                   body; x-sp-image-dark /
+                                                   x-sp-accent headers) into
+                                                   that slot and make the
+                                                   slot active
+     POST   /api/appearance/wallpapers             (legacy) append a wallpaper
+                                                   to the active slot, creating
+                                                   a slot when there is none
+     GET    /api/appearance/wallpapers             the slots + active-slot
+                                                   pointer, plus a derived flat
+                                                   wallpaper list for
+                                                   pre-slot clients
+     DELETE /api/appearance/wallpapers             (legacy) remove every
+                                                   wallpaper (all slots)
+     GET    /api/appearance/wallpapers/<id>        one wallpaper's bytes
+     PUT    /api/appearance/wallpapers/<id>        update its meta (imageDark,
+                                                   accent, accentTouched)
+     DELETE /api/appearance/wallpapers/<id>        remove it from its slot; a
+                                                   drained slot is removed too
+                                                   and the active slot moves
+                                                   to the previous slot */
+  const slotWallpapersPath = pathname.match(/^\/api\/appearance\/slots\/([0-9a-f-]{36})\/wallpapers$/i);
+  const slotMove = pathname.match(/^\/api\/appearance\/slots\/([0-9a-f-]{36})\/move$/i);
+  const slotItem = pathname.match(/^\/api\/appearance\/slots\/([0-9a-f-]{36})$/i);
   const wallpaperItem = pathname.match(/^\/api\/appearance\/wallpapers\/([0-9a-f-]{36})$/i);
+  if (pathname === '/api/appearance/slots' || slotItem || slotWallpapersPath || slotMove) {
+    const slotId = slotItem
+      ? slotItem[1].toLowerCase()
+      : ((slotWallpapersPath || slotMove) ? (slotWallpapersPath || slotMove)[1].toLowerCase() : null);
+    if (pathname === '/api/appearance/slots' && req.method === 'POST') {
+      withStateLock(() => {
+        const current = loadAppearanceState();
+        const slot = { id: crypto.randomUUID(), wallpapers: [] };
+        const settings = { ...current, slots: [...current.slots, slot], activeSlotId: slot.id };
+        saveAppearanceSettings(settings);
+        return { ok: true, slot, settings };
+      })
+        .then((body) => sendJson(res, 200, body))
+        .catch((err) => sendJson(res, 500, { error: err.message }));
+      return;
+    }
+    if (pathname === '/api/appearance/slots' && req.method === 'DELETE') {
+      withStateLock(() => {
+        const current = loadAppearanceState();
+        const settings = { ...current, slots: [], activeSlotId: null };
+        saveAppearanceSettings(settings);
+        for (const s of current.slots) for (const w of s.wallpapers) fs.rm(path.join(WALLPAPERS_DIR, w.id), () => {});
+        return { ok: true, settings };
+      })
+        .then((body) => sendJson(res, 200, body))
+        .catch((err) => sendJson(res, 500, { error: err.message }));
+      return;
+    }
+    if (slotItem && req.method === 'DELETE') {
+      withStateLock(() => {
+        const current = loadAppearanceState();
+        const slotIdx = current.slots.findIndex((s) => s.id === slotId);
+        if (slotIdx === -1) { const e = new Error('slot not found'); e.httpStatus = 404; throw e; }
+        const slots = current.slots.filter((s) => s.id !== slotId);
+        let activeSlotId = current.activeSlotId;
+        if (activeSlotId === slotId) {
+          activeSlotId = slots.length ? slots[Math.max(0, slotIdx - 1)].id : null;
+        }
+        const settings = { ...current, slots, activeSlotId };
+        saveAppearanceSettings(settings);
+        for (const w of current.slots[slotIdx].wallpapers) fs.rm(path.join(WALLPAPERS_DIR, w.id), () => {});
+        return { ok: true, settings };
+      })
+        .then((body) => sendJson(res, 200, body))
+        .catch((err) => sendJson(res, err.httpStatus || 500, { error: err.message }));
+      return;
+    }
+    if (slotMove && req.method === 'POST') {
+      readBody(req, 65536)
+        .then((buf) => {
+          let raw;
+          try { raw = JSON.parse(buf.toString('utf8')); } catch (err) { const e = new Error('invalid JSON body'); e.httpStatus = 400; throw e; }
+          if (typeof raw !== 'object' || raw === null || Array.isArray(raw) || (raw.delta !== -1 && raw.delta !== 1)) {
+            const e = new Error('delta must be -1 or 1'); e.httpStatus = 400; throw e;
+          }
+          const delta = raw.delta;
+          return withStateLock(() => {
+            const current = loadAppearanceState();
+            const slotIdx = current.slots.findIndex((s) => s.id === slotId);
+            if (slotIdx === -1) { const e = new Error('slot not found'); e.httpStatus = 404; throw e; }
+            const target = slotIdx + delta;
+            if (target < 0 || target >= current.slots.length) {
+              const e = new Error(delta === 1 ? 'slot is already at the end of the list' : 'slot is already at the start of the list');
+              e.httpStatus = 422; throw e;
+            }
+            const slots = [...current.slots];
+            const [moved] = slots.splice(slotIdx, 1);
+            slots.splice(target, 0, moved);
+            // activeSlotId points at a slot id, so the pointer rides along
+            // without any adjustment when the array is reordered.
+            const settings = { ...current, slots };
+            saveAppearanceSettings(settings);
+            return settings;
+          });
+        })
+        .then((settings) => sendJson(res, 200, { ok: true, settings }))
+        .catch((err) => sendJson(res, err.httpStatus || 400, { error: err.message }));
+      return;
+    }
+    if (slotWallpapersPath && req.method === 'POST') {
+      const type = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+      if (!type.startsWith('image/')) {
+        sendJson(res, 415, { error: 'content-type must be an image type' });
+        return;
+      }
+      const accentHeader = String(req.headers['x-sp-accent'] || '');
+      const imageDark = req.headers['x-sp-image-dark'] === '1';
+      readBody(req, MAX_IMAGE_BYTES)
+        .then((buf) => {
+          if (buf.length === 0) throw new Error('empty body');
+          return withStateLock(() => {
+            const current = loadAppearanceState();
+            if (!current.slots.some((s) => s.id === slotId)) {
+              const e = new Error('slot not found'); e.httpStatus = 404; throw e;
+            }
+            const wallpaper = {
+              id: crypto.randomUUID(),
+              type,
+              imageDark,
+              accent: /^#[0-9a-fA-F]{6}$/.test(accentHeader) ? accentHeader.toLowerCase() : '',
+              accentTouched: true, // the client sampled it (or deliberately kept the stock palette)
+            };
+            const settings = {
+              ...current,
+              slots: current.slots.map((s) => (s.id === slotId ? { ...s, wallpapers: [...s.wallpapers, wallpaper] } : s)),
+              activeSlotId: slotId,
+            };
+            fs.mkdirSync(WALLPAPERS_DIR, { recursive: true });
+            saveAppearanceSettings(settings);
+            atomicWriteFileSync(path.join(WALLPAPERS_DIR, wallpaper.id), buf);
+            return { ok: true, wallpaper, settings };
+          });
+        })
+        .then((body) => sendJson(res, 200, body))
+        .catch((err) => sendJson(res, err.httpStatus || (err.message === 'payload too large' ? 413 : 400), { error: err.message }));
+      return;
+    }
+    sendJson(res, 405, { error: 'method not allowed' });
+    return;
+  }
+
   if (pathname === '/api/appearance/wallpapers' || wallpaperItem) {
     const id = wallpaperItem ? wallpaperItem[1].toLowerCase() : null;
     const state = readAppearanceSettings();
-    const entry = id ? state.wallpapers.find((w) => w.id === id) : null;
+    // A wallpaper lives in exactly one slot; find the slot that holds it.
+    let holder = null;
+    if (id) {
+      for (const s of state.slots) {
+        if (s.wallpapers.some((w) => w.id === id)) { holder = s; break; }
+      }
+    }
+    const entry = id ? holder && holder.wallpapers.find((w) => w.id === id) : null;
     if (id && !entry) {
       sendJson(res, 404, { error: 'wallpaper not found' });
       return;
     }
     if (pathname === '/api/appearance/wallpapers' && req.method === 'GET') {
+      const activeSlot = state.slots.find((s) => s.id === state.activeSlotId) || null;
+      const flat = [];
+      for (const s of state.slots) for (const w of s.wallpapers) flat.push(w);
       sendJson(res, 200, {
-        wallpapers: state.wallpapers,
-        activeWallpaperId: state.activeWallpaperId,
+        slots: state.slots,
+        activeSlotId: state.activeSlotId,
+        wallpapers: flat, // derived flat view for pre-slot clients
+        activeWallpaperId: activeSlot && activeSlot.wallpapers.length ? activeSlot.wallpapers[0].id : null,
       });
       return;
     }
@@ -914,11 +1246,18 @@ const server = http.createServer((req, res) => {
               accent: /^#[0-9a-fA-F]{6}$/.test(accentHeader) ? accentHeader.toLowerCase() : '',
               accentTouched: true, // the client sampled it (or deliberately kept the stock palette)
             };
-            const settings = {
-              ...current,
-              wallpapers: [...current.wallpapers, wallpaper],
-              activeWallpaperId: wallpaper.id,
-            };
+            // The wallpaper lands in the active slot; with no slot at all a
+            // fresh one is created and made active.
+            let settings;
+            if (current.slots.length) {
+              settings = {
+                ...current,
+                slots: current.slots.map((s) => (s.id === current.activeSlotId ? { ...s, wallpapers: [...s.wallpapers, wallpaper] } : s)),
+              };
+            } else {
+              const slot = { id: crypto.randomUUID(), wallpapers: [wallpaper] };
+              settings = { ...current, slots: [slot], activeSlotId: slot.id };
+            }
             fs.mkdirSync(WALLPAPERS_DIR, { recursive: true });
             saveAppearanceSettings(settings);
             atomicWriteFileSync(path.join(WALLPAPERS_DIR, wallpaper.id), buf);
@@ -932,9 +1271,9 @@ const server = http.createServer((req, res) => {
     if (pathname === '/api/appearance/wallpapers' && req.method === 'DELETE') {
       withStateLock(() => {
         const current = loadAppearanceState();
-        const settings = { ...current, wallpapers: [], activeWallpaperId: null };
+        const settings = { ...current, slots: [], activeSlotId: null };
         saveAppearanceSettings(settings);
-        for (const w of current.wallpapers) fs.rm(path.join(WALLPAPERS_DIR, w.id), () => {});
+        for (const s of current.slots) for (const w of s.wallpapers) fs.rm(path.join(WALLPAPERS_DIR, w.id), () => {});
         return { ok: true, settings };
       })
         .then((body) => sendJson(res, 200, body))
@@ -959,18 +1298,20 @@ const server = http.createServer((req, res) => {
           try { raw = JSON.parse(buf.toString('utf8')); } catch (err) { throw new Error('invalid JSON body'); }
           return withStateLock(() => {
             const current = loadAppearanceState();
-            const idx = current.wallpapers.findIndex((w) => w.id === id);
-            if (idx === -1) { const e = new Error('wallpaper not found'); e.httpStatus = 404; throw e; }
-            const wallpaper = { ...current.wallpapers[idx] };
+            const slotIdx = current.slots.findIndex((s) => s.wallpapers.some((w) => w.id === id));
+            if (slotIdx === -1) { const e = new Error('wallpaper not found'); e.httpStatus = 404; throw e; }
+            const idx = current.slots[slotIdx].wallpapers.findIndex((w) => w.id === id);
+            const wallpaper = { ...current.slots[slotIdx].wallpapers[idx] };
             if (raw.imageDark === true || raw.imageDark === false || raw.imageDark === 0 || raw.imageDark === 1)
               wallpaper.imageDark = raw.imageDark === true || raw.imageDark === 1;
             if (typeof raw.accent === 'string')
               wallpaper.accent = /^#[0-9a-fA-F]{6}$/.test(raw.accent) ? raw.accent.toLowerCase() : '';
             if (raw.accentTouched === true || raw.accentTouched === false || raw.accentTouched === 0 || raw.accentTouched === 1)
               wallpaper.accentTouched = raw.accentTouched === true || raw.accentTouched === 1;
-            const wallpapers = [...current.wallpapers];
-            wallpapers[idx] = wallpaper;
-            const settings = { ...current, wallpapers };
+            const slots = current.slots.map((s, si) =>
+              si !== slotIdx ? s
+                : { ...s, wallpapers: s.wallpapers.map((w, wi) => (wi === idx ? wallpaper : w)) });
+            const settings = { ...current, slots };
             saveAppearanceSettings(settings);
             return { ok: true, wallpaper, settings };
           });
@@ -982,13 +1323,22 @@ const server = http.createServer((req, res) => {
     if (id && req.method === 'DELETE') {
       withStateLock(() => {
         const current = loadAppearanceState();
-        const idx = current.wallpapers.findIndex((w) => w.id === id);
-        if (idx === -1) { const e = new Error('wallpaper not found'); e.httpStatus = 404; throw e; }
-        const wallpapers = current.wallpapers.filter((w) => w.id !== id);
-        let activeWallpaperId = current.activeWallpaperId;
-        if (wallpapers.length === 0) activeWallpaperId = null;
-        else if (activeWallpaperId === id) activeWallpaperId = wallpapers[Math.max(0, idx - 1)].id;
-        const settings = { ...current, wallpapers, activeWallpaperId };
+        const slotIdx = current.slots.findIndex((s) => s.wallpapers.some((w) => w.id === id));
+        if (slotIdx === -1) { const e = new Error('wallpaper not found'); e.httpStatus = 404; throw e; }
+        const remaining = current.slots[slotIdx].wallpapers.filter((w) => w.id !== id);
+        let slots;
+        let activeSlotId = current.activeSlotId;
+        if (remaining.length) {
+          slots = current.slots.map((s, si) => (si === slotIdx ? { ...s, wallpapers: remaining } : s));
+        } else {
+          // The slot drained: remove it; the active slot moves to the
+          // previous slot (the next, when this was the first).
+          slots = current.slots.filter((s) => s.id !== current.slots[slotIdx].id);
+          if (activeSlotId === current.slots[slotIdx].id) {
+            activeSlotId = slots.length ? slots[Math.max(0, slotIdx - 1)].id : null;
+          }
+        }
+        const settings = { ...current, slots, activeSlotId };
         saveAppearanceSettings(settings);
         fs.rm(path.join(WALLPAPERS_DIR, id), () => {});
         return { ok: true, settings };
@@ -1002,13 +1352,17 @@ const server = http.createServer((req, res) => {
   }
 
   /* ---- legacy single-wallpaper endpoint --------------------------------
-     Kept working for pre-collection clients: it always addresses the *active*
-     wallpaper (GET serves its bytes, POST replaces it in place or creates the
-     first one, DELETE removes it). */
+     Kept working for pre-slot clients: it always addresses the *first*
+     wallpaper of the active slot — GET serves its bytes (404 when the active
+     slot has none), POST replaces it in place (or creates it in the active
+     slot, or in a fresh slot when there is none), DELETE removes it (a
+     drained slot is removed too, and the active slot moves to the previous
+     slot). */
   if (pathname === '/api/appearance/background') {
     if (req.method === 'GET') {
       const state = readAppearanceSettings();
-      const entry = state.wallpapers.find((w) => w.id === state.activeWallpaperId) || null;
+      const slot = state.slots.find((s) => s.id === state.activeSlotId) || null;
+      const entry = slot && slot.wallpapers.length ? slot.wallpapers[0] : null;
       if (!entry) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('no background'); return; }
       fs.readFile(path.join(WALLPAPERS_DIR, entry.id), (err, buf) => {
         if (err) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('no background'); return; }
@@ -1033,36 +1387,34 @@ const server = http.createServer((req, res) => {
           const imageDark = req.headers['x-sp-image-dark'] === '1';
           return withStateLock(() => {
             const current = loadAppearanceState();
-            const active = current.wallpapers.find((w) => w.id === current.activeWallpaperId) || null;
-            let settings;
+            const slot = current.slots.find((s) => s.id === current.activeSlotId) || null;
+            const first = slot && slot.wallpapers.length ? slot.wallpapers[0] : null;
+            const meta = {
+              type,
+              imageDark,
+              accent: /^#[0-9a-fA-F]{6}$/.test(accentHeader) ? accentHeader.toLowerCase() : '',
+              accentTouched: true,
+            };
             let wallpaper;
-            if (active) {
-              wallpaper = {
-                ...active,
-                type,
-                imageDark,
-                accent: /^#[0-9a-fA-F]{6}$/.test(accentHeader) ? accentHeader.toLowerCase() : '',
-                accentTouched: true,
-              };
+            let settings;
+            if (first) {
+              wallpaper = { ...first, ...meta };
               settings = {
                 ...current,
-                wallpapers: current.wallpapers.map((w) => (w.id === active.id ? wallpaper : w)),
+                slots: current.slots.map((s) => (s.id === slot.id ? { ...s, wallpapers: [wallpaper, ...s.wallpapers.slice(1)] } : s)),
+              };
+            } else if (slot) {
+              wallpaper = { id: crypto.randomUUID(), ...meta };
+              settings = {
+                ...current,
+                slots: current.slots.map((s) => (s.id === slot.id ? { ...s, wallpapers: [wallpaper] } : s)),
               };
             } else {
-              wallpaper = {
-                id: crypto.randomUUID(),
-                type,
-                imageDark,
-                accent: /^#[0-9a-fA-F]{6}$/.test(accentHeader) ? accentHeader.toLowerCase() : '',
-                accentTouched: true,
-              };
-              settings = {
-                ...current,
-                wallpapers: [...current.wallpapers, wallpaper],
-                activeWallpaperId: wallpaper.id,
-              };
-              fs.mkdirSync(WALLPAPERS_DIR, { recursive: true });
+              wallpaper = { id: crypto.randomUUID(), ...meta };
+              const fresh = { id: crypto.randomUUID(), wallpapers: [wallpaper] };
+              settings = { ...current, slots: [...current.slots, fresh], activeSlotId: fresh.id };
             }
+            fs.mkdirSync(WALLPAPERS_DIR, { recursive: true });
             saveAppearanceSettings(settings);
             atomicWriteFileSync(path.join(WALLPAPERS_DIR, wallpaper.id), buf);
             return { ok: true, bytes: buf.length, wallpaper, settings };
@@ -1074,21 +1426,31 @@ const server = http.createServer((req, res) => {
     }
     if (req.method === 'DELETE') {
       const state = readAppearanceSettings();
-      if (!state.activeWallpaperId) {
+      const slot = state.slots.find((s) => s.id === state.activeSlotId) || null;
+      if (!slot || !slot.wallpapers.length) {
         sendJson(res, 200, { ok: true });
         return;
       }
+      const first = slot.wallpapers[0];
       withStateLock(() => {
         const current = loadAppearanceState();
-        const idx = current.wallpapers.findIndex((w) => w.id === current.activeWallpaperId);
-        if (idx === -1) return { ok: true, settings: current };
-        const wallpapers = current.wallpapers.filter((w) => w.id !== current.activeWallpaperId);
-        let activeWallpaperId = current.activeWallpaperId;
-        if (wallpapers.length === 0) activeWallpaperId = null;
-        else if (activeWallpaperId === current.activeWallpaperId) activeWallpaperId = wallpapers[Math.max(0, idx - 1)].id;
-        const settings = { ...current, wallpapers, activeWallpaperId };
+        const slotIdx = current.slots.findIndex((s) => s.id === slot.id);
+        if (slotIdx === -1 || !current.slots[slotIdx].wallpapers.length) return { ok: true, settings: current };
+        const curFirst = current.slots[slotIdx].wallpapers[0];
+        const remaining = current.slots[slotIdx].wallpapers.slice(1);
+        let slots;
+        let activeSlotId = current.activeSlotId;
+        if (remaining.length) {
+          slots = current.slots.map((s, si) => (si === slotIdx ? { ...s, wallpapers: remaining } : s));
+        } else {
+          slots = current.slots.filter((s) => s.id !== current.slots[slotIdx].id);
+          if (activeSlotId === current.slots[slotIdx].id) {
+            activeSlotId = slots.length ? slots[Math.max(0, slotIdx - 1)].id : null;
+          }
+        }
+        const settings = { ...current, slots, activeSlotId };
         saveAppearanceSettings(settings);
-        fs.rm(path.join(WALLPAPERS_DIR, current.activeWallpaperId), () => {});
+        fs.rm(path.join(WALLPAPERS_DIR, curFirst.id), () => {});
         return { ok: true, settings };
       })
         .then((body) => sendJson(res, 200, body))

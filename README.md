@@ -28,6 +28,13 @@ reconfiguration, no restart.
   and 20-second auto-refresh.
 - Project updates run in detached maintenance containers, so an updater survives replacing
   the target container or the portal itself. Job status and bounded logs persist in `/data`.
+- An **Activity** panel (header toggle, next to Appearance) keeps a durable, newest-first feed of
+  portal actions: update jobs (from the persisted maintenance records, with full runner logs
+  expandable per event) and container start/stop actions (appended to `/data/activity.jsonl`,
+  rotated past 256 KB). The toggle shows an unread badge for events newer than the last time that
+  browser viewed the panel (localStorage), so nothing is silently missed. Toasts remain as
+  ephemeral pings: they stack bottom-left, failures stay until dismissed, everything else fades
+  after 6 s — a faded toast loses nothing because the panel holds the record.
 
 ## Routes
 
@@ -38,10 +45,15 @@ reconfiguration, no restart.
 | `POST /api/services/<id>/start` / `POST /api/services/<id>/stop` | Docker start/stop for that container: `200` `{ok, action}` on success, `502` + `error` when Docker refuses (`no-store`) |
 | `POST /api/projects/<project>/update` | Starts an opted-in detached update/restart job; requires `X-Service-Portal-Action: update`, returns `202` + job metadata, `409` if already active |
 | `GET /api/maintenance/<job-id>` | Persisted update state, exit code, error, and bounded runner logs (`no-store`) |
-| `/api/appearance` | `GET` → `{settings: {...}}` including the wallpaper collection and active wallpaper; `PUT` → updates the global styling settings (position, opacity, blur, scrim, glass) and the active wallpaper pointer (sanitized and clamped server-side; the collection itself can only change through the wallpaper endpoints) (`no-store`) |
-| `/api/appearance/wallpapers` | The wallpaper collection: `GET` → `{wallpapers: [{id, type, imageDark, accent, accentTouched}], activeWallpaperId}` · `POST` → append a new wallpaper (image/* bodies up to 200 MB; optional `x-sp-image-dark: 1` and `x-sp-accent: #rrggbb` headers) and make it active · `DELETE` → remove every wallpaper (`no-store`) |
-| `/api/appearance/wallpapers/<id>` | One wallpaper: `GET` → its bytes (404 if unknown) · `PUT` → update its meta (`imageDark`, `accent`, `accentTouched`) · `DELETE` → remove it — the collection closes the gap and the active pointer falls back to the previous entry (`no-store`) |
-| `/api/appearance/background` | Legacy single-wallpaper endpoint, kept working: it always addresses the *active* wallpaper — `GET` → its bytes (404 if none) · `POST` → replace it in place, or create the first · `DELETE` → remove it (`no-store`) |
+| `GET /api/activity` | JSON: `{generatedAt, events: [...]}` — newest-first feed merging update-job events and container start/stop events, capped at 200 (`no-store`) |
+| `/api/appearance` | `GET` → `{settings: {...}}` including the wallpaper slots and the active-slot pointer; `PUT` → updates the global styling settings (position, opacity, blur, scrim, glass) and the active-slot pointer (sanitized and clamped server-side; the slots themselves can only change through the slot/wallpaper endpoints) (`no-store`) |
+| `/api/appearance/slots` | `POST` → append an empty slot and make it active · `DELETE` → remove every slot and all its wallpapers (`no-store`) |
+| `/api/appearance/slots/<id>` | `DELETE` → remove one slot and every wallpaper in it (404 if unknown) — if it was the active slot, the pointer moves to the previous slot (`no-store`) |
+| `POST /api/appearance/slots/<id>/move` | Move the slot one position in the navigation order — body `{"delta": -1 \| 1}`; the active-slot pointer rides along by id (404 unknown slot, 400 bad delta, 422 already at the end it wants to move toward) (`no-store`) |
+| `/api/appearance/slots/<id>/wallpapers` | `POST` → upload a wallpaper into that slot (image/* bodies up to 200 MB; optional `x-sp-image-dark: 1` and `x-sp-accent: #rrggbb` headers) and make the slot active; 404 for an unknown slot (`no-store`) |
+| `/api/appearance/wallpapers` | Flat view over the slots: `GET` → the slots, the active-slot pointer, plus a derived flat wallpaper list for pre-slot clients · `POST` → (legacy) append a wallpaper to the active slot, creating a slot when there is none · `DELETE` → remove every wallpaper (`no-store`) |
+| `/api/appearance/wallpapers/<id>` | One wallpaper: `GET` → its bytes (404 if unknown) · `PUT` → update its meta (`imageDark`, `accent`, `accentTouched`) · `DELETE` → remove it from its slot — a drained slot is removed too and the active pointer moves to the previous slot (`no-store`) |
+| `/api/appearance/background` | Legacy single-wallpaper endpoint, kept working: it always addresses the *first wallpaper of the active slot* — `GET` → its bytes (404 if none) · `POST` → replace it in place, or create it · `DELETE` → remove it (`no-store`) |
 | `/healthz` | Plain-text `ok` |
 | `/favicon.ico` | The deployment's configured favicon (the star by default) |
 | `/star.svg` | The built-in star icon (`image/svg+xml`) |
@@ -138,12 +150,16 @@ deployment, see [`docs/setup-on-another-ubuntu-server.md`](docs/setup-on-another
   that is the inherent trade-off of live container discovery.
 - If port 80 is unavailable, publish a different **host** port but keep the internal port 80:
   `-p <newport>:80` (do not renumber the internal port).
-- The `/data` volume holds the shared wallpaper collection and appearance
+- The `/data` volume holds the shared wallpaper slots and appearance
   settings (`wallpapers/<id>` image files plus `appearance.json`) — the
   Appearance panel is network-wide, not per-browser. It survives container
   recreation; removing the host directory resets the appearance to defaults.
-  A pre-collection `background.bin`/`background.json` is migrated into the
-  collection automatically on first boot.
+  A pre-slot `background.bin`/`background.json` or a flat pre-slot wallpaper
+  array is migrated into slots automatically on first boot (each legacy
+  wallpaper becomes its own slot).
+- The `/data` volume also holds `maintenance/<job-id>.json` (update job records)
+  and `activity.jsonl` (container start/stop events for the Activity panel), so
+  the activity history survives container recreation too.
 
 ## Security note
 
@@ -202,8 +218,9 @@ npm test
 
 The suite covers appearance behavior, start/stop forwarding, stopped-container discovery,
 update capability and path validation, runner construction, duplicate-job prevention,
-success/failure monitoring, log capture and persistence, sidebar confirmation/polling, and
-the update script's fail-closed command ordering.
+success/failure monitoring, log capture and persistence, the activity feed (container
+events, persisted update-job events, ordering, log lookup, method guard), sidebar
+confirmation/polling, and the update script's fail-closed command ordering.
 
 ## Customization
 
@@ -218,17 +235,30 @@ the update script's fail-closed command ordering.
   `labels.json`.
 - **Wallpapers & appearance**: the gear button opens the Appearance panel — upload
   background images and tune wallpaper opacity, wallpaper blur, scrim, list-background
-  opacity (for both table and sidebar layouts), and glass blur. Multiple wallpapers are
-  kept in an ordered collection on the server in the `/data` volume, shared by every
-  machine on the network. The **prev/next** buttons at the bottom of the panel walk the
-  collection (previous is hidden on the first wallpaper, next on the last, with an
-  "N of M" counter), an upload appends a new wallpaper — multi-file selections upload
-  each file in order — and **Remove** deletes the wallpaper you've landed on, closing
-  the gap. The active wallpaper is persisted server-side, so the portal always comes
-  back to the wallpaper you left on; **Reset** deletes every wallpaper and restores the
-  default settings. Browsers that still hold a wallpaper from the old browser-only
-  storage get it migrated to the server automatically on first load, then their local
-  copies are cleared.
+  opacity (for both table and sidebar layouts), and glass blur. Wallpapers live in
+  **slots** on the server in the `/data` volume, shared by every machine on the
+  network. A slot can hold several wallpapers, and each browser rolls its *own* random
+  wallpaper from the active slot — re-rolled on every refresh and on every slot switch —
+  while the slot membership itself stays shared. The panel groups its controls by
+  scope, top to bottom: **This wallpaper** (remove the wallpaper on screen, reset
+  its derived colors), **Wallpapers in this slot** (the thumbnail strip), **Slots**
+  (Add / Remove, Move up / Move down, and the prev/next "N of M" stepper
+  beneath them), and **Effects** (the sliders above). **Add** appends an empty
+  slot and jumps to it; **Remove** deletes the active slot with all its
+  wallpapers (and a slot whose last wallpaper is removed is removed too, with the
+  pointer moving to the previous slot). **Move up** / **Move down** move the
+  active slot one position in the navigation order — its wallpapers, and each
+  browser's current pick, travel with it (moving, unlike prev/next, does not
+  switch to a different slot). Prev/next (and the
+  header arrows) move between slots — previous is hidden on the first, next on the
+  last, with an "N of M" counter — and an upload appends its wallpapers to the
+  active slot, multi-file selections in order. **Remove wallpaper** deletes the
+  currently displayed wallpaper. The active slot is persisted server-side, so the
+  portal always comes back to the slot you left on (showing a fresh roll of it);
+  **Reset appearance**, alone at the bottom of the panel, deletes every slot and
+  restores the default settings. Browsers that still
+  hold a wallpaper from the old browser-only storage get it migrated to the server
+  automatically on first load, then their local copies are cleared.
 - **Auto color scheme**: when a wallpaper is uploaded, the browser samples its dominant
   hue (32×32 grid, 12 hue buckets, saturation-weighted; the accent is re-normalized to a
   fixed lightness/saturation so it always reads as an accent) and derives a coordinated

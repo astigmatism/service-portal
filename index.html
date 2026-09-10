@@ -117,7 +117,32 @@ a.sname:hover{color:var(--accent);text-decoration:underline}
 .ctlbtn.update-running svg{animation:ctlspin 1.1s linear infinite}
 @keyframes ctlspin{to{transform:rotate(360deg)}}
 .side-empty{padding:40px 14px;text-align:center;color:var(--muted);font-size:13px}
-#toast{position:fixed;left:18px;bottom:18px;z-index:60;max-width:420px;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--bad);color:var(--text);border-radius:10px;padding:10px 14px;font-size:13px;box-shadow:0 12px 32px rgba(0,0,0,.5)}
+/* Toasts are transient pings; the durable record lives in the Activity panel.
+   They stack bottom-left so a burst of events replaces nothing. Failures
+   (level 'error') stay until dismissed; everything else fades after 6 s. */
+#toasts{position:fixed;left:18px;bottom:18px;z-index:60;display:flex;flex-direction:column-reverse;gap:8px;max-width:min(420px,calc(100vw - 36px))}
+.toast{position:relative;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--bad);color:var(--text);border-radius:10px;padding:10px 30px 10px 14px;font-size:13px;box-shadow:0 12px 32px rgba(0,0,0,.5)}
+.toast-info{border-left-color:var(--accent)}
+.toast-x{position:absolute;top:4px;right:4px;width:20px;height:20px;padding:0;border:0;border-radius:6px;background:none;color:var(--muted);font-size:14px;line-height:1;cursor:pointer}
+.toast-x:hover{color:var(--text);background:rgb(var(--panel-2-rgb))}
+#activityBtn{position:relative}
+.badge{position:absolute;top:-6px;right:-6px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:var(--bad);color:#fff;font-size:10.5px;font-weight:700;line-height:17px;text-align:center;font-variant-numeric:tabular-nums;pointer-events:none}
+.sp-panel.activity-panel{width:min(840px,70vw);max-height:calc(100vh - 96px);display:flex;flex-direction:column}
+.act-list{overflow-y:auto;min-height:60px;margin:0 -14px -14px;padding:2px 0 8px}
+.act-row{padding:9px 14px;border-bottom:1px solid var(--line)}
+.act-list .act-row:last-child{border-bottom:0}
+.act-line{display:flex;align-items:baseline;gap:9px;cursor:default}
+.act-row.expandable .act-line{cursor:pointer}
+.act-time{flex:none;font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums;min-width:64px}
+.act-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--muted);align-self:center}
+.act-dot.ok{background:var(--ok)}
+.act-dot.error{background:var(--bad)}
+.act-dot.running{background:var(--warn)}
+.act-msg{flex:1;min-width:0;font-size:12.5px;overflow-wrap:anywhere}
+.act-chev{flex:none;color:var(--muted);font-size:11px;transition:transform .15s}
+.act-row.open .act-chev{transform:rotate(90deg)}
+.act-logs{margin:8px 0 2px;padding:9px 11px;max-height:220px;overflow:auto;background:rgb(var(--panel-2-rgb));border:1px solid var(--line);border-radius:8px;font:11.5px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted)}
+.act-empty{padding:26px 14px;text-align:center;color:var(--muted);font-size:12.5px}
 /* ===== appearance: background layer + glass surfaces (docs/appearance-background-handoff.md §6) ===== */
 /* Wallpaper layer: fixed, pushed to z-index -1 (paints above body background, below all
    content), oversized so the blur filter never bleeds transparent at the viewport edges.
@@ -134,13 +159,27 @@ body[data-sp-bg] .selftag{background:rgba(var(--panel-rgb),calc(var(--sp-list-al
 body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #sidebar{backdrop-filter:blur(var(--sp-glass-blur,0px))}
 .btn:disabled{opacity:.45;cursor:default}
 .iconbtn{display:inline-flex;align-items:center;justify-content:center}
-.sp-panel{position:fixed;top:64px;right:16px;z-index:50;width:300px;max-width:calc(100vw - 32px);background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;box-shadow:0 16px 48px rgba(0,0,0,.55)}
+.sp-panel{position:fixed;top:64px;right:16px;z-index:50;width:300px;max-width:calc(100vw - 32px);max-height:calc(100vh - 80px);overflow-y:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;box-shadow:0 16px 48px rgba(0,0,0,.55)}
 .sp-panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
 .sp-panel-title{font-weight:650;font-size:14px}
 .sp-drop{border:1.5px dashed var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;color:var(--muted);font-size:13px}
 .sp-drop.over{border-color:var(--accent);color:var(--text)}
 .sp-thumb{width:100%;height:110px;object-fit:cover;border-radius:8px}
 .sp-row{display:flex;gap:8px;margin:10px 0}
+.sp-label{display:block;font-size:12.5px;color:var(--muted);margin:14px 0 2px}
+.sp-reset-row{display:flex;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+/* Thumbnail strip: one item per wallpaper of the active slot. The item on
+   screen gets the accent ring; the × sits over its corner and removes just
+   that wallpaper. */
+.sp-thumbs-wrap{margin:4px 0 2px}
+.sp-thumbs-label{display:block;font-size:12.5px;color:var(--muted);margin-bottom:6px}
+.sp-thumbs{display:flex;flex-wrap:wrap;gap:8px}
+.sp-thumb-item{position:relative;width:72px;height:44px;border:1px solid var(--line);border-radius:7px;overflow:hidden;cursor:pointer;background:rgb(var(--panel-2-rgb))}
+.sp-thumb-item img{width:100%;height:100%;object-fit:cover;display:block}
+.sp-thumb-item:hover{border-color:var(--accent)}
+.sp-thumb-item.current{border-color:var(--accent);box-shadow:0 0 0 1.5px var(--accent)}
+.sp-thumb-del{position:absolute;top:2px;right:2px;width:17px;height:17px;line-height:15px;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:13px;cursor:pointer}
+.sp-thumb-del:hover{background:var(--bad)}
 .sp-nav{display:flex;align-items:center;justify-content:center;gap:10px;margin:10px 0 0}
 .sp-nav-count{font-size:12.5px;color:var(--muted);min-width:44px;text-align:center;font-variant-numeric:tabular-nums}
 .sp-slider{display:block;font-size:12.5px;color:var(--muted);margin-top:10px}
@@ -179,10 +218,10 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
     <div class="sub" id="meta">loading&hellip;</div>
     <div class="spacer"></div>
     <div class="seg" role="group" aria-label="Background image">
-      <button id="bgPrev" class="seg-btn seg-arrow" type="button" title="Previous background image" aria-label="Previous background image">
+      <button id="bgPrev" class="seg-btn seg-arrow" type="button" title="Previous slot (re-rolls a random wallpaper of it)" aria-label="Previous slot">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
       </button>
-      <button id="bgNext" class="seg-btn seg-arrow" type="button" title="Next background image" aria-label="Next background image">
+      <button id="bgNext" class="seg-btn seg-arrow" type="button" title="Next slot (re-rolls a random wallpaper of it)" aria-label="Next slot">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
       </button>
     </div>
@@ -201,6 +240,10 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
       <span>Hide services without links</span>
     </label>
     <button id="refreshBtn" class="btn" type="button">Refresh</button>
+    <button id="activityBtn" class="btn iconbtn" type="button" title="Activity &mdash; updates, starts &amp; stops" aria-haspopup="dialog">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+      <span id="activityBadge" class="badge hidden">0</span>
+    </button>
     <button id="appearanceBtn" class="btn iconbtn" type="button" title="Appearance &mdash; wallpaper &amp; effects" aria-haspopup="dialog">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
     </button>
@@ -257,11 +300,34 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
       <input type="range" id="spPosY" min="0" max="100" step="1" value="50">
     </label>
   </div>
+  <span class="sp-label">This wallpaper</span>
   <div class="sp-row">
-    <button id="spRemove" class="btn" type="button" title="Delete the wallpaper you have landed on (the collection closes the gap)">Remove</button>
-    <button id="spReset" class="btn" type="button" title="Delete every wallpaper and restore the default settings">Reset</button>
+    <button id="spRemove" class="btn" type="button" title="Delete the wallpaper currently on screen (an emptied slot is removed too, and the pointer moves to the previous slot)">Remove wallpaper</button>
     <button id="spResetColors" class="btn" type="button" title="Drop the wallpaper-derived color scheme (the wallpaper stays)">Reset colors</button>
   </div>
+  <div id="spThumbsWrap" class="sp-thumbs-wrap hidden">
+    <span class="sp-thumbs-label" title="The wallpapers in this slot — this browser shows one at random on every refresh and on every slot switch. Click one to show it now (until the next roll); &times; removes just that wallpaper.">Wallpapers in this slot</span>
+    <div id="spThumbs" class="sp-thumbs"></div>
+  </div>
+  <span class="sp-label">Slots</span>
+  <div class="sp-row">
+    <button id="spAddSlot" class="btn" type="button" title="Append an empty wallpaper slot and switch to it (fill it with an upload)">Add</button>
+    <button id="spRemoveSlot" class="btn" type="button" title="Delete this slot and every wallpaper in it (the pointer moves to the previous slot)">Remove</button>
+  </div>
+  <div class="sp-row">
+    <button id="spMoveUp" class="btn" type="button" title="Move this slot one position up in the navigation order — its wallpapers, and your current pick, travel with it (does not switch to a different slot)" aria-label="Move this slot up">Move up</button>
+    <button id="spMoveDown" class="btn" type="button" title="Move this slot one position down in the navigation order — its wallpapers, and your current pick, travel with it (does not switch to a different slot)" aria-label="Move this slot down">Move down</button>
+  </div>
+  <div id="spNav" class="sp-nav hidden">
+    <button id="spPrev" class="btn iconbtn" type="button" title="Previous slot (re-rolls a random wallpaper of it)" aria-label="Previous slot">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
+    </button>
+    <span id="spNavCount" class="sp-nav-count"></span>
+    <button id="spNext" class="btn iconbtn" type="button" title="Next slot (re-rolls a random wallpaper of it)" aria-label="Next slot">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
+    </button>
+  </div>
+  <span class="sp-label">Effects</span>
   <label class="sp-slider">Opacity <output id="spOpacityOut">100%</output>
     <input type="range" id="spOpacity" min="0" max="100" step="1" value="100">
   </label>
@@ -277,17 +343,19 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
   <label class="sp-slider">Glass blur <output id="spGlassOut">0px</output>
     <input type="range" id="spGlass" min="0" max="20" step="1" value="0">
   </label>
-  <div id="spNav" class="sp-nav hidden">
-    <button id="spPrev" class="btn iconbtn" type="button" title="Previous wallpaper" aria-label="Previous wallpaper">
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
-    </button>
-    <span id="spNavCount" class="sp-nav-count"></span>
-    <button id="spNext" class="btn iconbtn" type="button" title="Next wallpaper" aria-label="Next wallpaper">
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
-    </button>
+  <div class="sp-reset-row">
+    <button id="spReset" class="btn" type="button" title="Delete every slot and its wallpapers, and restore the default settings">Reset appearance</button>
   </div>
   <div id="spStatus" class="sp-status" role="status"></div>
 </div>
+<div id="activityPanel" class="sp-panel activity-panel hidden" role="dialog" aria-label="Activity">
+  <div class="sp-panel-head">
+    <span class="sp-panel-title">Activity</span>
+    <button id="activityClose" class="btn iconbtn" type="button" title="Close">&times;</button>
+  </div>
+  <div id="activityList" class="act-list" role="log"></div>
+</div>
+<div id="toasts"></div>
 <script>
 'use strict';
 const $ = (s) => document.querySelector(s);
@@ -327,19 +395,30 @@ function openNewTab(url){
   a.remove();
 }
 
-let toastTimer = 0;
-function toast(msg){
-  let el = $('#toast');
-  if (!el){
-    el = document.createElement('div');
-    el.id = 'toast';
-    el.setAttribute('role', 'status');
-    document.body.appendChild(el);
-  }
+/* Toasts are intentionally ephemeral pings; the durable record of every
+   action lives in the Activity panel (server-side), so a faded toast never
+   loses anything. They stack bottom-left; failures stay until dismissed,
+   everything else fades after 6 s. */
+function toast(msg, isError){
+  const wrap = $('#toasts');
+  const el = document.createElement('div');
+  el.className = 'toast' + (isError ? ' toast-error' : ' toast-info');
+  el.setAttribute('role', isError ? 'alert' : 'status');
   el.textContent = msg;
-  el.classList.remove('hidden');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.add('hidden'), 5000);
+  const dismiss = () => { if (el.parentNode) el.remove(); };
+  if (isError){
+    const x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'toast-x';
+    x.title = 'Dismiss';
+    x.textContent = '\u00d7';
+    x.addEventListener('click', dismiss);
+    el.appendChild(x);
+  } else {
+    setTimeout(dismiss, 6000);
+  }
+  wrap.appendChild(el);
+  while (wrap.children.length > 4) wrap.removeChild(wrap.firstChild);
 }
 
 const ICON_START = '<svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
@@ -373,7 +452,7 @@ function containerToggle(s){
       }))
       .then(() => load())
       .catch((e) => {
-        toast((running ? 'Could not stop ' : 'Could not start ') + s.name + ': ' + e.message);
+        toast((running ? 'Could not stop ' : 'Could not start ') + s.name + ': ' + e.message, true);
         b.disabled = false;
       });
   });
@@ -408,10 +487,11 @@ function watchMaintenance(job, serviceName){
         if (current.state === 'succeeded' || current.state === 'failed') {
           maintenancePollers.delete(job.id);
           load();
+          refreshActivity();
           if (current.state === 'succeeded') toast('Updated and restarted ' + serviceName + '.');
           else {
             const detail = current.error || lastUsefulLine(current.logs) || 'unknown maintenance error';
-            toast('Could not update ' + serviceName + ': ' + detail);
+            toast('Could not update ' + serviceName + ': ' + detail, true);
           }
           return;
         }
@@ -463,7 +543,7 @@ function projectUpdateButton(s){
         load();
       })
       .catch((e) => {
-        toast('Could not start update for ' + displayName(s) + ': ' + e.message);
+        toast('Could not start update for ' + displayName(s) + ': ' + e.message, true);
         b.disabled = false;
         b.classList.remove('update-running');
       });
@@ -805,29 +885,177 @@ sideGrip.addEventListener('keydown', (e) => {
 window.addEventListener('resize', () => { if (sideWidth) applySideWidth(); });
 applySideWidth();
 
-$('#refreshBtn').addEventListener('click', () => load());
-setInterval(() => load(), 20000);
+$('#refreshBtn').addEventListener('click', () => { load(); refreshActivity(); });
+setInterval(() => { load(); refreshActivity(); }, 20000);
 load();
 
-/* ===== Appearance (wallpaper + glass) =====================================
+/* ===== Activity panel =====================================================
+   The durable record behind the ephemeral toasts: update jobs come from the
+   server's persisted maintenance files (one event per job, full logs on
+   demand via /api/maintenance/<id>), and container start/stop actions come
+   from the server's append-only activity log. The header button carries an
+   unread badge — events newer than the last time *this browser* viewed the
+   panel (localStorage) — so an event missed while the tab was hidden or
+   closed still gets noticed. The feed refreshes with the same 20 s cadence
+   as the service list, plus immediately on open. */
+let refreshActivity = () => {};
+(function () {
+  const SEEN_KEY = 'sp-activity-seen';
+  const panel = $('#activityPanel');
+  const list = $('#activityList');
+  const btn = $('#activityBtn');
+  const badge = $('#activityBadge');
+  let events = [];
+  let loadFailed = false;
+  const logsCache = new Map();
+
+  const isOpen = () => !panel.classList.contains('hidden');
+  function seenAt(){ try { return localStorage.getItem(SEEN_KEY) || ''; } catch (e) { return ''; } }
+  function markSeen(){
+    try { localStorage.setItem(SEEN_KEY, new Date().toISOString()); } catch (e) {}
+    updateBadge();
+  }
+  function updateBadge(){
+    const cut = seenAt();
+    const n = events.filter((ev) => String(ev.at) > cut).length;
+    badge.textContent = n > 99 ? '99+' : String(n);
+    badge.classList.toggle('hidden', n === 0);
+  }
+  function fmtTime(iso){
+    const d = new Date(iso);
+    if (isNaN(d)) return '';
+    const sameDay = new Date().toDateString() === d.toDateString();
+    return sameDay ? d.toLocaleTimeString() : d.toLocaleDateString() + ' ' + d.toLocaleTimeString();
+  }
+  function dotClass(ev){
+    if (ev.state === 'failed' || ev.state === 'error') return ' error';
+    if (ev.state === 'ok' || ev.state === 'succeeded') return ' ok';
+    if (ev.state === 'running' || ev.state === 'queued') return ' running';
+    return '';
+  }
+
+  function toggleLogs(row, ev){
+    if (row.classList.contains('open')){
+      row.classList.remove('open');
+      const pre = row.querySelector('.act-logs');
+      if (pre) pre.remove();
+      return;
+    }
+    row.classList.add('open');
+    const pre = document.createElement('pre');
+    pre.className = 'act-logs';
+    row.appendChild(pre);
+    const show = (text) => { if (row.isConnected) pre.textContent = text; };
+    if (logsCache.has(ev.id)){
+      show(logsCache.get(ev.id) || '(no output captured)');
+      return;
+    }
+    pre.textContent = 'Loading\u2026';
+    fetch('/api/maintenance/' + encodeURIComponent(ev.id), { cache: 'no-store' })
+      .then((r) => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
+      .then((d) => {
+        const logs = (d.job && d.job.logs) || '';
+        logsCache.set(ev.id, logs);
+        show(logs || '(no output captured)');
+      })
+      .catch(() => show('Could not load logs.'));
+  }
+
+  function render(){
+    list.textContent = '';
+    if (!events.length){
+      const e = document.createElement('div');
+      e.className = 'act-empty';
+      e.textContent = loadFailed ? 'Could not load activity.' : 'No activity recorded yet.';
+      list.appendChild(e);
+      return;
+    }
+    for (const ev of events){
+      const row = document.createElement('div');
+      row.className = 'act-row' + (ev.hasLogs ? ' expandable' : '');
+      const line = document.createElement('div');
+      line.className = 'act-line';
+      const t = document.createElement('span');
+      t.className = 'act-time';
+      t.textContent = fmtTime(ev.at);
+      const dot = document.createElement('span');
+      dot.className = 'act-dot' + dotClass(ev);
+      dot.title = ev.state;
+      const msg = document.createElement('span');
+      msg.className = 'act-msg';
+      msg.textContent = ev.message;
+      line.append(t, dot, msg);
+      if (ev.hasLogs){
+        const chev = document.createElement('span');
+        chev.className = 'act-chev';
+        chev.textContent = '\u25B8';
+        line.appendChild(chev);
+        line.addEventListener('click', () => toggleLogs(row, ev));
+      }
+      row.appendChild(line);
+      list.appendChild(row);
+    }
+  }
+
+  function refresh(){
+    return fetch('/api/activity', { cache: 'no-store' })
+      .then((r) => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
+      .then((d) => {
+        loadFailed = false;
+        events = Array.isArray(d.events) ? d.events : [];
+        if (isOpen()) markSeen();
+        updateBadge();
+        render();
+      })
+      .catch(() => { loadFailed = true; if (isOpen()) render(); });
+  }
+  refreshActivity = refresh;
+
+  btn.addEventListener('click', () => {
+    if (isOpen()){
+      panel.classList.add('hidden');
+      return;
+    }
+    panel.classList.remove('hidden');
+    markSeen();
+    refresh();
+  });
+  $('#activityClose').addEventListener('click', () => {
+    panel.classList.add('hidden');
+    btn.focus();
+  });
+  refresh();
+})();
+
+/* ===== Appearance (wallpaper slots + glass) ================================
    Port of the Harness "Appearance" plugin, per
    docs/appearance-background-handoff.md §6, now server-persisted: a
-   collection of wallpapers plus the styling settings live on the server
-   (GET/PUT /api/appearance, GET/POST/DELETE
+   collection of *wallpaper slots* plus the styling settings live on the
+   server (GET/PUT /api/appearance, POST/DELETE /api/appearance/slots,
+   DELETE /api/appearance/slots/<id>, POST
+   /api/appearance/slots/<id>/wallpapers, GET/PUT/DELETE
    /api/appearance/wallpapers[/<id>]), shared by every client on the
-   network. The wallpapers form an ordered array; the *active* one is what
-   the portal shows. Prev/next walks the array (previous hidden on the first,
-   next hidden on the last), an upload appends a new wallpaper and makes it
-   active, and Remove deletes the one you've landed on — the active pointer
-   is persisted on the server, so you always come back to the wallpaper you
-   left on. Each wallpaper carries its own sampled accent + darkness (the
-   theme follows the wallpaper); the styling sliders stay global to the
-   portal. This browser keeps a localStorage ('sp-appearance') copy as an
-   offline fallback cache, and on first visit with an empty server the
-   wallpaper previously stored in this browser's IndexedDB
-   ('service-portal-appearance', store 'images') is migrated up once, then
-   the local copies are cleared. Every change applies live, in the same tick;
-   structural changes sync to the server immediately, slider drags debounced. */
+   network. A slot holds one or more wallpapers. The server tracks the
+   active *slot* only; which wallpaper of the active slot is displayed is a
+   per-browser random roll, re-rolled on every page refresh and on every
+   slot navigation (toolbar stepper or panel prev/next), so a page visit
+   can show any wallpaper of the slot. The displayed wallpaper carries its
+   own sampled accent + darkness (the theme follows what is on screen); the
+   styling sliders stay global to the portal. Uploads land in the active
+   slot (multi-select/drop uploads each file in order); "Add slot" appends
+   an empty slot and jumps to it; "Remove slot" deletes the slot and every
+   wallpaper in it; "Remove wallpaper" deletes the wallpaper currently on screen, and
+   a drained slot is removed by the server too. The active-slot pointer is
+   persisted on the server, so you always come back to the slot you left on
+   (with a fresh random wallpaper of it). The panel's thumbnail strip lists
+   the active slot's wallpapers — click one to show it deliberately (until
+   the next roll), × to remove just that wallpaper. This browser keeps a
+   localStorage ('sp-appearance') copy as an offline fallback cache, and on
+   first visit with an empty server the wallpaper previously stored in this
+   browser's IndexedDB ('service-portal-appearance', store 'images') is
+   migrated up once, then the local copies are cleared. Every change applies
+   live, in the same tick; structural changes sync to the server immediately,
+   slider drags debounced. */
 (function () {
   'use strict';
 
@@ -889,20 +1117,21 @@ load();
   function writePositionMap() {
     try { localStorage.setItem(POS_LS_KEY, JSON.stringify(positionMap)); } catch (e) {}
   }
-  /* Drop entries whose wallpaper no longer exists in the collection. */
+  /* Drop entries whose wallpaper no longer exists in the slot collection. */
   function prunePositionMap(s) {
     const ids = {};
-    for (const w of (Array.isArray(s.wallpapers) ? s.wallpapers : [])) if (w && w.id) ids[w.id] = true;
+    for (const slot of (Array.isArray(s.slots) ? s.slots : []))
+      for (const w of (slot && Array.isArray(slot.wallpapers) ? slot.wallpapers : [])) if (w && w.id) ids[w.id] = true;
     let changed = false;
     for (const id of Object.keys(positionMap)) {
       if (!ids[id]) { delete positionMap[id]; changed = true; }
     }
     if (changed) writePositionMap();
   }
-  /* The origin that applyAppearance/syncPanel should show: the active
+  /* The origin that applyAppearance/syncPanel should show: the displayed
      wallpaper's stored point, or center. */
   function positionFor(s) {
-    const w = activeWallpaper(s);
+    const w = displayedWallpaper(s);
     return (w && positionMap[w.id]) || { x: 50, y: 50 };
   }
   /* One-time migration: before the per-wallpaper point, the position was a
@@ -916,7 +1145,8 @@ load();
     let migrated = false;
     try { migrated = localStorage.getItem(POS_MIGRATION_KEY) === '1'; } catch (e) {}
     if (migrated) return;
-    const wps = (s && Array.isArray(s.wallpapers)) ? s.wallpapers : [];
+    const wps = [];
+    if (s && Array.isArray(s.slots)) for (const slot of s.slots) for (const w of (slot && Array.isArray(slot.wallpapers) ? slot.wallpapers : [])) wps.push(w);
     const legacy = sanitizePosition(s && s.backgroundPosition);
     if ((legacy.x !== 50 || legacy.y !== 50) && !Object.keys(positionMap).length && wps.length) {
       for (const w of wps) {
@@ -930,10 +1160,12 @@ load();
   }
 
   const DEFAULTS = {
-    wallpapers: [],            // the ordered collection: [{ id, type, imageDark, accent, accentTouched }]
-    activeWallpaperId: null,   // the wallpaper currently on screen (an id into wallpapers)
-    // (the background origin is per wallpaper + per client: positionMap in
-    //  localStorage, not a shared setting — see POS_LS_KEY above)
+    slots: [],                // the ordered collection: [{ id, wallpapers: [{ id, type, imageDark, accent, accentTouched }] }]
+    activeSlotId: null,       // the slot the stepper is parked on (an id into slots)
+    // (which wallpaper of the active slot is displayed is a per-browser
+    //  random roll — see displayedId below; the background origin is per
+    //  wallpaper + per client: positionMap in localStorage, not a shared
+    //  setting — see POS_LS_KEY above)
     backgroundOpacity: 1,    // 0..1
     backgroundBlur: 0,       // 0..30 px
     scrim: 0,                // 0..1 readability veil
@@ -980,6 +1212,12 @@ load();
     remove: $id('spRemove'),
     reset: $id('spReset'),
     resetColors: $id('spResetColors'),
+    addSlot: $id('spAddSlot'),
+    removeSlot: $id('spRemoveSlot'),
+    moveUp: $id('spMoveUp'),
+    moveDown: $id('spMoveDown'),
+    thumbsWrap: $id('spThumbsWrap'),
+    thumbs: $id('spThumbs'),
     opacity: $id('spOpacity'), opacityOut: $id('spOpacityOut'),
     blur: $id('spBlur'), blurOut: $id('spBlurOut'),
     scrim: $id('spScrim'), scrimOut: $id('spScrimOut'),
@@ -991,34 +1229,95 @@ load();
     navCount: $id('spNavCount'),
     status: $id('spStatus')
   };
-  /* Header stepper: the same prev/next walking, reachable from the top
-     menu without opening the panel. It stays mounted at all times and
-     dims at the ends of the collection (both dim when it is empty). */
+  /* Header stepper: the same prev/next slot walking, reachable from the top
+     menu without opening the panel. It stays mounted at all times and dims
+     at the ends of the slot collection (both dim when it is empty). Every
+     step re-rolls the random wallpaper of the newly active slot. */
   const bgPrev = $id('bgPrev');
   const bgNext = $id('bgNext');
 
+  /* ---- the displayed wallpaper: a per-browser random roll of the active
+         slot. It is local to this page visit — never persisted, never sent
+         to the server — and is re-rolled on every page refresh (startup)
+         and on every slot navigation. displayedWallpaper() lazily re-rolls
+         whenever the stored id no longer exists in the active slot (e.g. the
+         wallpaper or its slot was deleted elsewhere). ---- */
+  let displayedId = null;
+  const activeSlot = (s) => {
+    const list = Array.isArray(s.slots) ? s.slots : [];
+    return list.find((slot) => slot && slot.id === s.activeSlotId) || null;
+  };
+  function rollSlot(s) {
+    const slot = activeSlot(s);
+    const wps = slot && Array.isArray(slot.wallpapers) ? slot.wallpapers : [];
+    if (!wps.length) { displayedId = null; return null; }
+    const pick = wps[Math.floor(Math.random() * wps.length)];
+    displayedId = pick ? pick.id : null;
+    return pick || null;
+  }
+  function displayedWallpaper(s) {
+    const slot = activeSlot(s);
+    if (!slot) return null;
+    if (displayedId) {
+      const w = slot.wallpapers.find((w) => w.id === displayedId);
+      if (w) return w;
+    }
+    return rollSlot(s);
+  }
+
   /* ---- settings: sanitized on read, so stale or hand-edited storage can
-          never produce invalid CSS. Also tolerates the pre-collection
-          shape still sitting in an offline localStorage cache. ---- */
+          never produce invalid CSS. Also tolerates the pre-slot shape still
+          sitting in an offline localStorage cache (a flat wallpaper array —
+          each wallpaper stands in as its own slot). ---- */
+  function sanitizeWallpaperShape(w) {
+    if (!w || typeof w !== 'object' || typeof w.id !== 'string' || !w.id) return null;
+    return {
+      id: w.id,
+      type: typeof w.type === 'string' ? w.type : '',
+      imageDark: w.imageDark === true || w.imageDark === 1,
+      accent: typeof w.accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(w.accent) ? w.accent.toLowerCase() : '',
+      accentTouched: w.accentTouched === true || w.accentTouched === 1
+    };
+  }
   function sanitizeSettings(raw) {
-    const wallpapers = [];
-    if (raw && typeof raw === 'object' && !Array.isArray(raw) && Array.isArray(raw.wallpapers)) {
-      for (const w of raw.wallpapers) {
-        if (!w || typeof w !== 'object' || typeof w.id !== 'string' || !w.id) continue;
-        wallpapers.push({
-          id: w.id,
-          type: typeof w.type === 'string' ? w.type : '',
-          imageDark: w.imageDark === true || w.imageDark === 1,
-          accent: typeof w.accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(w.accent) ? w.accent.toLowerCase() : '',
-          accentTouched: w.accentTouched === true || w.accentTouched === 1
-        });
+    const slots = [];
+    const seen = {};
+    const pushWallpaper = (w) => {
+      const clean = sanitizeWallpaperShape(w);
+      if (!clean || seen[clean.id]) return;
+      seen[clean.id] = true;
+      slots.push({ id: 'legacy-slot-' + clean.id, wallpapers: [clean] });
+    };
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      if (Array.isArray(raw.slots)) {
+        for (const slot of raw.slots) {
+          if (!slot || typeof slot !== 'object' || typeof slot.id !== 'string' || !slot.id || seen['slot:' + slot.id]) continue;
+          seen['slot:' + slot.id] = true;
+          const wallpapers = [];
+          if (Array.isArray(slot.wallpapers)) {
+            for (const w of slot.wallpapers) {
+              const clean = sanitizeWallpaperShape(w);
+              if (!clean || seen[clean.id]) continue;
+              seen[clean.id] = true;
+              wallpapers.push(clean);
+            }
+          }
+          slots.push({ id: slot.id, wallpapers });
+        }
+      } else if (Array.isArray(raw.wallpapers)) {
+        for (const w of raw.wallpapers) pushWallpaper(w);
       }
     }
+    let activeSlotId = null;
+    if (slots.length) {
+      const byId = (id) => slots.some((s) => s.id === id);
+      activeSlotId = byId(raw.activeSlotId) ? raw.activeSlotId
+        : byId('legacy-slot-' + raw.activeWallpaperId) ? 'legacy-slot-' + raw.activeWallpaperId
+        : slots[0].id;
+    }
     const out = {
-      wallpapers,
-      activeWallpaperId: wallpapers.length
-        ? (wallpapers.some((w) => w.id === (raw && raw.activeWallpaperId)) ? raw.activeWallpaperId : wallpapers[0].id)
-        : null,
+      slots,
+      activeSlotId,
       backgroundPosition: { x: 50, y: 50 },
       backgroundOpacity: 1,
       backgroundBlur: 0,
@@ -1052,6 +1351,8 @@ load();
          for structural changes) + the wallpaper endpoints ---- */
   const WALLPAPERS_URL = '/api/appearance/wallpapers';
   const wallpaperUrl = (id) => WALLPAPERS_URL + '/' + encodeURIComponent(id);
+  const SLOTS_URL = '/api/appearance/slots';
+  const slotWallpapersUrl = (slotId) => SLOTS_URL + '/' + encodeURIComponent(slotId) + '/wallpapers';
   const PUT_DEBOUNCE_MS = 250;
   let putTimer = 0;
 
@@ -1066,9 +1367,9 @@ load();
     });
   }
 
-  /* The PUT carries the global sliders and the active pointer; the wallpaper
-     collection itself is only ever changed by the wallpaper endpoints, so a
-     stale client can never clobber it. */
+  /* The PUT carries the global sliders and the active-slot pointer; the slot
+     collection itself is only ever changed by the slot/wallpaper endpoints,
+     so a stale client can never clobber it. */
   function putBodyOf(next) {
     return {
       backgroundOpacity: next.backgroundOpacity,
@@ -1076,21 +1377,21 @@ load();
       scrim: next.scrim,
       surfaceAlpha: next.surfaceAlpha,
       glassBlur: next.glassBlur,
-      activeWallpaperId: next.activeWallpaperId
+      activeSlotId: next.activeSlotId
     };
   }
 
-  /* Merge the server's authoritative collection + active pointer into our
-     intent, keeping whichever slider values are fresher (ours). Returns the
-     same object when the server state matches, so callers can detect real
-     changes. */
+  /* Merge the server's authoritative slot collection + active-slot pointer
+     into our intent, keeping whichever slider values are fresher (ours).
+     Returns the same object when the server state matches, so callers can
+     detect real changes. */
   function adoptServerSettings(next, data) {
-    if (!data || !data.settings || !Array.isArray(data.settings.wallpapers)) return next;
+    if (!data || !data.settings || !Array.isArray(data.settings.slots)) return next;
     const s = data.settings;
-    const active = s.wallpapers.some((w) => w.id === s.activeWallpaperId) ? s.activeWallpaperId : null;
-    const changed = JSON.stringify(s.wallpapers) !== JSON.stringify(next.wallpapers) ||
-      active !== next.activeWallpaperId;
-    return changed ? { ...next, wallpapers: s.wallpapers, activeWallpaperId: active } : next;
+    const active = s.slots.some((slot) => slot.id === s.activeSlotId) ? s.activeSlotId : null;
+    const changed = JSON.stringify(s.slots) !== JSON.stringify(next.slots) ||
+      active !== next.activeSlotId;
+    return changed ? { ...next, slots: s.slots, activeSlotId: active } : next;
   }
 
   /* Debounced settings push for slider drags; structural changes (upload,
@@ -1366,10 +1667,8 @@ load();
      offline) in the startup fetch below. */
   let imageToken = '';
 
-  const activeWallpaper = (s) => {
-    const list = Array.isArray(s.wallpapers) ? s.wallpapers : [];
-    return list.find((w) => w && w.id === s.activeWallpaperId) || null;
-  };
+  // The displayed wallpaper is resolved by displayedWallpaper() (the
+  // per-browser random roll of the active slot, declared up top).
 
   /* ---- render: the four body variables are the single source of truth ---- */
   function applyAppearance(s) {
@@ -1388,7 +1687,7 @@ load();
       body.removeAttribute('data-sp-glass');
       body.style.removeProperty('--sp-glass-blur');
     }
-    body.toggleAttribute('data-sp-bg', activeWallpaper(s) !== null);
+    body.toggleAttribute('data-sp-bg', displayedWallpaper(s) !== null);
     applyTheme(s);
     syncWallpaper();
   }
@@ -1404,7 +1703,7 @@ load();
   ];
   function applyTheme(s) {
     const body = document.body;
-    const w = activeWallpaper(s);
+    const w = displayedWallpaper(s);
     const accent = (w && w.accent) || '';
     if (/^#[0-9a-f]{6}$/.test(accent)) {
       const p = derivePalette(accent);
@@ -1431,7 +1730,7 @@ load();
      /api/appearance/wallpapers/<id> (Cache-Control: no-store), shared by
      every client on the network. */
   function syncWallpaper() {
-    const w = activeWallpaper(settings);
+    const w = displayedWallpaper(settings);
     const token = w ? wallpaperUrl(w.id) : '';
     if (token === imageToken) return;
     imageToken = token;
@@ -1476,20 +1775,36 @@ load();
     syncPanel();
   }
 
-  /* ---- upload: every file becomes a new wallpaper appended to the end of
-         the collection, and the server makes the newest one active. The
-         sampled darkness + accent ride custom headers (the server stores the
-         raw image and the meta, it does not decode pixels). Multi-select and
-         multi-file drops upload each file in order. ---- */
+  /* ---- upload: every file becomes a new wallpaper in the *active* slot.
+         With no slot at all the first file creates one. The sampled
+         darkness + accent ride custom headers (the server stores the raw
+         image and the meta, it does not decode pixels). Multi-select and
+         multi-file drops upload each file in order; the currently displayed
+         wallpaper is kept when it survives the upload, otherwise a fresh
+         roll picks one of the slot's wallpapers. ---- */
   async function handleFiles(fileList) {
     const files = Array.prototype.slice.call(fileList || [])
       .filter((f) => f && typeof f.type === 'string' && f.type.startsWith('image/'));
     if (!files.length) return;
+    /* The first upload of an empty portal must create a slot to upload into
+       (the server creates one too, but only *after* the upload — with no
+       slot there is nothing to address the upload to). */
+    if (!activeSlot(settings)) {
+      try {
+        const r = await fetch(SLOTS_URL, { method: 'POST' });
+        if (!r.ok) throw new Error('slot create failed (HTTP ' + r.status + ')');
+        settings = adoptServerSettings(settings, await r.json());
+      } catch (e) {
+        setStatus(e && e.message ? e.message : 'could not create a slot');
+        return;
+      }
+    }
+    const slotId = activeSlot(settings) ? activeSlot(settings).id : settings.activeSlotId;
     for (let i = 0; i < files.length; i++) {
       setStatus(i === 0 ? 'Uploading…' : 'Uploading ' + (i + 1) + ' of ' + files.length + '…');
       try {
         const prepared = await prepareImage(files[i]);
-        const r = await fetch(WALLPAPERS_URL, {
+        const r = await fetch(slotWallpapersUrl(slotId), {
           method: 'POST',
           headers: {
             'Content-Type': prepared.blob.type || 'image/webp',
@@ -1502,6 +1817,7 @@ load();
         const data = await r.json();
         if (prepared.imageDark && settings.scrim === 0) settings.scrim = AUTO_SCRIM;
         settings = adoptServerSettings(settings, data);
+        displayedWallpaper(settings); // re-rolls if the pick no longer exists
         commit(true);
       } catch (e) {
         setStatus(e && e.message ? e.message : 'could not use that file');
@@ -1512,7 +1828,7 @@ load();
   }
 
   function resetColors() {
-    const w = activeWallpaper(settings);
+    const w = displayedWallpaper(settings);
     if (!w) return;
     setStatus('');
     fetch(wallpaperUrl(w.id), {
@@ -1528,10 +1844,11 @@ load();
     }).catch((e) => setStatus(e && e.message ? e.message : 'could not reset colors'));
   }
 
-  /* Delete the wallpaper you've landed on; the collection closes the gap and
-     the server re-selects the neighbor (the entry before it, when possible). */
+  /* Delete the wallpaper currently on screen; a drained slot is removed by
+     the server too, and the active slot moves to the previous one (the
+     entry before it, when possible). */
   function removeCurrentWallpaper() {
-    const w = activeWallpaper(settings);
+    const w = displayedWallpaper(settings);
     if (!w) return;
     setStatus('');
     fetch(wallpaperUrl(w.id), { method: 'DELETE' }).then((r) => {
@@ -1539,18 +1856,96 @@ load();
       return r.json();
     }).then((data) => {
       settings = adoptServerSettings(settings, data);
+      displayedId = null; // the pick was just deleted — roll a replacement
       commit(true);
     }).catch((e) => setStatus(e && e.message ? e.message : 'could not delete wallpaper'));
   }
 
+  /* Remove one wallpaper of the active slot by id (the thumbnail ×); same
+     drained-slot rules as removeCurrentWallpaper. */
+  function removeWallpaperById(id) {
+    setStatus('');
+    fetch(wallpaperUrl(id), { method: 'DELETE' }).then((r) => {
+      if (!r.ok) throw new Error('delete failed (HTTP ' + r.status + ')');
+      return r.json();
+    }).then((data) => {
+      settings = adoptServerSettings(settings, data);
+      if (displayedId === id) displayedId = null;
+      commit(true);
+    }).catch((e) => setStatus(e && e.message ? e.message : 'could not delete wallpaper'));
+  }
+
+  /* Click a thumbnail: show that specific wallpaper of the slot deliberately
+     (local only — the next slot navigation re-rolls). */
+  function showWallpaper(id) {
+    const w = displayedWallpaper(settings);
+    const slot = activeSlot(settings);
+    if (!w || !slot || !slot.wallpapers.some((x) => x.id === id)) return;
+    displayedId = id;
+    commitLocal();
+  }
+
+  /* "Add slot": append an empty slot and jump to it (the server does both).
+     An empty slot shows no wallpaper until its first upload. */
+  function addSlot() {
+    setStatus('');
+    fetch(SLOTS_URL, { method: 'POST' }).then((r) => {
+      if (!r.ok) throw new Error('slot create failed (HTTP ' + r.status + ')');
+      return r.json();
+    }).then((data) => {
+      settings = adoptServerSettings(settings, data);
+      displayedId = null;
+      commit(true);
+    }).catch((e) => setStatus(e && e.message ? e.message : 'could not add a slot'));
+  }
+
+  /* "Remove slot": delete the active slot and every wallpaper in it (the
+     server lands the pointer on the previous slot). */
+  function removeSlot() {
+    const slot = activeSlot(settings);
+    if (!slot) return;
+    setStatus('');
+    fetch(SLOTS_URL + '/' + encodeURIComponent(slot.id), { method: 'DELETE' }).then((r) => {
+      if (!r.ok) throw new Error('slot delete failed (HTTP ' + r.status + ')');
+      return r.json();
+    }).then((data) => {
+      settings = adoptServerSettings(settings, data);
+      displayedId = null; // the whole slot — including any pick — is gone
+      commit(true);
+    }).catch((e) => setStatus(e && e.message ? e.message : 'could not remove the slot'));
+  }
+
+  /* "Move slot": shift the active slot one position in the navigation order.
+     The slot's wallpapers — and this browser's current pick — travel with it:
+     the pointer is an id, the displayed id still exists in the (now
+     repositioned) slot, so no re-roll happens on a successful move. */
+  function moveSlot(delta) {
+    const slot = activeSlot(settings);
+    if (!slot) return;
+    setStatus('');
+    fetch(SLOTS_URL + '/' + encodeURIComponent(slot.id) + '/move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ delta: delta })
+    }).then((r) => {
+      if (!r.ok) throw new Error('slot move failed (HTTP ' + r.status + ')');
+      return r.json();
+    }).then((data) => {
+      settings = adoptServerSettings(settings, data);
+      commit(true); // pick survives: the id is still in the active slot
+    }).catch((e) => setStatus(e && e.message ? e.message : 'could not move the slot'));
+  }
+
+  /* "Reset appearance": wipe every slot and its wallpapers. */
   function resetAppearance() {
     setStatus('');
-    fetch(WALLPAPERS_URL, { method: 'DELETE' }).then((r) => {
+    fetch(SLOTS_URL, { method: 'DELETE' }).then((r) => {
       if (!r.ok) throw new Error('reset failed (HTTP ' + r.status + ')');
       return r.json();
     }).then((data) => {
       settings = adoptServerSettings(settings, data);
-      settings = sanitizeSettings(undefined); // wipe everything: no collection, default sliders
+      settings = sanitizeSettings(undefined); // wipe everything: no slots, default sliders
+      displayedId = null;
       positionMap = {}; // the wallpapers are gone — so are their per-client origins
       writePositionMap();
       commit(true);
@@ -1558,10 +1953,41 @@ load();
   }
 
   function isDefault() {
-    const list = Array.isArray(settings.wallpapers) ? settings.wallpapers : [];
+    const list = Array.isArray(settings.slots) ? settings.slots : [];
     return list.length === 0 &&
       settings.backgroundOpacity === 1 && settings.backgroundBlur === 0 &&
       settings.scrim === 0 && settings.surfaceAlpha === 1 && settings.glassBlur === 0;
+  }
+
+  /* ---- thumbnail strip: one item per wallpaper of the active slot. Click
+         an item to show it (deliberate pick until the next roll); × removes
+         just that wallpaper. Hidden while the slot is empty. ---- */
+  function renderSlotThumbs() {
+    const slot = activeSlot(settings);
+    const list = slot && Array.isArray(slot.wallpapers) ? slot.wallpapers : [];
+    els.thumbsWrap.classList.toggle('hidden', list.length === 0);
+    els.thumbs.textContent = '';
+    for (const w of list) {
+      const item = document.createElement('div');
+      item.className = 'sp-thumb-item' + (w.id === displayedId ? ' current' : '');
+      item.title = 'Show this wallpaper';
+      const img = document.createElement('img');
+      img.src = wallpaperUrl(w.id);
+      img.alt = '';
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'sp-thumb-del';
+      del.textContent = '×';
+      del.title = 'Remove this wallpaper';
+      del.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removeWallpaperById(w.id);
+      });
+      item.appendChild(img);
+      item.appendChild(del);
+      item.addEventListener('click', () => showWallpaper(w.id));
+      els.thumbs.appendChild(item);
+    }
   }
 
   function syncPanel() {
@@ -1571,7 +1997,7 @@ load();
        client). With no wallpaper they dim, and the magnetic hysteresis
        reference is dropped so a stale value from the previous wallpaper
        cannot snap the new one. */
-    const wp = activeWallpaper(settings);
+    const wp = displayedWallpaper(settings);
     const pos = positionFor(settings);
     const hasWp = wp !== null;
     els.posX.value = String(Math.round(pos.x));
@@ -1597,17 +2023,21 @@ load();
     els.listOpacityOut.textContent = Math.round(settings.surfaceAlpha * 100) + '%';
     els.glass.value = String(settings.glassBlur);
     els.glassOut.textContent = settings.glassBlur + 'px';
-    const list = Array.isArray(settings.wallpapers) ? settings.wallpapers : [];
-    const idx = settings.activeWallpaperId ? list.findIndex((w) => w.id === settings.activeWallpaperId) : -1;
+    const list = Array.isArray(settings.slots) ? settings.slots : [];
+    const idx = settings.activeSlotId ? list.findIndex((s) => s.id === settings.activeSlotId) : -1;
     els.nav.classList.toggle('hidden', list.length === 0);
     els.prev.classList.toggle('hidden', idx <= 0);
     els.next.classList.toggle('hidden', idx === -1 || idx >= list.length - 1);
     bgPrev.disabled = idx <= 0;
     bgNext.disabled = idx === -1 || idx >= list.length - 1;
     els.navCount.textContent = list.length ? (idx + 1) + ' of ' + list.length : 'none';
-    els.remove.disabled = list.length === 0;
+    els.remove.disabled = idx === -1 || !list[idx] || list[idx].wallpapers.length === 0;
     els.reset.disabled = isDefault();
-    els.resetColors.disabled = idx === -1 || !list[idx] || list[idx].accent === '';
+    els.resetColors.disabled = !wp || wp.accent === '';
+    els.removeSlot.disabled = idx === -1;
+    els.moveUp.disabled = idx <= 0;
+    els.moveDown.disabled = idx === -1 || idx >= list.length - 1;
+    renderSlotThumbs();
   }
 
   /* ---- panel wiring ---- */
@@ -1620,22 +2050,26 @@ load();
     if (e.key === 'Escape' && panelOpen()) openPanel(false);
   });
 
-  /* Walk the collection: previous hidden on the first wallpaper, next hidden
-     on the last. The active pointer is persisted immediately (not debounced),
-     so the page always comes back to the wallpaper you landed on. */
-  function stepActive(delta) {
-    const list = Array.isArray(settings.wallpapers) ? settings.wallpapers : [];
+  /* Walk the slot collection: previous hidden on the first slot, next hidden
+     on the last. Every step re-rolls the random wallpaper of the newly
+     active slot (that's the whole point of multi-wallpaper slots), and the
+     active-slot pointer is persisted immediately (not debounced), so the
+     page always comes back to the slot you left on — with a fresh roll. */
+  function stepSlot(delta) {
+    const list = Array.isArray(settings.slots) ? settings.slots : [];
     if (!list.length) return;
-    const idx = settings.activeWallpaperId ? list.findIndex((w) => w.id === settings.activeWallpaperId) : -1;
+    const idx = settings.activeSlotId ? list.findIndex((s) => s.id === settings.activeSlotId) : -1;
     const target = idx + delta;
     if (target < 0 || target >= list.length) return;
-    settings.activeWallpaperId = list[target].id;
+    settings.activeSlotId = list[target].id;
+    displayedId = null;
+    rollSlot(settings);
     commit(true);
   }
-  els.prev.addEventListener('click', () => stepActive(-1));
-  els.next.addEventListener('click', () => stepActive(1));
-  bgPrev.addEventListener('click', () => stepActive(-1));
-  bgNext.addEventListener('click', () => stepActive(1));
+  els.prev.addEventListener('click', () => stepSlot(-1));
+  els.next.addEventListener('click', () => stepSlot(1));
+  bgPrev.addEventListener('click', () => stepSlot(-1));
+  bgNext.addEventListener('click', () => stepSlot(1));
 
   els.upload.addEventListener('click', () => els.file.click());
   els.file.addEventListener('change', () => {
@@ -1669,7 +2103,7 @@ load();
      of an anchor again (arrow keys included) instead of being pinned to it. */
   const setAnchor = (key) => {
     const a = ANCHORS[key];
-    const w = activeWallpaper(settings);
+    const w = displayedWallpaper(settings);
     if (!a || !w) return;
     positionMap[w.id] = { x: a[0], y: a[1] };
     lastPos = { x: a[0], y: a[1] }; // the anchor becomes the hysteresis reference
@@ -1686,7 +2120,7 @@ load();
   });
   const bindPosSlider = (axis, input, out) => {
     input.addEventListener('input', () => {
-      const w = activeWallpaper(settings);
+      const w = displayedWallpaper(settings);
       if (!w) return;
       if (!lastPos) lastPos = { x: positionFor(settings).x, y: positionFor(settings).y };
       let v = Number(input.value);
@@ -1709,6 +2143,10 @@ load();
   els.remove.addEventListener('click', removeCurrentWallpaper);
   els.reset.addEventListener('click', resetAppearance);
   els.resetColors.addEventListener('click', resetColors);
+  els.addSlot.addEventListener('click', addSlot);
+  els.removeSlot.addEventListener('click', removeSlot);
+  els.moveUp.addEventListener('click', () => moveSlot(-1));
+  els.moveDown.addEventListener('click', () => moveSlot(1));
 
   /* Sliders use 'input' (not 'change') so the page restyles live while dragging. */
   const bindSlider = (input, out, apply, format) => {
@@ -1734,13 +2172,15 @@ load();
   });
 
   /* ---- one-time migration from the browser-only era ----
-     If the server has no wallpapers yet but this browser still holds one in
-     its old IndexedDB (or a legacy inline data URL), push it up as the first
-     wallpaper of the collection and clear the local copies. The server's
-     existing sliders stay authoritative; only the wallpaper (and its dark
-     flag) comes along. */
+     If the server's slot collection holds no wallpapers at all but this
+     browser still holds one in its old IndexedDB (or a legacy inline data
+     URL), push it up into the active slot (creating one if the collection is
+     empty) and clear the local copies. The server's existing sliders stay
+     authoritative; only the wallpaper (and its dark flag) comes along. */
   function migrateLegacy(serverSettings) {
-    if (Array.isArray(serverSettings.wallpapers) && serverSettings.wallpapers.length > 0) return;
+    const allWps = [];
+    if (Array.isArray(serverSettings.slots)) for (const slot of serverSettings.slots) for (const w of (slot && Array.isArray(slot.wallpapers) ? slot.wallpapers : [])) allWps.push(w);
+    if (allWps.length > 0) return;
     let legacyToken = '';
     try {
       const rawJson = localStorage.getItem(LS_KEY);
@@ -1788,7 +2228,7 @@ load();
      wallpaper (accent stays '') and a deliberately cleared theme are never
      re-sampled. */
   function maybeSampleAccent(serverSettings) {
-    const w = activeWallpaper(serverSettings);
+    const w = displayedWallpaper(serverSettings);
     if (!w || w.accentTouched) return;
     fetch(wallpaperUrl(w.id)).then((r) => (r.ok ? r.blob() : undefined)).then((blob) => {
       if (blob === undefined) return;
@@ -1804,7 +2244,7 @@ load();
           if (!r.ok) throw new Error('HTTP ' + r.status);
           return r.json();
         }).then((data) => {
-          const cur = activeWallpaper(settings);
+          const cur = displayedWallpaper(settings);
           if (!cur || cur.id !== w.id || cur.accentTouched) return; // superseded by newer activity
           settings = adoptServerSettings(settings, data);
           cacheSettings(settings);
@@ -1816,7 +2256,9 @@ load();
   }
 
   /* ---- startup: the server is the source of truth; the local cache is the
-     offline fallback. The page already painted with the cache above. ---- */
+     offline fallback. The page already painted with the cache above. Every
+     page load re-rolls the random wallpaper of the active slot (the pick is
+     per browser visit — never persisted). ---- */
   fetch('/api/appearance').then((r) => {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.json();
@@ -1824,6 +2266,8 @@ load();
     const serverSettings = sanitizeSettings(data && data.settings);
     migrateGlobalPosition(serverSettings); // same one-time rule, server's copy
     settings = serverSettings;
+    displayedId = null;
+    rollSlot(settings); // fresh roll for this page visit
     applyAppearance(settings);
     syncPanel();
     cacheSettings(settings);
@@ -1834,6 +2278,8 @@ load();
        the network returns (the next PUT retries on any edit) */
     settings = readSettings();
     migrateGlobalPosition(settings); // same one-time rule, cached copy
+    displayedId = null;
+    rollSlot(settings); // fresh roll for this page visit
     applyAppearance(settings);
     syncPanel();
   });

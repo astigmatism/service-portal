@@ -124,7 +124,7 @@ function boot(stored) {
   sandbox.confirm = () => true;
   vm.createContext(sandbox);
   const scriptStart = html.indexOf("'use strict';", html.indexOf('<script>'));
-  const scriptEnd = html.indexOf('/* ===== Appearance (wallpaper + glass)', scriptStart);
+  const scriptEnd = html.indexOf('/* ===== Appearance (wallpaper slots + glass)', scriptStart);
   assert.ok(scriptStart > 0 && scriptEnd > scriptStart, 'main UI script bounds are present');
   vm.runInContext(html.slice(scriptStart, scriptEnd), sandbox);
   const fire = (el, name, event) => {
