@@ -60,7 +60,7 @@ function escapeHtmlText(value) {
   return value.replace(/[&<>]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[ch]);
 }
 
-// Friendly labels/descriptions per container name.
+// Friendly labels/descriptions and visibility per container name.
 // Override without rebuilding via the SERVICE_LABELS env var (JSON string),
 // otherwise read labels.json next to this file.
 let labels = {};
@@ -113,6 +113,7 @@ const UPDATE_LABELS = {
   hostHome: 'io.service-portal.update.host-home',
 };
 const MAINTENANCE_LABEL = 'io.service-portal.maintenance';
+const HIDDEN_LABEL = 'io.service-portal.hidden';
 
 const APPEARANCE_DEFAULTS = {
   slots: [], // ordered collection: [{ id, wallpapers: [{ id, type, imageDark, accent, accentTouched }] }]
@@ -834,6 +835,15 @@ async function startProjectUpdate(project) {
 loadMaintenanceJobs();
 for (const job of maintenanceJobs.values()) monitorMaintenanceJob(job);
 
+function containerName(c) {
+  return c.Names && c.Names[0] ? c.Names[0].replace(/^\//, '') : c.Id.slice(0, 12);
+}
+
+function hiddenService(c) {
+  const meta = labels[containerName(c)] || {};
+  return meta.hidden === true || !!(c.Labels && c.Labels[HIDDEN_LABEL] === 'true');
+}
+
 function toService(c, capability, job) {
   const ports = [];
   const seen = new Set();
@@ -869,7 +879,7 @@ function toService(c, capability, job) {
     }
   }
   ports.sort((a, b) => a.containerPort - b.containerPort);
-  const name = c.Names && c.Names[0] ? c.Names[0].replace(/^\//, '') : c.Id.slice(0, 12);
+  const name = containerName(c);
   const meta = labels[name] || {};
   const project = safeProjectName(c.Labels && c.Labels['com.docker.compose.project']);
   return {
@@ -899,8 +909,11 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/services') {
     dockerApi('/containers/json?all=1')
       .then((list) => {
-        const visible = list.filter((c) => !(c.Labels && c.Labels[MAINTENANCE_LABEL] === 'true'));
-        const capabilities = updateCapabilities(visible);
+        const containers = list.filter((c) => !(c.Labels && c.Labels[MAINTENANCE_LABEL] === 'true'));
+        // Visibility only affects discovery; hidden project members still take
+        // part in update capability validation, including conflict detection.
+        const capabilities = updateCapabilities(containers);
+        const visible = containers.filter((c) => !hiddenService(c));
         const services = visible.map((c) => {
           const project = safeProjectName(c.Labels && c.Labels['com.docker.compose.project']);
           const capability = project ? capabilities.get(project) : null;

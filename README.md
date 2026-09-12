@@ -5,8 +5,8 @@ on the host**. Open the portal in a browser (plain port 80) to see a live table 
 containers; click a service row or one of its port chips to open that service in a new browser
 tab via its published port.
 
-New containers appear automatically — the portal re-queries Docker on every request. No
-reconfiguration, no restart.
+New containers appear automatically unless explicitly hidden — the portal re-queries Docker
+on every request. No reconfiguration, no restart for discovery.
 
 ## How it works
 
@@ -41,7 +41,7 @@ reconfiguration, no restart.
 | Path | Response |
 |---|---|
 | `/`, `/index.html` | The portal UI (`text/html`, `Cache-Control: no-store`) |
-| `/api/services` | JSON: `{generatedAt, services: [...]}` — one entry per container with `name, label, description, id, image, state, health, statusLine, ports[], self, project, update` (`no-store`) |
+| `/api/services` | JSON: `{generatedAt, services: [...]}` — one entry per visible container with `name, label, description, id, image, state, health, statusLine, ports[], self, project, update` (`no-store`) |
 | `POST /api/services/<id>/start` / `POST /api/services/<id>/stop` | Docker start/stop for that container: `200` `{ok, action}` on success, `502` + `error` when Docker refuses (`no-store`) |
 | `POST /api/projects/<project>/update` | Starts an opted-in detached update/restart job; requires `X-Service-Portal-Action: update`, returns `202` + job metadata, `409` if already active |
 | `GET /api/maintenance/<job-id>` | Persisted update state, exit code, error, and bounded runner logs (`no-store`) |
@@ -232,7 +232,30 @@ confirmation/polling, and the update script's fail-closed command ordering.
   editing.
 - **Runtime label override (no rebuild)**: pass `-e SERVICE_LABELS='{"name": {"label": "...",
   "description": "..."}}'` (JSON string) to `docker run`; it takes precedence over
-  `labels.json`.
+  the entire `labels.json` mapping. Recreate the portal to apply it.
+- **Hide internal services**: a published port does not establish that a container is a
+  browser application. Exclude an internal backend from both portal layouts and
+  `/api/services` with an exact-name entry in `labels.json`:
+  ```json
+  { "my-internal-api": { "hidden": true } }
+  ```
+  Rebuild and redeploy only the portal; the backend needs no restart. The supplied mapping
+  hides `qwen38-daytime` and `qwen38-nighttime`, whose inference endpoints serve the router.
+  This field also works in `SERVICE_LABELS`; include any existing entries when overriding
+  the mapping. Alternatively, the backend's Compose configuration can declare:
+  ```yaml
+  labels:
+    io.service-portal.hidden: "true"
+  ```
+  Apply that label through the backend's normal deployment process; Docker labels are
+  read on each discovery request. Either JSON boolean `hidden: true` or Docker label
+  `io.service-portal.hidden: "true"` hides the service, even if the other setting is false.
+  Missing or false settings keep normal discovery. This applies to running and stopped
+  containers regardless of ports. The browser's "Hide services without links" checkbox
+  cannot reveal explicitly hidden services.
+
+  Hiding is a listing preference, not access control: it does not alter ports, networks,
+  inference traffic, Docker management, activity history, or project update capabilities.
 - **Wallpapers & appearance**: the gear button opens the Appearance panel — upload
   background images and tune wallpaper opacity, wallpaper blur, scrim, list-background
   opacity (for both table and sidebar layouts), and glass blur. Wallpapers live in

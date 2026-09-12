@@ -35,8 +35,18 @@
     "label": "Portainer",
     "description": "Docker management UI (https on port 9443)."
   },
+  "qwen38-daytime": {
+    "label": "Qwen Daytime",
+    "description": "Internal inference backend for the router.",
+    "hidden": true
+  },
+  "qwen38-nighttime": {
+    "label": "Qwen Nighttime",
+    "description": "Internal inference backend for the router.",
+    "hidden": true
+  },
   "service-portal": {
     "label": "Service Portal",
-    "description": "This gateway — lists every running container."
+    "description": "This gateway — lists containers configured for discovery."
   }
 }

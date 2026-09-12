@@ -260,7 +260,14 @@ test('project updates are validated, detached, monitored, and persisted', async 
       DATA_DIR: dataDir,
       DOCKER_SOCKET: socketPath,
       SELF_NAME: 'portal',
-      PORTAL_TITLE: 'Maintenance Test'
+      PORTAL_TITLE: 'Maintenance Test',
+      SERVICE_LABELS: JSON.stringify({
+        ...JSON.parse(fs.readFileSync(path.join(ROOT, 'labels.json'), 'utf8')),
+        'metadata-hidden': { hidden: true },
+        'label-hidden': { hidden: false },
+        'explicit-visible': { hidden: false },
+        'string-visible': { hidden: 'true' }
+      })
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });
@@ -293,6 +300,45 @@ test('project updates are validated, detached, monitored, and persisted', async 
     assert.equal(services.find((service) => service.name === 'bad-home').update, null);
     assert.equal(services.find((service) => service.name === 'conflict-one').update, null);
     assert.ok(state.calls.some((entry) => entry.path === '/containers/json?all=1'));
+  });
+
+  await t.test('explicit hiding excludes backend listings without changing Docker or project capabilities', async () => {
+    const original = state.containers;
+    const callsBefore = state.calls.length;
+    const fixture = (name, dockerLabels, containerState = 'running') => ({
+      Id: '1'.repeat(64), Names: ['/' + name], Image: 'backend:test',
+      State: containerState, Status: containerState,
+      Ports: [{ PrivatePort: 8080, PublicPort: 18080, Type: 'tcp', IP: '127.0.0.1' }],
+      Labels: dockerLabels || {}
+    });
+    try {
+      state.containers = original.map((container) => {
+        if (!['/portal', '/conflict-two'].includes(container.Names[0])) return container;
+        return { ...container, Labels: { ...container.Labels, 'io.service-portal.hidden': 'true' } };
+      }).concat([
+        fixture('qwen38-daytime'), fixture('qwen38-nighttime', {}, 'exited'),
+        fixture('metadata-hidden', { 'io.service-portal.hidden': 'false' }),
+        fixture('label-hidden', { 'io.service-portal.hidden': 'true' }),
+        fixture('stopped-hidden', { 'io.service-portal.hidden': 'true' }, 'exited'),
+        fixture('explicit-visible', { 'io.service-portal.hidden': 'false' }),
+        fixture('string-visible'), fixture('unconfigured-api'),
+      ]);
+      const response = await call(port, 'GET', '/api/services');
+      assert.equal(response.status, 200);
+      const services = json(response).services;
+      assert.deepEqual(services.map((service) => service.name), [
+        'bad-home', 'conflict-one', 'explicit-visible', 'portal-worker',
+        'string-visible', 'unconfigured-api', 'unsafe'
+      ]);
+      assert.equal(services.find((service) => service.name === 'portal-worker').update.project, 'portal-project',
+        'a hidden member still supplies the project update capability');
+      assert.equal(services.find((service) => service.name === 'conflict-one').update, null,
+        'hiding a conflicting member must not enable an unsafe update');
+      assert.ok(state.calls.slice(callsBefore).every((entry) => entry.method === 'GET'),
+        'discovery never mutates the hidden containers');
+    } finally {
+      state.containers = original;
+    }
   });
 
   await t.test('the update endpoint enforces method, action header, opt-in, and path validation', async () => {
