@@ -556,6 +556,11 @@ function primaryPort(s){
   const ports = published(s);
   return ports.find(p => schemeFor(p) === 'https') || ports[0] || null;
 }
+function primaryUrl(s){
+  const p = primaryPort(s);
+  return s.url || (p ? urlFor(s, p) : null);
+}
+function hasLink(s){ return !!primaryUrl(s); }
 function displayName(s){ return s.label || s.name; }
 
 function statusRank(s){
@@ -596,7 +601,7 @@ async function load(){
 function renderList(){
   if (lastError){ $('#meta').textContent = lastError; }
   else {
-    const visible = services.filter(s => !hideNoLink || published(s).length > 0).length;
+    const visible = services.filter(s => !hideNoLink || hasLink(s)).length;
     const when = generatedAt ? ' \u00b7 updated ' + new Date(generatedAt).toLocaleTimeString() : '';
     $('#meta').textContent = (hideNoLink && visible !== services.length
       ? visible + ' of ' + services.length
@@ -604,7 +609,7 @@ function renderList(){
   }
 
   const rows = services
-    .filter(s => !hideNoLink || published(s).length > 0)
+    .filter(s => !hideNoLink || hasLink(s))
     .sort((a, b) => SORTERS[sortKey](a, b) * sortDir);
 
   const empty = $('#empty');
@@ -648,11 +653,11 @@ function renderTable(rows){
 
   for (const s of rows){
     const pub = published(s);
-    const primary = primaryPort(s);
+    const primary = primaryUrl(s);
     const h = s.health;
     const tr = document.createElement('tr');
-    tr.className = pub.length ? 'linkable' : 'internal';
-    if (primary) tr.title = urlFor(s, primary);
+    tr.className = primary ? 'linkable' : 'internal';
+    if (primary) tr.title = primary;
 
     const td1 = document.createElement('td');
     const nl = document.createElement('div'); nl.className = 'nameline';
@@ -663,7 +668,7 @@ function renderTable(rows){
     nm.textContent = displayName(s); nm.title = s.name;
     nl.appendChild(dot); nl.appendChild(nm);
     if (s.self){ const t = document.createElement('span'); t.className = 'selftag'; t.textContent = 'this portal'; nl.appendChild(t); }
-    else if (!pub.length){ const t = document.createElement('span'); t.className = 'selftag'; t.textContent = 'internal'; nl.appendChild(t); }
+    else if (!primary){ const t = document.createElement('span'); t.className = 'selftag'; t.textContent = 'internal'; nl.appendChild(t); }
     td1.appendChild(nl);
     if (s.description){ const ds = document.createElement('div'); ds.className = 'desc'; ds.textContent = s.description; td1.appendChild(ds); }
     tr.appendChild(td1);
@@ -674,7 +679,15 @@ function renderTable(rows){
 
     const td3 = document.createElement('td');
     const ports = document.createElement('div'); ports.className = 'ports';
-    if (!pub.length) ports.innerHTML = '<span class="noports">no published ports</span>';
+    if (s.url){
+      const b = document.createElement('button');
+      b.className = 'chip'; b.type = 'button';
+      b.textContent = s.url.startsWith('https:') ? 'Open HTTPS' : 'Open';
+      b.title = s.url;
+      b.addEventListener('click', (ev) => { ev.stopPropagation(); openNewTab(s.url); });
+      ports.appendChild(b);
+    }
+    if (!pub.length && !s.url) ports.innerHTML = '<span class="noports">no published ports</span>';
     for (const p of pub){
       const b = document.createElement('button');
       b.className = 'chip'; b.type = 'button';
@@ -691,7 +704,7 @@ function renderTable(rows){
     td4.textContent = escapeHtml((s.statusLine || s.state || '').replace(/\s*\((healthy|unhealthy|starting)\)\s*$/, '')) + (h ? ' \u00b7 ' + h : '');
     tr.appendChild(td4);
 
-    if (primary) tr.addEventListener('click', () => openNewTab(urlFor(s, primary)));
+    if (primary) tr.addEventListener('click', () => openNewTab(primary));
     wrap.appendChild(tr);
   }
 }
@@ -707,28 +720,27 @@ function renderSidebar(rows){
     return;
   }
   for (const s of rows){
-    const pub = published(s);
-    const primary = primaryPort(s);
+    const primary = primaryUrl(s);
     const h = s.health;
     const li = document.createElement('li');
-    li.className = 'srow' + (pub.length ? '' : ' internal');
-    if (primary) li.title = urlFor(s, primary);
+    li.className = 'srow' + (primary ? '' : ' internal');
+    if (primary) li.title = primary;
 
     const dotCls = h ? (h === 'healthy' ? 'ok' : h === 'unhealthy' ? 'bad' : 'warn')
                      : (s.state === 'running' ? 'run' : 'bad');
     const dot = document.createElement('span'); dot.className = 'dot ' + dotCls;
     li.appendChild(dot);
 
-    const nm = document.createElement(pub.length ? 'a' : 'span');
+    const nm = document.createElement(primary ? 'a' : 'span');
     nm.className = 'name sname';
     nm.textContent = displayName(s);
     nm.title = s.name;
-    if (primary){ nm.href = urlFor(s, primary); nm.target = '_blank'; nm.rel = 'noopener'; }
+    if (primary){ nm.href = primary; nm.target = '_blank'; nm.rel = 'noopener'; }
     li.appendChild(nm);
 
     const ctl = document.createElement('span'); ctl.className = 'sidectl';
     if (s.self){ const t = document.createElement('span'); t.className = 'selftag'; t.textContent = 'this portal'; ctl.appendChild(t); }
-    else if (!pub.length){ const t = document.createElement('span'); t.className = 'selftag'; t.textContent = 'internal'; ctl.appendChild(t); }
+    else if (!primary){ const t = document.createElement('span'); t.className = 'selftag'; t.textContent = 'internal'; ctl.appendChild(t); }
     const updateButton = projectUpdateButton(s);
     if (updateButton) ctl.appendChild(updateButton);
     ctl.appendChild(containerToggle(s));

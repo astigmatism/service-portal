@@ -266,7 +266,9 @@ test('project updates are validated, detached, monitored, and persisted', async 
         'metadata-hidden': { hidden: true },
         'label-hidden': { hidden: false },
         'explicit-visible': { hidden: false },
-        'string-visible': { hidden: 'true' }
+        'string-visible': { hidden: 'true' },
+        'url-override': { url: 'https://override.lan:8443/gallery' },
+        'url-invalid': { url: 'javascript:alert(1)' }
       })
     },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -339,6 +341,35 @@ test('project updates are validated, detached, monitored, and persisted', async 
     } finally {
       state.containers = original;
     }
+  });
+
+  await t.test('discovery validates browser URLs and gives deployment labels precedence over metadata defaults', async () => {
+    const original = state.containers;
+    const fixture = (name, url) => ({
+      Id: '2'.repeat(64), Names: ['/' + name], Image: 'app:test',
+      State: 'running', Status: 'Up', Ports: [],
+      Labels: { 'io.service-portal.url': url }
+    });
+    try {
+      state.containers = [
+        fixture('url-docker', 'https://image-studio.lan:8443'),
+        fixture('url-override', 'https://docker.lan'),
+        fixture('url-invalid', 'https://fallback.lan'),
+        fixture('url-script', 'javascript:alert(1)'),
+        fixture('url-credentials', 'https://user:secret@example.com'),
+        fixture('url-relative', '//example.com'),
+        fixture('url-empty', ''),
+      ];
+      const response = await call(port, 'GET', '/api/services');
+      assert.equal(response.status, 200);
+      const byName = Object.fromEntries(json(response).services.map((s) => [s.name, s]));
+      assert.equal(byName['url-docker'].url, 'https://image-studio.lan:8443/');
+      assert.equal(byName['url-override'].url, 'https://docker.lan/');
+      assert.equal(byName['url-invalid'].url, 'https://fallback.lan/');
+      for (const name of ['url-script', 'url-credentials', 'url-relative', 'url-empty']) {
+        assert.equal(byName[name].url, null);
+      }
+    } finally { state.containers = original; }
   });
 
   await t.test('the update endpoint enforces method, action header, opt-in, and path validation', async () => {

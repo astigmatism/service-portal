@@ -303,8 +303,30 @@ confirmation/polling, and the update script's fail-closed command ordering.
   `PORTAL_FAVICON_FILE`, for example with
   `-v /host/prod.svg:/branding/favicon:ro` and
   `-e PORTAL_FAVICON_FILE=/branding/favicon`.
-- **Non-standard HTTPS ports**: edit the `schemeFor()` function in `index.html` to add host
-  ports that should produce `https:` links.
+- **Browser address / HTTPS behind a proxy**: set `url` in the service's `labels.json`
+  entry (or `SERVICE_LABELS` override), for example:
+  ```json
+  { "my-app": { "label": "My App", "url": "https://image-studio.lan:8443/" } }
+  ```
+  Or declare it in the application's Compose service:
+  ```yaml
+  labels:
+    io.service-portal.url: "https://image-studio.lan:8443/"
+  ```
+  The Docker label takes precedence over the JSON default, so a deployment's
+  hostname or port changes travel with the application. Only absolute HTTP(S)
+  URLs without embedded credentials are accepted; invalid values are ignored.
+  Both layouts open this address by default, including apps without published ports.
+  The table also shows an explicit **Open HTTPS** button; numbered port buttons
+  still open their individual endpoints for tooling. Without an explicit address,
+  the portal prefers a published HTTPS port (443, 3443, 8443, or 9443 on either side
+  of the mapping), then the first published port.
+
+  The supplied ComfyUI Frontend entries use `https://image-studio.lan:8443/` and
+  hide its separate TLS proxy entry. On each client, resolve `image-studio.lan` to
+  the appliance and trust the appliance's local root CA. A portal link does not
+  configure DNS or certificate trust. Rebuild and redeploy the portal to apply
+  JSON changes; recreate the application to apply Docker labels.
 
 ## Operations
 

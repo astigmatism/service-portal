@@ -844,6 +844,17 @@ function hiddenService(c) {
   return meta.hidden === true || !!(c.Labels && c.Labels[HIDDEN_LABEL] === 'true');
 }
 
+// A reverse proxy may serve a different hostname/port than the app container.
+// Only allow browser URLs, without embedded credentials.
+function browserUrl(value) {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  try {
+    const url = new URL(value);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
+    return url.href;
+  } catch { return null; }
+}
+
 function toService(c, capability, job) {
   const ports = [];
   const seen = new Set();
@@ -886,6 +897,7 @@ function toService(c, capability, job) {
     name,
     label: meta.label || null,
     description: meta.description || null,
+    url: browserUrl(c.Labels && c.Labels['io.service-portal.url']) || browserUrl(meta.url),
     id: c.Id.slice(0, 12),
     image: c.Image,
     state: c.State,

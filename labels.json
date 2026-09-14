@@ -1,7 +1,16 @@
 {
   "comfyui-image-frontend": {
     "label": "ComfyUI Frontend",
-    "description": "ComfyUI workflow frontend (port 8001)."
+    "description": "Home Image Studio — open HTTPS for clipboard and microphone access.",
+    "url": "https://image-studio.lan:8443/"
+  },
+  "comfyui-image-frontend-comfyui-image-frontend-1": {
+    "label": "ComfyUI Frontend",
+    "description": "Home Image Studio — open HTTPS for clipboard and microphone access.",
+    "url": "https://image-studio.lan:8443/"
+  },
+  "comfyui-image-frontend-cif-tls-edge-1": {
+    "hidden": true
   },
   "deepseek-harness": {
     "label": "DeepSeek Harness",

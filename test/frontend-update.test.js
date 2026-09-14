@@ -218,3 +218,26 @@ test('HTTPS is inferred from either side of a port mapping and preferred for ser
   const sidebarRow = app.elements.get('sideRows').children[0];
   assert.equal(sidebarRow.children[1].href, 'https://localhost:8444/');
 });
+
+test('a proxy URL is the default in both layouts, even without published app ports', () => {
+  for (const ports of [[], [{ containerPort: 8000, hostPort: 8000, hostIp: '192.168.1.5' }]]) {
+    const app = boot();
+    const service = {
+      id: 'c'.repeat(12), name: 'image-app', image: 'image-app:test',
+      state: 'running', ports, url: 'https://image-studio.lan:8443/'
+    };
+    assert.equal(vm.runInContext('hasLink', app.sandbox)(service), true);
+    vm.runInContext('renderTable', app.sandbox)([service]);
+    const row = app.elements.get('rows').children[0];
+    assert.equal(row.title, service.url);
+    assert.equal(row.className, 'linkable');
+    const buttons = row.children[2].children[0].children;
+    assert.equal(buttons[0].textContent, 'Open HTTPS');
+    assert.equal(buttons[0].title, service.url);
+    if (ports.length) assert.equal(buttons[1].title, 'http://192.168.1.5:8000/');
+    vm.runInContext('renderSidebar', app.sandbox)([service]);
+    const link = app.elements.get('sideRows').children[0].children[1];
+    assert.equal(link.tagName, 'A');
+    assert.equal(link.href, service.url);
+  }
+});
