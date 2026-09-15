@@ -1,4 +1,8 @@
 {
+  "local-ai-runtime": {
+    "label": "AI Runtime",
+    "description": "Resident model configuration, GPU assignments, health, and deployment status."
+  },
   "comfyui-image-frontend": {
     "label": "ComfyUI Frontend",
     "description": "Home Image Studio — open HTTPS for clipboard and microphone access.",
