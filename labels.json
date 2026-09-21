@@ -33,8 +33,12 @@
     "description": "Local LLM runtime (exposed to the host, no public port)."
   },
   "local-ai-ollama-router": {
-    "label": "Ollama Router",
-    "description": "Model router in front of Ollama (11434-11435)."
+    "label": "LLM Router",
+    "description": "OpenAI-compatible and Ollama-compatible model APIs (11434) and admin portal (11435)."
+  },
+  "llm-router": {
+    "label": "LLM Router",
+    "description": "OpenAI-compatible and Ollama-compatible model APIs (11434) and admin portal (11435)."
   },
   "netdata": {
     "label": "Netdata",
