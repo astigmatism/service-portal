@@ -55,8 +55,8 @@ on every request. No reconfiguration, no restart for discovery.
 | `/api/appearance/wallpapers/<id>` | One wallpaper: `GET` → its bytes (404 if unknown) · `PUT` → update its meta (`imageDark`, `accent`, `accentTouched`) · `DELETE` → remove it from its slot — a drained slot is removed too and the active pointer moves to the previous slot (`no-store`) |
 | `/api/appearance/background` | Legacy single-wallpaper endpoint, kept working: it always addresses the *first wallpaper of the active slot* — `GET` → its bytes (404 if none) · `POST` → replace it in place, or create it · `DELETE` → remove it (`no-store`) |
 | `/healthz` | Plain-text `ok` |
-| `/favicon.ico` | The deployment's configured favicon (the star by default) |
-| `/star.svg` | The built-in star icon (`image/svg+xml`) |
+| `/favicon.ico` | The deployment's configured favicon (the star by default) — served to both the browser-tab icon and the header logo next to the portal title |
+| `/star.svg` | The built-in star icon (`image/svg+xml`); the page no longer references it, kept for compatibility |
 | anything else | `404 not found` |
 
 ## Quick start (Docker Compose)
@@ -294,11 +294,13 @@ confirmation/polling, and the update script's fail-closed command ordering.
   status colors (ok/warn/bad) never change.
 - **Rename the portal**: set `PORTAL_TITLE` in `.env` when using Compose, or pass
   `-e PORTAL_TITLE="My System Services"` to `docker run`. No rebuild is needed.
-- **Change the favicon**: set `PORTAL_FAVICON_PATH` in `.env` to an SVG, PNG, ICO,
-  GIF, JPEG, WebP, or AVIF file on the Docker host. Relative paths are resolved from
-  the directory containing `compose.yaml`; run `docker compose up -d` after changing it.
-  If you replace the image at the same path, run `docker compose restart portal` so the
-  server reloads it.
+- **Change the favicon**: the configured icon drives both the browser-tab favicon and
+  the header logo next to the portal title. Set `PORTAL_FAVICON_PATH` in `.env` to an
+  SVG, PNG, ICO, GIF, JPEG, WebP, or AVIF file on the Docker host. Relative paths are
+  resolved from the directory containing `compose.yaml`; run `docker compose up -d`
+  after changing it. If you replace the image at the same path, run
+  `docker compose restart portal` so the server reloads it (the new icon then appears
+  on the next page load, no rebuild needed).
   For `docker run`, mount the file read-only and pass its container path as
   `PORTAL_FAVICON_FILE`, for example with
   `-v /host/prod.svg:/branding/favicon:ro` and
