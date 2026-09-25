@@ -642,11 +642,15 @@ function decodeDockerLogs(buffer) {
 }
 
 function maintenanceFailureMessage(logs, exitCode) {
-  const lines = String(logs || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const line = lines.find((candidate) => /\b(error|fatal|failed|refusing)\b/i.test(candidate));
+  const lines = String(logs || '').split(/\r?\n/).map((line) => line.trim()
+    .replace(/^\d{4}-\d\d-\d\dT\S+Z\s+/, '')
+    .replace(/^#\d+\s+[\d.]+\s+/, '')).filter(Boolean);
+  // Prefer the terminal failure over earlier build/test output. In particular,
+  // "Verified missing-image error ..." describes a successful recovery test.
+  const line = lines.reverse().find((candidate) => !/^(verified|passed|succeeded)\b/i.test(candidate)
+    && /\b(error|fatal|failed|refusing)\b/i.test(candidate));
   if (!line) return 'maintenance runner exited with code ' + exitCode;
-  const withoutTimestamp = line.replace(/^\d{4}-\d\d-\d\dT\S+Z\s+/, '');
-  return withoutTimestamp.length > 300 ? withoutTimestamp.slice(0, 297) + '...' : withoutTimestamp;
+  return line.length > 300 ? line.slice(0, 297) + '...' : line;
 }
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
