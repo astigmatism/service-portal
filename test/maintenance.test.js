@@ -448,12 +448,28 @@ test('project updates are validated, detached, monitored, and persisted', async 
     runner.running = false;
     runner.status = 'exited';
     runner.exitCode = 7;
-    runner.logs = 'preflight failed: dirty checkout\n';
+    runner.logs = '2026-09-25T06:46:00Z #76 29.70 Verified missing-image error and native Reload recovery.\npreflight failed: dirty checkout\n';
     const job = await waitForJob(port, secondJob.id, 'failed');
     assert.equal(job.exitCode, 7);
     assert.match(job.error, /preflight failed/);
+    assert.doesNotMatch(job.error, /missing-image/);
     assert.match(job.logs, /dirty checkout/);
     assert.equal(state.runners.get(secondRunnerId).removed, true);
+  });
+
+  await t.test('successful error-recovery checks are not reported as the failure reason', async () => {
+    const response = await call(port, 'POST', '/api/projects/portal-project/update', {
+      'X-Service-Portal-Action': 'update'
+    });
+    assert.equal(response.status, 202);
+    const created = json(response).job;
+    const runner = [...state.runners.values()].at(-1);
+    runner.running = false;
+    runner.status = 'exited';
+    runner.exitCode = 23;
+    runner.logs = '#76 29.70 Verified missing-image error and native Reload recovery.\n';
+    const job = await waitForJob(port, created.id, 'failed');
+    assert.equal(job.error, 'maintenance runner exited with code 23');
   });
 
   await t.test('status routes reject unknown IDs and mutating methods', async () => {
