@@ -444,7 +444,7 @@ for (const needle of [
   'rgb(var(--header-a-rgb))', 'rgb(var(--panel-2-rgb))', 'rgb(var(--hover-rgb))',
   'border:1px solid var(--selftag-line)',
   'id="spNav"', 'id="spPrev"', 'id="spNext"', 'id="spNavCount"',
-  'id="bgPrev"', 'id="bgNext"', '.seg-arrow{',
+  'id="bgPrev"', 'id="bgShuffle"', 'id="bgNext"', '.seg-arrow{',
   '.sp-nav{', 'accept="image/jpeg,image/png,image/webp,image/gif,image/avif" multiple>',
   'id="spPosGrid"', 'id="spPos-br"', '.sp-pos{', '.sp-pos:disabled{', 'id="spPosX"', 'id="spPosY"',
   'background-position:var(--sp-bg-position,50% 50%)',
@@ -456,6 +456,9 @@ for (const needle of [
 ]) {
   assert.ok(html.includes(needle), 'index.html missing: ' + needle);
 }
+assert.ok(html.indexOf('id="bgPrev"') < html.indexOf('id="bgShuffle"') &&
+  html.indexOf('id="bgShuffle"') < html.indexOf('id="bgNext"'),
+  'shuffle sits between the header slot arrows');
 
 /* ------------------------------------------------------------------ */
 /* Real-server helper (used by the protocol + migration scenarios).   */
@@ -962,6 +965,7 @@ function spawnServer(dataDir, port) {
       'url("/api/appearance/wallpapers/' + slots[1].wallpapers[0].id + '")', 'boots on the middle slot pick');
     assert.ok(!t.elements.bgPrev.disabled, 'header previous enabled in the middle');
     assert.ok(!t.elements.bgNext.disabled, 'header next enabled in the middle');
+    assert.ok(t.elements.bgShuffle.disabled, 'shuffle dimmed for a single-wallpaper slot');
 
     click(t.elements, 'bgPrev');
     await sleep(400);
@@ -985,11 +989,49 @@ function spawnServer(dataDir, port) {
     const t2 = boot(() => makeBitmap(1, 1, () => [128, 128, 128]));
     await sleep(30);
     assert.ok(t2.elements.bgPrev.disabled, 'header previous dimmed with no slots');
+    assert.ok(t2.elements.bgShuffle.disabled, 'shuffle dimmed with no slots');
     assert.ok(t2.elements.bgNext.disabled, 'header next dimmed with no slots');
     click(t2.elements, 'bgNext');
     await sleep(300);
     assert.strictEqual(t2.fetchState.settings.activeSlotId, null, 'clicking a dimmed arrow changes nothing');
     console.log('  ok 14. header arrows walk the slots and dim at the ends (and when empty)');
+  }
+
+  /* ---- Scenario 14b: header shuffle picks a different wallpaper from
+     the current slot uniformly, without walking slots or writing settings. */
+  {
+    const seed = 12345;
+    const rng = lcg(seed);
+    const mkWp = (id, accent) => ({ id, type: 'image/png', imageDark: true, accent, accentTouched: true });
+    const slot = { id: 'slot-shuffle', wallpapers: [
+      mkWp('shuffle-a', '#b03b3b'), mkWp('shuffle-b', '#3b3bb0'),
+      mkWp('shuffle-c', '#3bb05e'), mkWp('shuffle-d', '#b0b03b')
+    ] };
+    const t = boot(() => makeBitmap(1, 1, () => [128, 128, 128]),
+      { slots: [slot], activeSlotId: slot.id }, undefined, seed);
+    await sleep(30);
+    assert.ok(!t.elements.bgShuffle.disabled, 'shuffle enabled with multiple wallpapers');
+    const first = Math.floor(rng() * slot.wallpapers.length);
+    let current = slot.wallpapers[first];
+    assert.strictEqual(t.body.style.props['--sp-bg-image'],
+      'url("/api/appearance/wallpapers/' + current.id + '")');
+    const putsBefore = t.fetchState.putBodies.length;
+    const seen = new Set([current.id]);
+    for (let i = 0; i < 8; i++) {
+      const choices = slot.wallpapers.filter((w) => w.id !== current.id);
+      current = choices[Math.floor(rng() * choices.length)];
+      click(t.elements, 'bgShuffle');
+      seen.add(current.id);
+      assert.strictEqual(t.body.style.props['--sp-bg-image'],
+        'url("/api/appearance/wallpapers/' + current.id + '")', 'shuffle follows a random draw among the other wallpapers');
+      assert.strictEqual(t.body.style.props['--accent'], current.accent, 'theme follows the shuffled wallpaper');
+      assert.strictEqual(t.elements.spThumbs.children.filter((item) => item.className.includes('current')).length, 1,
+        'thumbnail strip marks one current wallpaper');
+    }
+    assert.ok(seen.size > 2, 'shuffle reaches more than a pair of wallpapers');
+    assert.strictEqual(t.fetchState.settings.activeSlotId, slot.id, 'shuffle keeps the same active slot');
+    assert.strictEqual(t.fetchState.putBodies.length, putsBefore, 'shuffle does not save a shared setting');
+    console.log('  ok 14b. header shuffle randomly selects another wallpaper in the current slot');
   }
 
   /* ---------- Scenario 15: position — per wallpaper, per client ---------

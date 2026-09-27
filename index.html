@@ -222,6 +222,9 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
       <button id="bgPrev" class="seg-btn seg-arrow" type="button" title="Previous slot (re-rolls a random wallpaper of it)" aria-label="Previous slot">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
       </button>
+      <button id="bgShuffle" class="seg-btn seg-arrow" type="button" title="Show another random wallpaper in this slot" aria-label="Shuffle wallpaper in this slot">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h2c4 0 6 10 10 10h4"></path><path d="M17 14l3 3-3 3"></path><path d="M4 17h2c4 0 6-10 10-10h4"></path><path d="M17 4l3 3-3 3"></path></svg>
+      </button>
       <button id="bgNext" class="seg-btn seg-arrow" type="button" title="Next slot (re-rolls a random wallpaper of it)" aria-label="Next slot">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
       </button>
@@ -1331,11 +1334,10 @@ let refreshActivity = () => {};
     navCount: $id('spNavCount'),
     status: $id('spStatus')
   };
-  /* Header stepper: the same prev/next slot walking, reachable from the top
-     menu without opening the panel. It stays mounted at all times and dims
-     at the ends of the slot collection (both dim when it is empty). Every
-     step re-rolls the random wallpaper of the newly active slot. */
+  /* Header controls stay mounted: arrows walk slots, while shuffle rolls a
+     different wallpaper in the active slot when it has multiple choices. */
   const bgPrev = $id('bgPrev');
+  const bgShuffle = $id('bgShuffle');
   const bgNext = $id('bgNext');
 
   /* ---- the displayed wallpaper: a per-browser random roll of the active
@@ -2131,6 +2133,7 @@ let refreshActivity = () => {};
     els.prev.disabled = idx <= 0;
     els.next.disabled = idx === -1 || idx >= list.length - 1;
     bgPrev.disabled = idx <= 0;
+    bgShuffle.disabled = !list[idx] || list[idx].wallpapers.length < 2;
     bgNext.disabled = idx === -1 || idx >= list.length - 1;
     els.navCount.textContent = list.length ? (idx + 1) + ' of ' + list.length : 'none';
     els.remove.disabled = idx === -1 || !list[idx] || list[idx].wallpapers.length === 0;
@@ -2169,9 +2172,19 @@ let refreshActivity = () => {};
     rollSlot(settings);
     commit(true);
   }
+  function shuffleWallpaper() {
+    const slot = activeSlot(settings);
+    const wallpapers = slot && Array.isArray(slot.wallpapers) ? slot.wallpapers : [];
+    if (wallpapers.length < 2) return;
+    const current = displayedWallpaper(settings);
+    const choices = wallpapers.filter((w) => w.id !== current.id);
+    displayedId = choices[Math.floor(Math.random() * choices.length)].id;
+    commitLocal();
+  }
   els.prev.addEventListener('click', () => stepSlot(-1));
   els.next.addEventListener('click', () => stepSlot(1));
   bgPrev.addEventListener('click', () => stepSlot(-1));
+  bgShuffle.addEventListener('click', shuffleWallpaper);
   bgNext.addEventListener('click', () => stepSlot(1));
 
   els.upload.addEventListener('click', () => els.file.click());
