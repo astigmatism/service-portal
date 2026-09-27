@@ -69,6 +69,7 @@ header{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:
 .chip:hover{border-color:var(--accent);color:#fff}
 .noports{font-size:12.5px;color:var(--muted)}
 .status{font-size:12.5px;color:var(--muted);line-height:1.35}
+.tablectl{display:inline-flex;align-items:center;gap:6px;margin-left:10px;vertical-align:middle}
 .empty{color:var(--muted);text-align:center;margin-top:60px}
 /* ===== layout switch (header) + secondary "sidebar" layout: one narrow
    single-column list on the left third, wallpaper out front on the right ===== */
@@ -461,11 +462,13 @@ function containerToggle(s){
 
 function maintenanceMessage(job){
   if (!job) return '';
-  if (job.state === 'queued') return 'Update queued';
-  if (job.state === 'running') return 'Update and restart in progress';
-  if (job.state === 'succeeded') return 'Last update completed successfully';
-  if (job.state === 'failed') return 'Last update failed' + (job.error ? ': ' + job.error : '');
-  return 'Update status: ' + job.state;
+  const action = job.action || 'update';
+  const name = action === 'update' ? 'Update' : action === 'start' ? 'Start' : 'Stop';
+  if (job.state === 'queued') return name + ' queued';
+  if (job.state === 'running') return name + ' in progress';
+  if (job.state === 'succeeded') return 'Last ' + name.toLowerCase() + ' completed successfully';
+  if (job.state === 'failed') return 'Last ' + name.toLowerCase() + ' failed' + (job.error ? ': ' + job.error : '');
+  return name + ' status: ' + job.state;
 }
 
 function lastUsefulLine(text){
@@ -488,10 +491,14 @@ function watchMaintenance(job, serviceName){
           maintenancePollers.delete(job.id);
           load();
           refreshActivity();
-          if (current.state === 'succeeded') toast('Updated and restarted ' + serviceName + '.');
+          const action = current.action || 'update';
+          const verb = action === 'update' ? 'update' : action;
+          if (current.state === 'succeeded') toast(action === 'update'
+            ? 'Updated and restarted ' + serviceName + '.'
+            : (action === 'start' ? 'Started ' : 'Stopped ') + serviceName + '.');
           else {
             const detail = current.error || lastUsefulLine(current.logs) || 'unknown maintenance error';
-            toast('Could not update ' + serviceName + ': ' + detail, true);
+            toast('Could not ' + verb + ' ' + serviceName + ': ' + detail, true);
           }
           return;
         }
@@ -551,6 +558,79 @@ function projectUpdateButton(s){
   return b;
 }
 
+function lifecycleStatus(s){
+  if (!s.lifecycle) return null;
+  const members = s.lifecycle.members || [];
+  const running = members.filter((member) => member.state === 'running').length;
+  const summary = members.map((member) => member.service + ': ' + member.state +
+    (member.health && member.health !== 'healthy' ? ' (' + member.health + ')' : '')).join(', ');
+  const state = s.lifecycle.state === 'running' ? 'Running' :
+    s.lifecycle.state === 'stopped' ? 'Stopped' : 'Partial';
+  return state + ' (' + running + '/' + members.length + ')' + (summary ? ' \u2014 ' + summary : '');
+}
+
+function projectLifecycleButton(s, action){
+  if (!s.lifecycle || !s.lifecycle.available) return null;
+  const job = s.lifecycle.job;
+  const active = job && (job.state === 'queued' || job.state === 'running');
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'ctlbtn' + (active ? ' update-running' : '');
+  b.innerHTML = action === 'start' ? ICON_START : ICON_STOP;
+  b.disabled = !!active;
+  b.title = active ? maintenanceMessage(job) + ' for ' + displayName(s) :
+    (action === 'start' ? 'Start ' : 'Stop ') + displayName(s) + ' project \u2014 ' + lifecycleStatus(s);
+  if (active) {
+    watchMaintenance(job, displayName(s));
+    return b;
+  }
+  b.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    ev.preventDefault();
+    if (action === 'stop') {
+      const detail = s.lifecycle.project === 'betterbench'
+        ? 'This cleanly cancels and deletes all unfinished benchmark and review jobs, then stops both services.'
+        : 'The project may cancel unfinished work before stopping its services.';
+      if (!window.confirm('Stop ' + displayName(s) + '?\n\n' + detail)) return;
+    }
+    b.disabled = true;
+    fetch('/api/projects/' + encodeURIComponent(s.lifecycle.project) + '/' + action, {
+      method: 'POST', headers: { 'X-Service-Portal-Action': action }
+    })
+      .then((r) => r.json().catch(() => ({})).then((d) => {
+        if (!r.ok) throw new Error((d && d.error) || ('HTTP ' + r.status));
+        return d.job;
+      }))
+      .then((started) => {
+        toast((action === 'start' ? 'Start' : 'Stop') + ' started for ' + displayName(s) + '.');
+        watchMaintenance(started, displayName(s));
+        load();
+      })
+      .catch((e) => {
+        toast('Could not ' + action + ' ' + displayName(s) + ': ' + e.message, true);
+        b.disabled = false;
+      });
+  });
+  return b;
+}
+
+function serviceControlButtons(s){
+  if (!s.lifecycle) return [containerToggle(s)];
+  const state = s.lifecycle.state;
+  return state === 'partial'
+    ? [projectLifecycleButton(s, 'start'), projectLifecycleButton(s, 'stop')]
+    : [projectLifecycleButton(s, state === 'running' ? 'stop' : 'start')];
+}
+
+function serviceState(s){ return s.lifecycle ? s.lifecycle.state : s.state; }
+function serviceDotClass(s){
+  if (s.lifecycle && s.lifecycle.state === 'partial') return 'warn';
+  if (s.lifecycle && s.lifecycle.state === 'stopped') return 'bad';
+  const h = s.health;
+  return h ? (h === 'healthy' ? 'ok' : h === 'unhealthy' ? 'bad' : 'warn')
+    : (serviceState(s) === 'running' ? 'run' : 'bad');
+}
+
 function published(s){ return s.ports.filter(p => p.hostPort != null); }
 function primaryPort(s){
   const ports = published(s);
@@ -564,6 +644,8 @@ function hasLink(s){ return !!primaryUrl(s); }
 function displayName(s){ return s.label || s.name; }
 
 function statusRank(s){
+  if (s.lifecycle && s.lifecycle.state === 'stopped') return 0;
+  if (s.lifecycle && s.lifecycle.state === 'partial') return 1;
   if (s.state === 'exited' || s.state === 'dead' || s.state === 'created') return 0;
   if (s.health === 'unhealthy') return 1;
   if (s.state === 'restarting') return 2;
@@ -587,7 +669,7 @@ async function load(){
     generatedAt = d.generatedAt;
     lastError = null;
     for (const s of services) {
-      const job = s.update && s.update.job;
+      const job = (s.lifecycle && s.lifecycle.job) || (s.update && s.update.job);
       if (job && (job.state === 'queued' || job.state === 'running')) {
         watchMaintenance(job, displayName(s));
       }
@@ -661,8 +743,7 @@ function renderTable(rows){
 
     const td1 = document.createElement('td');
     const nl = document.createElement('div'); nl.className = 'nameline';
-    const dotCls = h ? (h === 'healthy' ? 'ok' : h === 'unhealthy' ? 'bad' : 'warn')
-                     : (s.state === 'running' ? 'run' : 'bad');
+    const dotCls = serviceDotClass(s);
     const dot = document.createElement('span'); dot.className = 'dot ' + dotCls;
     const nm = document.createElement('span'); nm.className = 'name';
     nm.textContent = displayName(s); nm.title = s.name;
@@ -701,7 +782,16 @@ function renderTable(rows){
 
     const td4 = document.createElement('td');
     td4.className = 'status';
-    td4.textContent = escapeHtml((s.statusLine || s.state || '').replace(/\s*\((healthy|unhealthy|starting)\)\s*$/, '')) + (h ? ' \u00b7 ' + h : '');
+    const status = document.createElement('span');
+    status.textContent = s.lifecycle ? lifecycleStatus(s) :
+      escapeHtml((s.statusLine || s.state || '').replace(/\s*\((healthy|unhealthy|starting)\)\s*$/, '')) + (h ? ' \u00b7 ' + h : '');
+    td4.appendChild(status);
+    const tableControls = document.createElement('span');
+    tableControls.className = 'tablectl';
+    const tableUpdate = projectUpdateButton(s);
+    if (tableUpdate) tableControls.appendChild(tableUpdate);
+    for (const button of serviceControlButtons(s)) tableControls.appendChild(button);
+    td4.appendChild(tableControls);
     tr.appendChild(td4);
 
     if (primary) tr.addEventListener('click', () => openNewTab(primary));
@@ -726,24 +816,30 @@ function renderSidebar(rows){
     li.className = 'srow' + (primary ? '' : ' internal');
     if (primary) li.title = primary;
 
-    const dotCls = h ? (h === 'healthy' ? 'ok' : h === 'unhealthy' ? 'bad' : 'warn')
-                     : (s.state === 'running' ? 'run' : 'bad');
+    const dotCls = serviceDotClass(s);
     const dot = document.createElement('span'); dot.className = 'dot ' + dotCls;
     li.appendChild(dot);
 
     const nm = document.createElement(primary ? 'a' : 'span');
     nm.className = 'name sname';
     nm.textContent = displayName(s);
-    nm.title = s.name;
+    nm.title = s.lifecycle ? lifecycleStatus(s) : s.name;
     if (primary){ nm.href = primary; nm.target = '_blank'; nm.rel = 'noopener'; }
     li.appendChild(nm);
 
     const ctl = document.createElement('span'); ctl.className = 'sidectl';
+    if (s.lifecycle){
+      const badge = document.createElement('span');
+      badge.className = 'selftag';
+      badge.textContent = s.lifecycle.state === 'partial' ? 'partial' : s.lifecycle.state;
+      badge.title = lifecycleStatus(s);
+      ctl.appendChild(badge);
+    }
     if (s.self){ const t = document.createElement('span'); t.className = 'selftag'; t.textContent = 'this portal'; ctl.appendChild(t); }
     else if (!primary){ const t = document.createElement('span'); t.className = 'selftag'; t.textContent = 'internal'; ctl.appendChild(t); }
     const updateButton = projectUpdateButton(s);
     if (updateButton) ctl.appendChild(updateButton);
-    ctl.appendChild(containerToggle(s));
+    for (const button of serviceControlButtons(s)) ctl.appendChild(button);
     li.appendChild(ctl);
     list.appendChild(li);
   }

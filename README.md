@@ -26,10 +26,10 @@ on every request. No reconfiguration, no restart for discovery.
   240px wallpaper strip, the finalized width remembered per browser in localStorage so a
   return visit lands where you left it, double-click or Enter for the default third),
   and 20-second auto-refresh.
-- Project updates run in detached maintenance containers, so an updater survives replacing
-  the target container or the portal itself. Job status and bounded logs persist in `/data`.
+- Project update, start, and stop actions run in detached maintenance containers, so an action
+  survives replacing a target container or the portal itself. Job status and bounded logs persist in `/data`.
 - An **Activity** panel (header toggle, next to Appearance) keeps a durable, newest-first feed of
-  portal actions: update jobs (from the persisted maintenance records, with full runner logs
+  portal actions: project jobs (from the persisted maintenance records, with full runner logs
   expandable per event) and container start/stop actions (appended to `/data/activity.jsonl`,
   rotated past 256 KB). The toggle shows an unread badge for events newer than the last time that
   browser viewed the panel (localStorage), so nothing is silently missed. Toasts remain as
@@ -41,11 +41,12 @@ on every request. No reconfiguration, no restart for discovery.
 | Path | Response |
 |---|---|
 | `/`, `/index.html` | The portal UI (`text/html`, `Cache-Control: no-store`) |
-| `/api/services` | JSON: `{generatedAt, services: [...]}` — one entry per visible container with `name, label, description, id, image, state, health, statusLine, ports[], self, project, update` (`no-store`) |
-| `POST /api/services/<id>/start` / `POST /api/services/<id>/stop` | Docker start/stop for that container: `200` `{ok, action}` on success, `502` + `error` when Docker refuses (`no-store`) |
+| `/api/services` | JSON: `{generatedAt, services: [...]}` — one entry per visible container with `name, label, description, id, image, state, health, statusLine, ports[], self, project, update, lifecycle` (`no-store`) |
+| `POST /api/services/<id>/start` / `POST /api/services/<id>/stop` | Docker start/stop for an individual container: `200` `{ok, action}` on success, `409` for members of opted-in lifecycle projects, `502` when Docker refuses (`no-store`) |
 | `POST /api/projects/<project>/update` | Starts an opted-in detached update/restart job; requires `X-Service-Portal-Action: update`, returns `202` + job metadata, `409` if already active |
-| `GET /api/maintenance/<job-id>` | Persisted update state, exit code, error, and bounded runner logs (`no-store`) |
-| `GET /api/activity` | JSON: `{generatedAt, events: [...]}` — newest-first feed merging update-job events and container start/stop events, capped at 200 (`no-store`) |
+| `POST /api/projects/<project>/start` / `POST /api/projects/<project>/stop` | Starts an opted-in detached project action; requires the matching `X-Service-Portal-Action: start` or `stop` header; serialized with updates |
+| `GET /api/maintenance/<job-id>` | Persisted action, state, exit code, error, and bounded runner logs (`no-store`) |
+| `GET /api/activity` | JSON: `{generatedAt, events: [...]}` — newest-first feed merging project-job events and container start/stop events, capped at 200 (`no-store`) |
 | `/api/appearance` | `GET` → `{settings: {...}}` including the wallpaper slots and the active-slot pointer; `PUT` → updates the global styling settings (position, opacity, blur, scrim, glass) and the active-slot pointer (sanitized and clamped server-side; the slots themselves can only change through the slot/wallpaper endpoints) (`no-store`) |
 | `/api/appearance/slots` | `POST` → append an empty slot and make it active · `DELETE` → remove every slot and all its wallpapers (`no-store`) |
 | `/api/appearance/slots/<id>` | `DELETE` → remove one slot and every wallpaper in it (404 if unknown) — if it was the active slot, the pointer moves to the previous slot (`no-store`) |
@@ -205,6 +206,25 @@ For private repositories, the project-specific runner must provide noninteractiv
 credentials without exposing them to the browser. The portal repository is public, so its
 script rewrites its SSH remote to HTTPS for the fetch only.
 
+### Project start and stop
+
+A project with a valid update capability can opt into project-wide lifecycle actions by adding
+`io.service-portal.lifecycle.services: "reports,runner"` to one visible Compose service. List
+the Compose service names that its script starts and stops, including hidden members. That
+service becomes the project's visible entry; other listed members are represented in its
+`lifecycle.members` state instead of separate portal rows. The portal reports `running` when
+all members run and pass any health checks, `stopped` when all members are present and none
+run, and `partial` otherwise.
+Partial projects offer both Start and Stop. Other projects retain their per-container controls.
+
+The same update script receives `start` or `stop` as its first argument in a detached runner;
+an update receives no argument. The portal uses the validated updater image, user, checkout,
+Docker socket, and optional user-unit mount. It also passes
+`SERVICE_PORTAL_ACTION_REQUESTED_AT` as a UTC ISO 8601 timestamp captured when the action
+request arrives, so a script can account for work that finishes while the runner launches.
+Update, Start, and Stop share a project job lock, status endpoint, logs, and activity history.
+The project script owns service ordering, health checks, and application-specific cleanup.
+
 For a copy/paste prompt and complete integration checklist for other repositories, see
 [`docs/update-and-restart-integration-runbook.md`](docs/update-and-restart-integration-runbook.md).
 
@@ -216,7 +236,8 @@ The project uses Node's built-in test runner and has no test-framework dependenc
 npm test
 ```
 
-The suite covers appearance behavior, start/stop forwarding, stopped-container discovery,
+The suite covers appearance behavior, container start/stop forwarding, project lifecycle
+discovery and controls, stopped-container discovery,
 update capability and path validation, runner construction, duplicate-job prevention,
 success/failure monitoring, log capture and persistence, the activity feed (container
 events, persisted update-job events, ordering, log lookup, method guard), sidebar

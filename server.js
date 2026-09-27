@@ -112,6 +112,7 @@ const UPDATE_LABELS = {
   user: 'io.service-portal.update.user',
   hostHome: 'io.service-portal.update.host-home',
 };
+const LIFECYCLE_SERVICES_LABEL = 'io.service-portal.lifecycle.services';
 const MAINTENANCE_LABEL = 'io.service-portal.maintenance';
 const HIDDEN_LABEL = 'io.service-portal.hidden';
 
@@ -490,6 +491,65 @@ function updateCapabilities(containers) {
   return out;
 }
 
+function containerHealth(c) {
+  if (c.Health && typeof c.Health.Status === 'string') return c.Health.Status;
+  const match = String(c.Status || '').match(/\((healthy|unhealthy|health: starting)\)\s*$/);
+  return match ? (match[1] === 'health: starting' ? 'starting' : match[1]) : null;
+}
+
+function lifecycleCapabilities(containers, updates) {
+  const labeled = new Map();
+  for (const c of containers) {
+    const dockerLabels = c.Labels || {};
+    if (!Object.hasOwn(dockerLabels, LIFECYCLE_SERVICES_LABEL)) continue;
+    const project = safeProjectName(dockerLabels['com.docker.compose.project']);
+    if (!project) continue;
+    const entries = labeled.get(project) || [];
+    entries.push(c);
+    labeled.set(project, entries);
+  }
+
+  const out = new Map();
+  for (const [project, entries] of labeled) {
+    // Exactly one update-enabled Compose service opts the project in. Other
+    // services are members by name, including ones hidden from discovery.
+    if (entries.length !== 1 || !updates.has(project)) continue;
+    const anchor = entries[0];
+    const anchorCapability = updateCapability(anchor);
+    const raw = anchor.Labels[LIFECYCLE_SERVICES_LABEL];
+    const anchorService = anchor.Labels['com.docker.compose.service'];
+    if (!anchorCapability || typeof raw !== 'string' || raw.length > 512 ||
+        typeof anchorService !== 'string' || hiddenService(anchor)) continue;
+    const services = raw.split(',').map((name) => name.trim());
+    if (!services.length || services.length > 16 ||
+        services.some((name) => !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/.test(name)) ||
+        new Set(services).size !== services.length || !services.includes(anchorService)) continue;
+
+    const members = [];
+    let invalid = false;
+    for (const service of services) {
+      const matches = containers.filter((c) => c.Labels &&
+        c.Labels['com.docker.compose.project'] === project &&
+        c.Labels['com.docker.compose.service'] === service);
+      if (matches.length > 1 || (matches.length === 1 &&
+          matches[0].Labels['com.docker.compose.project.working_dir'] !== anchorCapability.projectDir)) {
+        invalid = true;
+        break;
+      }
+      const c = matches[0];
+      members.push({ service, id: c ? c.Id : null, state: c ? c.State : 'missing',
+        health: c ? containerHealth(c) : null });
+    }
+    if (invalid) continue;
+    const running = members.filter((member) => member.state === 'running').length;
+    const state = running === members.length &&
+      members.every((member) => !member.health || member.health === 'healthy') ? 'running' : running === 0 &&
+      members.every((member) => ['created', 'exited', 'dead'].includes(member.state)) ? 'stopped' : 'partial';
+    out.set(project, { project, anchorId: anchor.Id, services, members, state });
+  }
+  return out;
+}
+
 const maintenanceJobs = new Map();
 const maintenanceMonitors = new Map();
 
@@ -524,6 +584,7 @@ function publicMaintenanceJob(job, includeLogs) {
   const out = {
     id: job.id,
     project: job.project,
+    action: job.action || 'update',
     state: job.state,
     createdAt: job.createdAt,
     startedAt: job.startedAt || null,
@@ -591,12 +652,16 @@ function readActivityEvents() {
   return out;
 }
 
-function updateActivityMessage(job) {
-  if (job.state === 'queued') return 'Update queued for ' + job.project;
-  if (job.state === 'running') return 'Update running for ' + job.project;
-  if (job.state === 'succeeded') return 'Updated and restarted ' + job.project;
-  if (job.state === 'failed') return 'Update failed for ' + job.project;
-  return 'Update ' + job.state + ' for ' + job.project;
+function maintenanceActivityMessage(job) {
+  const action = job.action || 'update';
+  const noun = action === 'update' ? 'Update' : action === 'start' ? 'Start' : 'Stop';
+  if (job.state === 'queued') return noun + ' queued for ' + job.project;
+  if (job.state === 'running') return noun + ' running for ' + job.project;
+  if (job.state === 'succeeded') return action === 'update'
+    ? 'Updated and restarted ' + job.project
+    : (action === 'start' ? 'Started ' : 'Stopped ') + job.project;
+  if (job.state === 'failed') return noun + ' failed for ' + job.project;
+  return noun + ' ' + job.state + ' for ' + job.project;
 }
 
 function activityEvents() {
@@ -604,13 +669,14 @@ function activityEvents() {
   for (const job of maintenanceJobs.values()) {
     events.push({
       id: job.id,
-      kind: 'update',
+      kind: job.action && job.action !== 'update' ? 'project' : 'update',
+      action: job.action || 'update',
       at: job.finishedAt || job.startedAt || job.createdAt,
       createdAt: job.createdAt,
       finishedAt: job.finishedAt || null,
       project: job.project,
       state: job.state,
-      message: updateActivityMessage(job),
+      message: maintenanceActivityMessage(job),
       error: job.error || null,
       hasLogs: true,
     });
@@ -711,19 +777,36 @@ function monitorMaintenanceJob(job) {
   maintenanceMonitors.set(job.id, monitor);
 }
 
-async function startProjectUpdate(project) {
+const maintenanceReservations = new Set();
+
+async function startProjectMaintenance(project, action) {
+  const requestedAt = new Date().toISOString();
   const active = activeMaintenanceJob(project);
-  if (active) {
-    const err = new Error('an update is already running for ' + project);
+  if (active || maintenanceReservations.has(project)) {
+    const err = new Error('another project action is already running for ' + project);
     err.httpStatus = 409;
-    err.job = active;
+    err.job = active || null;
     throw err;
   }
+  maintenanceReservations.add(project);
+  try {
+    return await launchProjectMaintenance(project, action, requestedAt);
+  } finally {
+    maintenanceReservations.delete(project);
+  }
+}
 
+async function launchProjectMaintenance(project, action, requestedAt) {
   const containers = await dockerApi('/containers/json?all=1');
-  const capability = updateCapabilities(containers).get(project);
+  const updates = updateCapabilities(containers);
+  const capability = updates.get(project);
   if (!capability) {
     const err = new Error('project is not configured for portal updates');
+    err.httpStatus = 404;
+    throw err;
+  }
+  if (action !== 'update' && !lifecycleCapabilities(containers, updates).has(project)) {
+    const err = new Error('project is not configured for portal lifecycle actions');
     err.httpStatus = 404;
     throw err;
   }
@@ -740,10 +823,11 @@ async function startProjectUpdate(project) {
   const configuredUser = target.Config && target.Config.User || '';
   const runnerUser = capability.runnerUser || (/^\d+(?::\d+)?$/.test(configuredUser) ? configuredUser : '0:0');
   const id = crypto.randomUUID();
-  const runnerName = ('service-portal-update-' + project + '-' + id.slice(0, 8)).slice(0, 63);
+  const runnerName = ('service-portal-' + action + '-' + project + '-' + id.slice(0, 8)).slice(0, 63);
   const scriptPath = path.posix.join(capability.projectDir, capability.script);
   const runnerEnv = [
     'HOME=/tmp',
+    'SERVICE_PORTAL_ACTION_REQUESTED_AT=' + requestedAt,
     'SERVICE_PORTAL_UPDATE_DELEGATED=1',
     'SERVICE_PORTAL_UPDATE_JOB_ID=' + id,
     'DSH_UPDATE_DELEGATED=1',
@@ -766,8 +850,9 @@ async function startProjectUpdate(project) {
   const job = {
     id,
     project,
+    action,
     state: 'queued',
-    createdAt: new Date().toISOString(),
+    createdAt: requestedAt,
     startedAt: null,
     finishedAt: null,
     exitCode: null,
@@ -785,7 +870,7 @@ async function startProjectUpdate(project) {
       'POST', '/containers/create?name=' + encodeURIComponent(runnerName), {
         Image: capability.runnerImage,
         Entrypoint: [scriptPath],
-        Cmd: [],
+        Cmd: action === 'update' ? [] : [action],
         WorkingDir: capability.projectDir,
         User: runnerUser,
         Env: runnerEnv,
@@ -855,7 +940,7 @@ function browserUrl(value) {
   } catch { return null; }
 }
 
-function toService(c, capability, job) {
+function toService(c, capability, job, lifecycle) {
   const ports = [];
   const seen = new Set();
   const push = (p) => {
@@ -901,7 +986,7 @@ function toService(c, capability, job) {
     id: c.Id.slice(0, 12),
     image: c.Image,
     state: c.State,
-    health: c.Health ? c.Health.Status : null,
+    health: containerHealth(c),
     statusLine: c.Status,
     ports,
     self: name === SELF_NAME,
@@ -909,6 +994,14 @@ function toService(c, capability, job) {
     update: capability ? {
       available: true,
       project: capability.project,
+      job: publicMaintenanceJob(job, false),
+    } : null,
+    lifecycle: lifecycle ? {
+      available: true,
+      project: lifecycle.project,
+      services: lifecycle.services,
+      members: lifecycle.members.map(({ service, state, health }) => ({ service, state, health })),
+      state: lifecycle.state,
       job: publicMaintenanceJob(job, false),
     } : null,
   };
@@ -922,14 +1015,22 @@ const server = http.createServer((req, res) => {
     dockerApi('/containers/json?all=1')
       .then((list) => {
         const containers = list.filter((c) => !(c.Labels && c.Labels[MAINTENANCE_LABEL] === 'true'));
-        // Visibility only affects discovery; hidden project members still take
-        // part in update capability validation, including conflict detection.
+        // Validate against every member, including stopped and hidden ones.
         const capabilities = updateCapabilities(containers);
-        const visible = containers.filter((c) => !hiddenService(c));
+        const lifecycles = lifecycleCapabilities(containers, capabilities);
+        const groupedMembers = new Set();
+        for (const lifecycle of lifecycles.values()) {
+          for (const member of lifecycle.members) {
+            if (member.id && member.id !== lifecycle.anchorId) groupedMembers.add(member.id);
+          }
+        }
+        const visible = containers.filter((c) => !hiddenService(c) && !groupedMembers.has(c.Id));
         const services = visible.map((c) => {
           const project = safeProjectName(c.Labels && c.Labels['com.docker.compose.project']);
           const capability = project ? capabilities.get(project) : null;
-          return toService(c, capability, project ? latestMaintenanceJob(project) : null);
+          const lifecycle = project ? lifecycles.get(project) : null;
+          return toService(c, capability, project ? latestMaintenanceJob(project) : null,
+            lifecycle && lifecycle.anchorId === c.Id ? lifecycle : null);
         }).sort((a, b) => a.name.localeCompare(b.name));
         const body = JSON.stringify({ generatedAt: new Date().toISOString(), services });
         res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
@@ -948,15 +1049,22 @@ const server = http.createServer((req, res) => {
       sendJson(res, 405, { error: 'method not allowed' });
       return;
     }
-    // Docker allows a stopped container its 10 s grace period, so this gets a
-    // longer budget than the read-only list fetch. The inspect is only for a
-    // friendly name in the activity log — never let it fail the action.
     const action = svcAction[2];
-    dockerApiRequest('GET', '/containers/' + svcAction[1] + '/json', 10000)
-      .then((info) => String((info && info.Name) || '').replace(/^\//, ''))
-      .catch(() => '')
-      .then((name) => name || svcAction[1].slice(0, 12))
-      .then((name) => dockerApiRequest('POST', '/containers/' + svcAction[1] + '/' + action, 35000)
+    dockerApi('/containers/json?all=1').then((list) => {
+      const containers = list.filter((c) => !(c.Labels && c.Labels[MAINTENANCE_LABEL] === 'true'));
+      const lifecycles = lifecycleCapabilities(containers, updateCapabilities(containers));
+      if ([...lifecycles.values()].some((lifecycle) => lifecycle.members.some((member) =>
+        member.id && member.id.startsWith(svcAction[1])))) {
+        sendJson(res, 409, { error: 'use the project start or stop action for this service' });
+        return;
+      }
+      // Docker allows a stopped container its grace period. Inspect supplies
+      // a friendly activity name but is not required for the action.
+      return dockerApiRequest('GET', '/containers/' + svcAction[1] + '/json', 10000)
+        .then((info) => String((info && info.Name) || '').replace(/^\//, ''))
+        .catch(() => '')
+        .then((name) => name || svcAction[1].slice(0, 12))
+        .then((name) => dockerApiRequest('POST', '/containers/' + svcAction[1] + '/' + action, 35000)
         .then(() => {
           logActivityEvent({
             id: crypto.randomUUID(), at: new Date().toISOString(),
@@ -973,6 +1081,7 @@ const server = http.createServer((req, res) => {
           });
           sendJson(res, 502, { error: 'docker api error: ' + err.message });
         }));
+    }).catch((err) => sendJson(res, 502, { error: 'docker api error: ' + err.message }));
     return;
   }
 
@@ -985,17 +1094,18 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const projectUpdate = pathname.match(/^\/api\/projects\/([a-z0-9][a-z0-9_.-]{0,62})\/update$/);
-  if (projectUpdate) {
+  const projectAction = pathname.match(/^\/api\/projects\/([a-z0-9][a-z0-9_.-]{0,62})\/(update|start|stop)$/);
+  if (projectAction) {
     if (req.method !== 'POST') {
       sendJson(res, 405, { error: 'method not allowed' });
       return;
     }
-    if (req.headers['x-service-portal-action'] !== 'update') {
-      sendJson(res, 403, { error: 'missing update action header' });
+    const action = projectAction[2];
+    if (req.headers['x-service-portal-action'] !== action) {
+      sendJson(res, 403, { error: 'missing or incorrect ' + action + ' action header' });
       return;
     }
-    startProjectUpdate(projectUpdate[1])
+    startProjectMaintenance(projectAction[1], action)
       .then((job) => sendJson(res, 202, { ok: true, job: publicMaintenanceJob(job, false) }))
       .catch((err) => {
         const body = { error: err.message };

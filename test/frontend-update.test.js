@@ -60,6 +60,7 @@ function boot() {
   const body = get('body');
   const calls = [];
   let confirmed = true;
+  let confirmPrompt = '';
   const document = {
     body,
     querySelector(selector) { return selector.startsWith('#') ? get(selector.slice(1)) : null; },
@@ -105,7 +106,7 @@ function boot() {
     console
   };
   sandbox.window = sandbox;
-  sandbox.window.confirm = () => confirmed;
+  sandbox.window.confirm = (prompt) => { confirmPrompt = prompt; return confirmed; };
   vm.createContext(sandbox);
   const scriptStart = html.indexOf("'use strict';", html.indexOf('<script>'));
   const scriptEnd = html.indexOf('/* ===== Appearance (wallpaper slots + glass)', scriptStart);
@@ -115,7 +116,8 @@ function boot() {
     sandbox,
     elements,
     calls,
-    setConfirmed(value) { confirmed = value; }
+    setConfirmed(value) { confirmed = value; },
+    lastConfirm() { return confirmPrompt; }
   };
 }
 
@@ -240,4 +242,79 @@ test('a proxy URL is the default in both layouts, even without published app por
     assert.equal(link.tagName, 'A');
     assert.equal(link.href, service.url);
   }
+});
+
+test('project lifecycle controls cover stopped and partial groups in both layouts', async () => {
+  const app = boot();
+  const base = {
+    id: 'a'.repeat(12), name: 'betterbench-reports', label: 'Bench Studio',
+    image: 'bench:test', state: 'exited', health: null, statusLine: 'Exited',
+    ports: [], self: false,
+    update: { available: true, project: 'betterbench', job: null },
+    lifecycle: {
+      available: true, project: 'betterbench', services: ['reports', 'runner'],
+      members: [{ service: 'reports', state: 'exited', health: null },
+        { service: 'runner', state: 'exited', health: null }],
+      state: 'stopped', job: null
+    }
+  };
+
+  vm.runInContext('renderSidebar', app.sandbox)([base]);
+  let controls = app.elements.get('sideRows').children[0].children.at(-1);
+  let buttons = controls.children.filter((child) => child.tagName === 'BUTTON');
+  assert.equal(buttons.length, 2, 'stopped project has Update and project Start');
+  assert.match(buttons[1].title, /Start Bench Studio project/);
+  assert.doesNotMatch(buttons[1].title, /Start betterbench-reports$/);
+  buttons[1].listeners.click[0]({ stopPropagation() {}, preventDefault() {} });
+  await new Promise((resolve) => setTimeout(resolve, 35));
+  let request = app.calls.find((entry) => entry.url === '/api/projects/betterbench/start');
+  assert.ok(request, 'Start targets the project route');
+  assert.equal(request.options.headers['X-Service-Portal-Action'], 'start');
+
+  const partial = {
+    ...base, state: 'running', health: 'healthy',
+    lifecycle: { ...base.lifecycle, state: 'partial',
+      members: [{ service: 'reports', state: 'running', health: 'healthy' },
+        { service: 'runner', state: 'exited', health: null }] }
+  };
+  vm.runInContext('renderSidebar', app.sandbox)([partial]);
+  controls = app.elements.get('sideRows').children.at(-1).children.at(-1);
+  buttons = controls.children.filter((child) => child.tagName === 'BUTTON');
+  assert.equal(buttons.length, 3, 'partial project offers Update, Start, and Stop');
+  assert.equal(controls.children[0].textContent, 'partial');
+  assert.match(controls.children[0].title, /runner: exited/);
+  app.setConfirmed(false);
+  buttons[2].listeners.click[0]({ stopPropagation() {}, preventDefault() {} });
+  assert.equal(app.calls.filter((entry) => entry.url === '/api/projects/betterbench/stop').length, 0);
+  assert.match(app.lastConfirm(), /cancels and deletes all unfinished benchmark and review jobs/);
+  app.setConfirmed(true);
+  buttons[2].listeners.click[0]({ stopPropagation() {}, preventDefault() {} });
+  await new Promise((resolve) => setTimeout(resolve, 35));
+  request = app.calls.find((entry) => entry.url === '/api/projects/betterbench/stop');
+  assert.ok(request, 'Stop targets the project route');
+  assert.equal(request.options.headers['X-Service-Portal-Action'], 'stop');
+
+  vm.runInContext('renderTable', app.sandbox)([partial]);
+  const tableStatus = app.elements.get('rows').children[0].children[3];
+  assert.match(tableStatus.children[0].textContent, /Partial \(1\/2\).*runner: exited/);
+  assert.equal(tableStatus.children[1].children.length, 3, 'table also offers both recovery actions');
+
+  const activeJob = { id: '2'.repeat(36), project: 'betterbench', action: 'stop', state: 'running' };
+  const busy = { ...partial,
+    update: { ...partial.update, job: activeJob },
+    lifecycle: { ...partial.lifecycle, job: activeJob } };
+  app.sandbox.fetch = async () => new Promise(() => {});
+  vm.runInContext('renderSidebar', app.sandbox)([busy]);
+  controls = app.elements.get('sideRows').children.at(-1).children.at(-1);
+  buttons = controls.children.filter((child) => child.tagName === 'BUTTON');
+  assert.ok(buttons.every((button) => button.disabled),
+    'an active project job disables Update, Start, and Stop together');
+
+  const unrelated = { ...base, id: 'c'.repeat(12), name: 'unrelated', label: 'Unrelated',
+    update: null, lifecycle: null };
+  vm.runInContext('renderSidebar', app.sandbox)([unrelated]);
+  controls = app.elements.get('sideRows').children.at(-1).children.at(-1);
+  buttons = controls.children.filter((child) => child.tagName === 'BUTTON');
+  assert.equal(buttons.length, 1);
+  assert.equal(buttons[0].title, 'Start unrelated', 'other projects retain container controls');
 });
