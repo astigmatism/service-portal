@@ -248,6 +248,7 @@ test('project lifecycle controls cover stopped and partial groups in both layout
   const app = boot();
   const base = {
     id: 'a'.repeat(12), name: 'betterbench-reports', label: 'Bench Studio',
+    url: 'http://192.168.1.23:9001/',
     image: 'bench:test', state: 'exited', health: null, statusLine: 'Exited',
     ports: [], self: false,
     update: { available: true, project: 'betterbench', job: null },
@@ -260,9 +261,13 @@ test('project lifecycle controls cover stopped and partial groups in both layout
   };
 
   vm.runInContext('renderSidebar', app.sandbox)([base]);
-  let controls = app.elements.get('sideRows').children[0].children.at(-1);
+  let sidebarRow = app.elements.get('sideRows').children[0];
+  let controls = sidebarRow.children.at(-1);
   let buttons = controls.children.filter((child) => child.tagName === 'BUTTON');
   assert.equal(buttons.length, 2, 'stopped project has Update and project Start');
+  assert.equal(sidebarRow.children[0].className, 'dot bad');
+  assert.match(sidebarRow.children[0].title, /Stopped \(0\/2\)/);
+  assert.equal(controls.children.filter((child) => child.className === 'selftag').length, 0);
   assert.match(buttons[1].title, /Start Bench Studio project/);
   assert.doesNotMatch(buttons[1].title, /Start betterbench-reports$/);
   buttons[1].listeners.click[0]({ stopPropagation() {}, preventDefault() {} });
@@ -278,11 +283,13 @@ test('project lifecycle controls cover stopped and partial groups in both layout
         { service: 'runner', state: 'exited', health: null }] }
   };
   vm.runInContext('renderSidebar', app.sandbox)([partial]);
-  controls = app.elements.get('sideRows').children.at(-1).children.at(-1);
+  sidebarRow = app.elements.get('sideRows').children.at(-1);
+  controls = sidebarRow.children.at(-1);
   buttons = controls.children.filter((child) => child.tagName === 'BUTTON');
   assert.equal(buttons.length, 3, 'partial project offers Update, Start, and Stop');
-  assert.equal(controls.children[0].textContent, 'partial');
-  assert.match(controls.children[0].title, /runner: exited/);
+  assert.equal(sidebarRow.children[0].className, 'dot warn');
+  assert.match(sidebarRow.children[0].title, /runner: exited/);
+  assert.equal(controls.children.filter((child) => child.className === 'selftag').length, 0);
   app.setConfirmed(false);
   buttons[2].listeners.click[0]({ stopPropagation() {}, preventDefault() {} });
   assert.equal(app.calls.filter((entry) => entry.url === '/api/projects/betterbench/stop').length, 0);
@@ -298,6 +305,15 @@ test('project lifecycle controls cover stopped and partial groups in both layout
   const tableStatus = app.elements.get('rows').children[0].children[3];
   assert.match(tableStatus.children[0].textContent, /Partial \(1\/2\).*runner: exited/);
   assert.equal(tableStatus.children[1].children.length, 3, 'table also offers both recovery actions');
+
+  const running = { ...base, state: 'running', health: 'healthy',
+    lifecycle: { ...base.lifecycle, state: 'running',
+      members: base.lifecycle.members.map((member) => ({ ...member, state: 'running', health: 'healthy' })) } };
+  vm.runInContext('renderSidebar', app.sandbox)([running]);
+  sidebarRow = app.elements.get('sideRows').children.at(-1);
+  assert.equal(sidebarRow.children[0].className, 'dot ok');
+  assert.match(sidebarRow.children[0].title, /Running \(2\/2\)/);
+  assert.equal(sidebarRow.children.at(-1).children.filter((child) => child.className === 'selftag').length, 0);
 
   const activeJob = { id: '2'.repeat(36), project: 'betterbench', action: 'stop', state: 'running' };
   const busy = { ...partial,
