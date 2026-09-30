@@ -1288,7 +1288,7 @@ let refreshActivity = () => {};
   };
 
   /* Image preparation constants (ported from image.ts). */
-  const MAX_INPUT_BYTES = 524288000;   // 500 MB sanity cap (blobs ride IndexedDB, not localStorage)
+  const MAX_INPUT_BYTES = 1073741824;  // 1 GB sanity cap (blobs ride IndexedDB, not localStorage)
   const RESAMPLE_EDGE = 4096;          // longest edge above which we resample
   const RESAMPLE_QUALITY = 0.95;       // WebP quality for resampled images
   const DARK_THRESHOLD = 0.35;         // avg-luminance threshold below which an image counts as dark
@@ -1565,7 +1565,7 @@ let refreshActivity = () => {};
     return runBlobTx('readwrite', (store) => store.delete(key));
   }
 
-  /* ---- image preparation (ported from image.ts: 500 MB cap, 24×24 darkness
+  /* ---- image preparation (ported from image.ts: 1 GB cap, 24×24 darkness
           sample, ≤4096 px keep-original-else-WebP-0.95 resample) ---- */
   function fitWithin(width, height, maxEdge) {
     const safe = (v) => (Number.isFinite(v) && v > 0 ? Math.round(v) : 1);
@@ -1747,7 +1747,7 @@ let refreshActivity = () => {};
 
   function prepareImage(source) {
     if (!source.type.startsWith('image/')) throw new Error('unsupported file type "' + source.type + '"');
-    if (source.size > MAX_INPUT_BYTES) throw new Error('image exceeds the 500 MB input limit');
+    if (source.size > MAX_INPUT_BYTES) throw new Error('image exceeds the 1 GB input limit');
     return tryDecode(source).then((bitmap) => {
       if (bitmap === undefined) return { blob: source, imageDark: false, accent: null };
       try {
@@ -1808,7 +1808,7 @@ let refreshActivity = () => {};
      Throws for an unreadable archive as a whole (not a zip, Zip64,
      corrupt); entry-level problems land in `skipped`. */
   async function extractZipImages(file) {
-    if (file.size > MAX_INPUT_BYTES) throw new Error('archive exceeds the 500 MB input limit');
+    if (file.size > MAX_INPUT_BYTES) throw new Error('archive exceeds the 1 GB input limit');
     const buf = await file.arrayBuffer();
     const view = new DataView(buf);
     const bytes = new Uint8Array(buf);

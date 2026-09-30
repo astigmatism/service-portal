@@ -51,7 +51,7 @@ on every request. No reconfiguration, no restart for discovery.
 | `/api/appearance/slots` | `POST` → append an empty slot and make it active · `DELETE` → remove every slot and all its wallpapers (`no-store`) |
 | `/api/appearance/slots/<id>` | `DELETE` → remove one slot and every wallpaper in it (404 if unknown) — if it was the active slot, the pointer moves to the previous slot (`no-store`) |
 | `POST /api/appearance/slots/<id>/move` | Move the slot one position in the navigation order — body `{"delta": -1 \| 1}`; the active-slot pointer rides along by id (404 unknown slot, 400 bad delta, 422 already at the end it wants to move toward) (`no-store`) |
-| `/api/appearance/slots/<id>/wallpapers` | `POST` → upload a wallpaper into that slot (image/* bodies up to 500 MB; optional `x-sp-image-dark: 1` and `x-sp-accent: #rrggbb` headers) and make the slot active; 404 for an unknown slot (`no-store`) |
+| `/api/appearance/slots/<id>/wallpapers` | `POST` → upload a wallpaper into that slot (image/* bodies up to 1 GB; optional `x-sp-image-dark: 1` and `x-sp-accent: #rrggbb` headers) and make the slot active; 404 for an unknown slot (`no-store`) |
 | `/api/appearance/wallpapers` | Flat view over the slots: `GET` → the slots, the active-slot pointer, plus a derived flat wallpaper list for pre-slot clients · `POST` → (legacy) append a wallpaper to the active slot, creating a slot when there is none · `DELETE` → remove every wallpaper (`no-store`) |
 | `/api/appearance/wallpapers/<id>` | One wallpaper: `GET` → its bytes (404 if unknown) · `PUT` → update its meta (`imageDark`, `accent`, `accentTouched`) · `DELETE` → remove it from its slot — a drained slot is removed too and the active pointer moves to the previous slot (`no-store`) |
 | `/api/appearance/background` | Legacy single-wallpaper endpoint, kept working: it always addresses the *first wallpaper of the active slot* — `GET` → its bytes (404 if none) · `POST` → replace it in place, or create it · `DELETE` → remove it (`no-store`) |
@@ -303,7 +303,7 @@ confirmation/polling, and the update script's fail-closed command ordering.
   unpacked in the browser (the server never sees the archive): each supported image
   inside it (jpeg/png/webp/gif/avif; folders walked in natural path order, hidden
   files, `__MACOSX` metadata and nested archives skipped) becomes its own wallpaper
-  with its own sampled colors. Archives are capped at 500 MB; Zip64 and encrypted
+  with its own sampled colors. Archives are capped at 1 GB; Zip64 and encrypted
   entries are not supported. A file that fails does not stop the rest of the batch —
   the status line lists what failed. **Remove wallpaper** deletes the
   currently displayed wallpaper. The active slot is persisted server-side, so the
