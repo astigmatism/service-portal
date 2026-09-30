@@ -276,6 +276,7 @@ function mkFetch(state) {
       if (method === 'POST') {
         const slot = state.settings.slots.find((s) => s.id === spm[1]);
         if (!slot) return respond(404, {});
+        const attempt = state.slotWpPosts.length;
         state.slotWpPosts.push({
           slotId: spm[1],
           type: headers['Content-Type'],
@@ -283,6 +284,9 @@ function mkFetch(state) {
           accent: headers['x-sp-accent'],
           bytes: (opts.body || {}).size || 0
         });
+        // Tests can make the N-th upload attempt fail (0-based) to exercise
+        // the per-file failure handling of a batch.
+        if (state.failWpPostAt === attempt) return respond(413, { error: 'payload too large' });
         const wallpaper = postWallpaper(slot, headers, opts.body);
         state.settings.activeSlotId = slot.id;
         return respond(200, { ok: true, wallpaper: clone(wallpaper), settings: clone(state.settings) });
@@ -404,7 +408,9 @@ function boot(bitmapFactory, serverSettings, preLS, seed) {
     setTimeout, clearTimeout,
     console,
     URL: { createObjectURL: () => 'blob:fake', revokeObjectURL() {} },
-    navigator: {}
+    navigator: {},
+    // The zip reader uses these web platform globals (Node ships them all).
+    Blob, Response, DecompressionStream, TextDecoder
   };
   sandbox.window = sandbox;
   sandbox.addEventListener = () => {};
@@ -430,6 +436,96 @@ function click(elements, id) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ------------------------------------------------------------------ */
+/* Tiny zip writer (independent of the app's reader): local headers + */
+/* central directory + EOCD, STORE or DEFLATE per entry. Node < 21.2  */
+/* lacks DecompressionStream('deflate-raw'), so deflated entries are   */
+/* only produced when the runtime can inflate them.                    */
+/* ------------------------------------------------------------------ */
+const zlib = require('zlib');
+const CAN_INFLATE_RAW = (() => { try { new DecompressionStream('deflate-raw'); return true; } catch (e) { return false; } })();
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(buf) {
+  let c = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+/* entries: [{ name, data?: Buffer|string, deflate?: bool, encrypted?: bool, dataDescriptor?: bool }] */
+function makeZip(entries, { comment = '' } = {}) {
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  for (const e of entries) {
+    const name = Buffer.from(e.name, 'utf8');
+    const data = Buffer.isBuffer(e.data) ? e.data : Buffer.from(e.data || '', 'utf8');
+    const deflate = !!e.deflate && CAN_INFLATE_RAW;
+    const payload = deflate ? zlib.deflateRawSync(data) : data;
+    const method = deflate ? 8 : 0;
+    const flags = (e.encrypted ? 1 : 0) | (e.dataDescriptor ? 8 : 0) | 0x800;
+    const crc = crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(flags, 6);
+    local.writeUInt16LE(method, 8);
+    local.writeUInt16LE(0, 10); local.writeUInt16LE(0, 12);
+    // With a data descriptor the local header carries zeros — the reader
+    // must trust the central directory instead.
+    local.writeUInt32LE(e.dataDescriptor ? 0 : crc, 14);
+    local.writeUInt32LE(e.dataDescriptor ? 0 : payload.length, 18);
+    local.writeUInt32LE(e.dataDescriptor ? 0 : data.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    local.writeUInt16LE(0, 28);
+    const descriptor = e.dataDescriptor ? (() => {
+      const d = Buffer.alloc(16);
+      d.writeUInt32LE(0x08074b50, 0); d.writeUInt32LE(crc, 4);
+      d.writeUInt32LE(payload.length, 8); d.writeUInt32LE(data.length, 12);
+      return d;
+    })() : Buffer.alloc(0);
+    const cd = Buffer.alloc(46);
+    cd.writeUInt32LE(0x02014b50, 0);
+    cd.writeUInt16LE(20, 4); cd.writeUInt16LE(20, 6);
+    cd.writeUInt16LE(flags, 8);
+    cd.writeUInt16LE(method, 10);
+    cd.writeUInt16LE(0, 12); cd.writeUInt16LE(0, 14);
+    cd.writeUInt32LE(crc, 16);
+    cd.writeUInt32LE(payload.length, 20);
+    cd.writeUInt32LE(data.length, 24);
+    cd.writeUInt16LE(name.length, 28);
+    cd.writeUInt16LE(0, 30); cd.writeUInt16LE(0, 32);
+    cd.writeUInt16LE(0, 34); cd.writeUInt16LE(0, 36);
+    cd.writeUInt32LE(0, 38);
+    cd.writeUInt32LE(offset, 42);
+    central.push(Buffer.concat([cd, name]));
+    parts.push(local, name, payload, descriptor);
+    offset += local.length + name.length + payload.length + descriptor.length;
+  }
+  const cdir = Buffer.concat(central);
+  const commentBuf = Buffer.from(comment, 'utf8');
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(0, 4); eocd.writeUInt16LE(0, 6);
+  eocd.writeUInt16LE(entries.length, 8);
+  eocd.writeUInt16LE(entries.length, 10);
+  eocd.writeUInt32LE(cdir.length, 12);
+  eocd.writeUInt32LE(offset, 16);
+  eocd.writeUInt16LE(commentBuf.length, 20);
+  return Buffer.concat([...parts, cdir, eocd, commentBuf]);
+}
+/* A File-like zip for the sandbox: a real Blob (the reader calls
+   .arrayBuffer()) carrying the name the picker would attach. */
+function zipFile(bytes, name, type = 'application/zip') {
+  return Object.assign(new Blob([bytes], { type }), { name });
+}
+
+/* ------------------------------------------------------------------ */
 /* Static sanity: the CSS consumes the theme variables and the new    */
 /* collection controls are present in the markup.                     */
 /* ------------------------------------------------------------------ */
@@ -445,7 +541,8 @@ for (const needle of [
   'border:1px solid var(--selftag-line)',
   'id="spNav"', 'id="spPrev"', 'id="spNext"', 'id="spNavCount"',
   'id="bgPrev"', 'id="bgShuffle"', 'id="bgNext"', '.seg-arrow{',
-  '.sp-nav{', 'accept="image/jpeg,image/png,image/webp,image/gif,image/avif" multiple>',
+  '.sp-nav{', 'accept="image/jpeg,image/png,image/webp,image/gif,image/avif,application/zip,application/x-zip-compressed,.zip" multiple>',
+  'Drop images or a .zip of images here, or', "new DecompressionStream('deflate-raw')",
   'id="spPosGrid"', 'id="spPos-br"', '.sp-pos{', '.sp-pos:disabled{', 'id="spPosX"', 'id="spPosY"',
   'background-position:var(--sp-bg-position,50% 50%)',
   "const POS_LS_KEY = 'sp-wallpaper-positions'",
@@ -1467,6 +1564,106 @@ function spawnServer(dataDir, port) {
       proc.kill();
       fs.rmSync(dataDir, { recursive: true, force: true });
     }
+  }
+
+  /* ---------- Scenario 23: a .zip upload unpacks into one wallpaper per image ----------
+     The archive mixes stored and deflated entries, a data-descriptor entry,
+     a directory, a text file, macOS metadata and a hidden file. Only the
+     images survive, sorted by path (natural order: 2 before 10), each
+     uploaded through the same per-image path as a directly picked file. */
+  {
+    const zip = makeZip([
+      { name: 'pack/wall-10.jpg', data: 'JPEG-TEN', deflate: true },
+      { name: 'pack/', data: '' },
+      { name: 'pack/notes.txt', data: 'not an image' },
+      { name: '__MACOSX/pack/._wall-10.jpg', data: 'apple double' },
+      { name: 'pack/.DS_Store', data: 'finder' },
+      { name: 'pack/wall-2.PNG', data: 'PNG-TWO', dataDescriptor: true },
+      { name: 'pack/nested.zip', data: 'zip in zip' },
+      { name: 'pack/empty.gif', data: '' },
+      { name: 'other/cover.webp', data: 'WEBP', deflate: true }
+    ], { comment: 'made by the test' });
+    const t = boot(() => makeBitmap(64, 64, () => [128, 128, 128]));
+    await sleep(30);
+    upload(t.elements, zipFile(zip, 'pack.zip'));
+    await sleep(900);
+    assert.strictEqual(t.fetchState.slotPosts, 1, 'one slot minted for the archive');
+    const posts = t.fetchState.slotWpPosts;
+    assert.deepStrictEqual(posts.map((p) => p.type), ['image/webp', 'image/png', 'image/jpeg'],
+      'only the images were uploaded, in natural path order');
+    assert.deepStrictEqual(posts.map((p) => p.bytes), ['WEBP'.length, 'PNG-TWO'.length, 'JPEG-TEN'.length],
+      'each entry was unpacked to its original bytes (stored, data-descriptor and deflated alike)');
+    const st = t.fetchState.settings;
+    assert.strictEqual(st.slots.length, 1, 'the archive fills a single slot');
+    assert.strictEqual(st.slots[0].wallpapers.length, 3, 'three wallpapers from the archive');
+    assert.strictEqual(st.activeSlotId, st.slots[0].id, 'the filled slot is active');
+    assert.strictEqual(t.elements.spThumbs.children.length, 3, 'every unpacked image gets a thumbnail');
+    assert.strictEqual(t.elements.spStatus.textContent, '', 'a clean run clears the status line');
+    console.log('  ok 23. a .zip upload unpacks into one wallpaper per image (' + (CAN_INFLATE_RAW ? 'deflate + store' : 'store only — no deflate-raw in this Node') + ')');
+  }
+
+  /* ---------- Scenario 24: images and archives mix in one selection ----------
+     Picker order is kept: a plain image first, then the archive's images. A
+     `.zip` with an empty MIME type (common on Linux/Windows pickers) is
+     still recognised by its name. */
+  {
+    const zip = makeZip([{ name: 'b.png', data: 'B' }, { name: 'a.jpg', data: 'A' }]);
+    const t = boot(() => makeBitmap(64, 64, () => [128, 128, 128]));
+    await sleep(30);
+    upload(t.elements, { type: 'image/gif', size: 5 }, zipFile(zip, 'pics.zip', ''), { type: 'text/plain', size: 9 });
+    await sleep(900);
+    assert.deepStrictEqual(t.fetchState.slotWpPosts.map((p) => p.type), ['image/gif', 'image/jpeg', 'image/png'],
+      'the plain image leads, the archive expands in place, non-images are ignored');
+    assert.strictEqual(t.fetchState.settings.slots[0].wallpapers.length, 3);
+    console.log('  ok 24. images and a .zip (even with an empty MIME type) mix in one upload');
+  }
+
+  /* ---------- Scenario 25: archives with nothing to upload mint nothing ----------
+     An image-less archive, bytes that are not a zip, and a Zip64 marker all
+     end in a status message — and no slot is created for them. */
+  {
+    const t = boot(() => makeBitmap(64, 64, () => [128, 128, 128]));
+    await sleep(30);
+    upload(t.elements, zipFile(makeZip([{ name: 'readme.txt', data: 'hi' }]), 'docs.zip'));
+    await sleep(300);
+    assert.strictEqual(t.fetchState.slotPosts, 0, 'no slot for an image-less archive');
+    assert.strictEqual(t.fetchState.slotWpPosts.length, 0);
+    assert.match(t.elements.spStatus.textContent, /Nothing uploaded: docs\.zip \(no supported images\)/);
+
+    upload(t.elements, zipFile(Buffer.from('definitely not a zip file at all'), 'bogus.zip'));
+    await sleep(300);
+    assert.strictEqual(t.fetchState.slotPosts, 0, 'no slot for a non-archive');
+    assert.match(t.elements.spStatus.textContent, /bogus\.zip \(not a zip archive\)/);
+
+    const z64 = makeZip([{ name: 'x.png', data: 'X' }]);
+    z64.writeUInt16LE(0xffff, z64.length - 22 + 10); // entry count marker → Zip64
+    upload(t.elements, zipFile(z64, 'huge.zip'));
+    await sleep(300);
+    assert.strictEqual(t.fetchState.slotPosts, 0, 'no slot for a Zip64 archive');
+    assert.match(t.elements.spStatus.textContent, /huge\.zip \(Zip64 archives are not supported\)/);
+
+    const enc = makeZip([{ name: 'secret.png', data: 'S', encrypted: true }]);
+    upload(t.elements, zipFile(enc, 'locked.zip'));
+    await sleep(300);
+    assert.strictEqual(t.fetchState.slotPosts, 0, 'no slot when every entry is encrypted');
+    assert.match(t.elements.spStatus.textContent, /locked\.zip\/secret\.png \(encrypted\)/);
+    console.log('  ok 25. image-less, non-zip, Zip64 and encrypted archives report and mint nothing');
+  }
+
+  /* ---------- Scenario 26: one failing file does not sink the batch ----------
+     The second of three uploads is refused by the server; the other two
+     land and the status line names the casualty. */
+  {
+    const zip = makeZip([{ name: 'a.png', data: 'A' }, { name: 'b.png', data: 'B' }, { name: 'c.png', data: 'C' }]);
+    const t = boot(() => makeBitmap(64, 64, () => [128, 128, 128]));
+    t.fetchState.failWpPostAt = 1;
+    await sleep(30);
+    upload(t.elements, zipFile(zip, 'trio.zip'));
+    await sleep(900);
+    assert.strictEqual(t.fetchState.slotWpPosts.length, 3, 'every file was attempted');
+    assert.strictEqual(t.fetchState.settings.slots[0].wallpapers.length, 2, 'the two good files became wallpapers');
+    assert.strictEqual(t.elements.spStatus.textContent, 'Uploaded 2 of 3 — failed: b.png (upload failed (HTTP 413))');
+    console.log('  ok 26. a failing upload is reported and the rest of the batch still lands');
   }
 
   console.log('all appearance tests passed');

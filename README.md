@@ -299,7 +299,13 @@ confirmation/polling, and the update script's fail-closed command ordering.
   counter. The shuffle button between the header arrows picks a different random
   wallpaper from the current slot, without switching slots; it dims when the
   slot has fewer than two wallpapers. An upload appends its wallpapers to the
-  active slot, multi-file selections in order. **Remove wallpaper** deletes the
+  active slot, multi-file selections in order. A **.zip** picked or dropped there is
+  unpacked in the browser (the server never sees the archive): each supported image
+  inside it (jpeg/png/webp/gif/avif; folders walked in natural path order, hidden
+  files, `__MACOSX` metadata and nested archives skipped) becomes its own wallpaper
+  with its own sampled colors. Archives are capped at 200 MB; Zip64 and encrypted
+  entries are not supported. A file that fails does not stop the rest of the batch —
+  the status line lists what failed. **Remove wallpaper** deletes the
   currently displayed wallpaper. The active slot is persisted server-side, so the
   portal always comes back to the slot you left on (showing a fresh roll of it);
   **Reset appearance**, alone at the bottom of the panel, deletes every slot and

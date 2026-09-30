@@ -280,10 +280,10 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
   </div>
   <div id="spDropZone" class="sp-drop">
     <img id="spThumb" class="sp-thumb hidden" alt="Current wallpaper">
-    <span>Drop an image here, or</span>
-    <button id="spUploadBtn" class="btn" type="button">Upload background&hellip;</button>
+    <span>Drop images or a .zip of images here, or</span>
+    <button id="spUploadBtn" class="btn" type="button" title="Add wallpapers to this slot — pick images, or a .zip archive: every supported image inside (jpeg/png/webp/gif/avif) becomes its own wallpaper">Upload background&hellip;</button>
   </div>
-  <input type="file" id="spFile" class="hidden" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" multiple>
+  <input type="file" id="spFile" class="hidden" accept="image/jpeg,image/png,image/webp,image/gif,image/avif,application/zip,application/x-zip-compressed,.zip" multiple>
   <div class="sp-select" title="Where this wallpaper's origin sits in the cover crop — remembered per wallpaper, on this machine only: pick an anchor (or press 1–9), then fine-tune with the sliders — 0–100% of the way between the cropped edges, snapping back to an anchor near 0/50/100">
     Position
     <div class="sp-posgrid" id="spPosGrid" role="group" aria-label="Wallpaper origin anchor">
@@ -1147,7 +1147,9 @@ let refreshActivity = () => {};
    can show any wallpaper of the slot. The displayed wallpaper carries its
    own sampled accent + darkness (the theme follows what is on screen); the
    styling sliders stay global to the portal. Uploads land in the active
-   slot (multi-select/drop uploads each file in order); "Add slot" appends
+   slot (multi-select/drop uploads each file in order; a .zip archive is
+   unpacked right here in the browser and every supported image inside it
+   becomes its own wallpaper — the server never sees the archive); "Add slot" appends
    an empty slot and jumps to it; "Remove slot" deletes the slot and every
    wallpaper in it; "Remove wallpaper" deletes the wallpaper currently on screen, and
    a drained slot is removed by the server too. The active-slot pointer is
@@ -1760,6 +1762,105 @@ let refreshActivity = () => {};
     });
   }
 
+  /* ---- .zip archives: unpacked here in the browser, never on the server.
+         The server stores raw image bytes plus the client-sampled meta, so
+         every image found in an archive must travel the same prepareImage()
+         → POST path as a directly picked file. A minimal reader is enough:
+         central directory → local header → STORE (0) as-is, DEFLATE (8)
+         through the built-in DecompressionStream('deflate-raw'). Zip64 and
+         encrypted entries are refused; directories, hidden files, macOS
+         metadata (__MACOSX, ._x, .DS_Store), nested archives and any file
+         without a supported image extension are skipped. ---- */
+  const ZIP_TYPES = { 'application/zip': 1, 'application/x-zip-compressed': 1, 'multipart/x-zip': 1 };
+  const ZIP_IMAGE_TYPES = {
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', jpe: 'image/jpeg',
+    png: 'image/png', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif'
+  };
+  const ZIP_EOCD = 0x06054b50, ZIP_CDIR = 0x02014b50, ZIP_LOCAL = 0x04034b50;
+
+  function isZipFile(f) {
+    if (!f) return false;
+    const type = String(f.type || '').toLowerCase();
+    return ZIP_TYPES[type] === 1 || /\.zip$/i.test(String(f.name || ''));
+  }
+
+  /* MIME type for an archive entry by extension, or null when the entry is
+     not a wallpaper candidate (directory, hidden/metadata, unknown type). */
+  function zipEntryImageType(name) {
+    if (!name || name.endsWith('/')) return null;
+    const segments = name.split('/');
+    for (const seg of segments) if (seg === '__MACOSX' || seg.startsWith('.')) return null;
+    const base = segments[segments.length - 1];
+    const dot = base.lastIndexOf('.');
+    if (dot === -1) return null;
+    return ZIP_IMAGE_TYPES[base.slice(dot + 1).toLowerCase()] || null;
+  }
+
+  function inflateRaw(bytes) {
+    if (typeof DecompressionStream === 'undefined') {
+      throw new Error('this browser cannot unpack compressed zip entries');
+    }
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    return new Response(stream).arrayBuffer();
+  }
+
+  /* Resolve to { images: [Blob with .name], skipped: [{ name, reason }] }.
+     Throws for an unreadable archive as a whole (not a zip, Zip64,
+     corrupt); entry-level problems land in `skipped`. */
+  async function extractZipImages(file) {
+    if (file.size > MAX_INPUT_BYTES) throw new Error('archive exceeds the 200 MB input limit');
+    const buf = await file.arrayBuffer();
+    const view = new DataView(buf);
+    const bytes = new Uint8Array(buf);
+    // End-of-central-directory record: 22 bytes plus a comment of up to 64 KB.
+    let eocd = -1;
+    for (let i = buf.byteLength - 22, stop = Math.max(0, buf.byteLength - 22 - 65535); i >= stop; i--) {
+      if (view.getUint32(i, true) === ZIP_EOCD) { eocd = i; break; }
+    }
+    if (eocd === -1) throw new Error('not a zip archive');
+    const total = view.getUint16(eocd + 10, true);
+    const cdirOffset = view.getUint32(eocd + 16, true);
+    if (total === 0xffff || cdirOffset === 0xffffffff) throw new Error('Zip64 archives are not supported');
+    const decoder = new TextDecoder('utf-8');
+    const images = [];
+    const skipped = [];
+    let p = cdirOffset;
+    for (let n = 0; n < total; n++) {
+      if (p + 46 > buf.byteLength || view.getUint32(p, true) !== ZIP_CDIR) throw new Error('corrupt zip archive');
+      const flags = view.getUint16(p + 8, true);
+      const method = view.getUint16(p + 10, true);
+      const compressedSize = view.getUint32(p + 20, true);
+      const uncompressedSize = view.getUint32(p + 24, true);
+      const nameLen = view.getUint16(p + 28, true);
+      const extraLen = view.getUint16(p + 30, true);
+      const commentLen = view.getUint16(p + 32, true);
+      const localOffset = view.getUint32(p + 42, true);
+      const name = decoder.decode(bytes.subarray(p + 46, p + 46 + nameLen));
+      p += 46 + nameLen + extraLen + commentLen;
+      const type = zipEntryImageType(name);
+      if (!type || uncompressedSize === 0) continue;
+      if (flags & 0x1) { skipped.push({ name, reason: 'encrypted' }); continue; }
+      if (method !== 0 && method !== 8) { skipped.push({ name, reason: 'unsupported compression' }); continue; }
+      if (localOffset + 30 > buf.byteLength || view.getUint32(localOffset, true) !== ZIP_LOCAL) throw new Error('corrupt zip archive');
+      // Sizes come from the central directory: with flag bit 3 the local
+      // header carries zeros and a trailing data descriptor instead.
+      const dataStart = localOffset + 30 + view.getUint16(localOffset + 26, true) + view.getUint16(localOffset + 28, true);
+      if (dataStart + compressedSize > buf.byteLength) throw new Error('corrupt zip archive');
+      const raw = bytes.subarray(dataStart, dataStart + compressedSize);
+      let blob;
+      try {
+        blob = new Blob([method === 0 ? raw : await inflateRaw(raw)], { type });
+      } catch (e) {
+        skipped.push({ name, reason: e && e.message ? e.message : 'could not unpack' });
+        continue;
+      }
+      blob.name = name;
+      images.push(blob);
+    }
+    images.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+    return { images, skipped };
+  }
+
   /* ---- state ----
      Boot starts on the (local) cache so the page paints immediately, then the
      startup fetch below replaces it with the server's copy. */
@@ -1883,13 +1984,49 @@ let refreshActivity = () => {};
          With no slot at all the first file creates one. The sampled
          darkness + accent ride custom headers (the server stores the raw
          image and the meta, it does not decode pixels). Multi-select and
-         multi-file drops upload each file in order; the currently displayed
-         wallpaper is kept when it survives the upload, otherwise a fresh
-         roll picks one of the slot's wallpapers. ---- */
+         multi-file drops upload each file in order; a .zip is expanded
+         first (see extractZipImages) and its images take the archive's
+         place in the queue, sorted by path. Nothing is minted or uploaded
+         until the queue is known to hold at least one image, so an empty
+         or unreadable archive never leaves an empty slot behind. One failing
+         file does not stop the rest: failures are summarized in the status
+         line at the end. The currently displayed wallpaper is kept when it
+         survives the upload, otherwise a fresh roll picks one of the slot's
+         wallpapers. ---- */
+  function describeFailures(failures) {
+    const shown = failures.slice(0, 3).map((f) => f.name + (f.reason ? ' (' + f.reason + ')' : ''));
+    const more = failures.length - shown.length;
+    return shown.join(', ') + (more > 0 ? ' and ' + more + ' more' : '');
+  }
+  function summarizeFailures(uploaded, total, failures) {
+    if (!failures.length) return '';
+    return 'Uploaded ' + uploaded + ' of ' + total + ' — failed: ' + describeFailures(failures);
+  }
+
   async function handleFiles(fileList) {
-    const files = Array.prototype.slice.call(fileList || [])
-      .filter((f) => f && typeof f.type === 'string' && f.type.startsWith('image/'));
-    if (!files.length) return;
+    const picked = Array.prototype.slice.call(fileList || []).filter(Boolean);
+    const queue = [];    // Blob-likes with .type (and .name for reporting)
+    const failures = []; // { name, reason }
+    for (const f of picked) {
+      if (isZipFile(f)) {
+        const label = f.name || 'archive';
+        setStatus('Unpacking ' + label + '…');
+        try {
+          const found = await extractZipImages(f);
+          for (const s of found.skipped) failures.push({ name: label + '/' + s.name, reason: s.reason });
+          if (!found.images.length && !found.skipped.length) failures.push({ name: label, reason: 'no supported images' });
+          for (const img of found.images) queue.push(img);
+        } catch (e) {
+          failures.push({ name: label, reason: e && e.message ? e.message : 'could not read archive' });
+        }
+      } else if (typeof f.type === 'string' && f.type.startsWith('image/')) {
+        queue.push(f);
+      }
+    }
+    if (!queue.length) {
+      setStatus(failures.length ? 'Nothing uploaded: ' + describeFailures(failures) : '');
+      return;
+    }
     /* The first upload of an empty portal must create a slot to upload into
        (the server creates one too, but only *after* the upload — with no
        slot there is nothing to address the upload to). */
@@ -1904,10 +2041,11 @@ let refreshActivity = () => {};
       }
     }
     const slotId = activeSlot(settings) ? activeSlot(settings).id : settings.activeSlotId;
-    for (let i = 0; i < files.length; i++) {
-      setStatus(i === 0 ? 'Uploading…' : 'Uploading ' + (i + 1) + ' of ' + files.length + '…');
+    let uploaded = 0;
+    for (let i = 0; i < queue.length; i++) {
+      setStatus(queue.length === 1 ? 'Uploading…' : 'Uploading ' + (i + 1) + ' of ' + queue.length + '…');
       try {
-        const prepared = await prepareImage(files[i]);
+        const prepared = await prepareImage(queue[i]);
         const r = await fetch(slotWallpapersUrl(slotId), {
           method: 'POST',
           headers: {
@@ -1923,12 +2061,12 @@ let refreshActivity = () => {};
         settings = adoptServerSettings(settings, data);
         displayedWallpaper(settings); // re-rolls if the pick no longer exists
         commit(true);
+        uploaded += 1;
       } catch (e) {
-        setStatus(e && e.message ? e.message : 'could not use that file');
-        return;
+        failures.push({ name: queue[i].name || 'image ' + (i + 1), reason: e && e.message ? e.message : 'could not use that file' });
       }
     }
-    setStatus('');
+    setStatus(summarizeFailures(uploaded, queue.length, failures));
   }
 
   function resetColors() {
