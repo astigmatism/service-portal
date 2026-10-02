@@ -291,7 +291,11 @@ confirmation/polling, and the update script's fail-closed command ordering.
   network. A slot can hold several wallpapers, and each browser rolls its *own* random
   wallpaper from the active slot — re-rolled on every refresh and on every slot switch —
   while the slot membership itself stays shared. The panel groups its controls by
-  scope, top to bottom: **This wallpaper** (remove the wallpaper on screen, reset
+  scope, top to bottom: **Position** (how the wallpaper on screen is framed — a 3×3
+  anchor grid plus Horizontal / Vertical sliders, remembered per wallpaper in this
+  browser only; **Apply to all in slot** copies the current position to every
+  wallpaper in the active slot, **Reset slot** returns them all to center, and both
+  ask first when they would overwrite another wallpaper's own position), **This wallpaper** (remove the wallpaper on screen, reset
   its derived colors), **Wallpapers in this slot** (the thumbnail strip), **Slots**
   (a **Name** field, Add / Remove, Move up / Move down, and the prev/next "N of M"
   stepper beneath them), and **Effects** (the sliders above). **Name** gives the

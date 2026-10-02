@@ -246,6 +246,13 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
 .sp-pos:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .sp-pos:disabled{opacity:.45;cursor:default}
 .sp-slider input[type=range]:disabled{opacity:.45;cursor:default}
+/* Slot-wide position actions under the sliders: copy the on-screen origin
+   to every wallpaper of the active slot, or send them all back to center.
+   The hint below summarises what Apply would do (empty = hidden). */
+.sp-pos-slot{display:flex;gap:8px;margin:12px 0 0}
+.sp-pos-slot .btn{flex:1 1 auto}
+.sp-pos-slot-hint{font-size:11.5px;color:var(--muted);margin:5px 0 0;line-height:1.35}
+.sp-pos-slot-hint:empty{display:none}
 .sp-status{font-size:12.5px;color:var(--bad);min-height:16px;margin-top:8px;overflow-wrap:anywhere}
 </style>
 </head>
@@ -333,7 +340,7 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
     <button id="spUploadBtn" class="btn" type="button" title="Add wallpapers to this slot — pick images, or a .zip archive: every supported image inside (jpeg/png/webp/gif/avif) becomes its own wallpaper">Upload background&hellip;</button>
   </div>
   <input type="file" id="spFile" class="hidden" accept="image/jpeg,image/png,image/webp,image/gif,image/avif,application/zip,application/x-zip-compressed,.zip" multiple>
-  <div class="sp-select" title="Where this wallpaper's origin sits in the cover crop — remembered per wallpaper, on this machine only: pick an anchor (or press 1–9), then fine-tune with the sliders — 0–100% of the way between the cropped edges, snapping back to an anchor near 0/50/100">
+  <div class="sp-select" title="Where this wallpaper's origin sits in the cover crop — remembered per wallpaper, on this machine only: pick an anchor (or press 1–9), then fine-tune with the sliders — 0–100% of the way between the cropped edges, snapping back to an anchor near 0/50/100; Apply to all in slot copies it to every wallpaper in this slot, Reset slot returns them all to center">
     Position
     <div class="sp-posgrid" id="spPosGrid" role="group" aria-label="Wallpaper origin anchor">
       <button id="spPos-tl" class="sp-pos" type="button" data-dot="tl" aria-pressed="false" aria-label="Top left" title="Top left (7)"></button>
@@ -352,6 +359,11 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
     <label class="sp-slider" title="Origin's vertical offset: 0 = flush top, 50 = centered, 100 = flush bottom">Vertical <output id="spPosYOut">50%</output>
       <input type="range" id="spPosY" min="0" max="100" step="1" value="50">
     </label>
+    <div class="sp-pos-slot">
+      <button id="spPosApplySlot" class="btn" type="button" title="Apply this position to all wallpapers in this slot (this browser only)">Apply to all in slot</button>
+      <button id="spPosResetSlot" class="btn" type="button" title="Return every wallpaper in this slot to center, 50% &middot; 50% (this browser only)">Reset slot</button>
+    </div>
+    <div id="spPosSlotHint" class="sp-pos-slot-hint"></div>
   </div>
   <span class="sp-label">This wallpaper</span>
   <div class="sp-row">
@@ -1212,7 +1224,10 @@ let refreshActivity = () => {};
    persisted on the server, so you always come back to the slot you left on
    (with a fresh random wallpaper of it). The panel's thumbnail strip lists
    the active slot's wallpapers — click one to show it deliberately (until
-   the next roll), × to remove just that wallpaper. This browser keeps a
+   the next roll), × to remove just that wallpaper. Each wallpaper's
+   Position origin is per browser; "Apply to all in slot" copies the
+   on-screen one to every wallpaper of the active slot and "Reset slot"
+   returns them all to center. This browser keeps a
    localStorage ('sp-appearance') copy as an offline fallback cache, and on
    first visit with an empty server the wallpaper previously stored in this
    browser's IndexedDB ('service-portal-appearance', store 'images') is
@@ -1297,6 +1312,35 @@ let refreshActivity = () => {};
     const w = displayedWallpaper(s);
     return (w && positionMap[w.id]) || { x: 50, y: 50 };
   }
+  /* Slot-wide position actions ("Apply to all in slot" / "Reset slot"). A
+     wallpaper without an entry sits at center, so center is stored as *no*
+     entry. */
+  const isCenter = (p) => p.x === 50 && p.y === 50;
+  const samePos = (a, b) => a.x === b.x && a.y === b.y;
+  const storedPosition = (id) => positionMap[id] || { x: 50, y: 50 };
+  /* What the two actions would do for the displayed wallpaper's slot, or
+     null with nothing on screen. `differing` counts the other wallpapers
+     Apply would move; `offCenter` the wallpapers Reset would move;
+     `applyCustom` / `resetCustom` the other wallpapers whose own non-center
+     origin that action would discard (the confirmation trigger). */
+  function slotPositionState(s) {
+    const w = displayedWallpaper(s);
+    const slot = activeSlot(s);
+    if (!w || !slot) return null;
+    const pos = storedPosition(w.id);
+    const st = { pos, total: slot.wallpapers.length, differing: 0, offCenter: 0, applyCustom: 0, resetCustom: 0 };
+    for (const x of slot.wallpapers) {
+      const p = storedPosition(x.id);
+      if (!isCenter(p)) st.offCenter++;
+      if (x.id === w.id) continue;
+      if (!samePos(p, pos)) {
+        st.differing++;
+        if (!isCenter(p)) st.applyCustom++;
+      }
+      if (!isCenter(p)) st.resetCustom++;
+    }
+    return st;
+  }
   /* One-time migration: before the per-wallpaper point, the position was a
      single global value shared by every wallpaper. The first time this
      machine sees the collection, hand that legacy value to every wallpaper
@@ -1372,6 +1416,9 @@ let refreshActivity = () => {};
     },
     posX: $id('spPosX'), posXOut: $id('spPosXOut'),
     posY: $id('spPosY'), posYOut: $id('spPosYOut'),
+    posApplySlot: $id('spPosApplySlot'),
+    posResetSlot: $id('spPosResetSlot'),
+    posSlotHint: $id('spPosSlotHint'),
     remove: $id('spRemove'),
     reset: $id('spReset'),
     resetColors: $id('spResetColors'),
@@ -2390,6 +2437,21 @@ let refreshActivity = () => {};
     });
   }
 
+  /* "Apply to all in slot" / "Reset slot" state + the hint under them. Runs
+     from syncPanel and from the position slider's paint frame (O(slot size),
+     no storage writes), so the hint follows a drag live. */
+  function syncSlotPositionControls() {
+    const st = slotPositionState(settings);
+    els.posApplySlot.disabled = !st || st.differing === 0;
+    els.posResetSlot.disabled = !st || st.offCenter === 0;
+    let hint = '';
+    if (st && st.total === 1) hint = 'This is the only wallpaper in this slot.';
+    else if (st && st.differing === 0) hint = 'All ' + st.total + ' wallpapers in this slot share this position.';
+    else if (st) hint = 'Copies ' + Math.round(st.pos.x) + '% \u00b7 ' + Math.round(st.pos.y) + '% to ' + st.differing + ' other wallpaper' +
+      (st.differing === 1 ? '' : 's') + ' in this slot. This browser only.';
+    if (els.posSlotHint.textContent !== hint) els.posSlotHint.textContent = hint;
+  }
+
   function syncPanel() {
     els.opacity.value = String(Math.round(settings.backgroundOpacity * 100));
     els.opacityOut.textContent = Math.round(settings.backgroundOpacity * 100) + '%';
@@ -2416,6 +2478,7 @@ let refreshActivity = () => {};
       lastPosWp = hasWp ? wp.id : null;
       lastPos = null;
     }
+    syncSlotPositionControls();
     els.blur.value = String(settings.backgroundBlur);
     els.blurOut.textContent = settings.backgroundBlur + 'px';
     els.scrim.value = String(Math.round(settings.scrim * 100));
@@ -2784,12 +2847,53 @@ let refreshActivity = () => {};
           const a = ANCHORS[key];
           els.posCells[key].setAttribute('aria-pressed', String(a[0] === pos.x && a[1] === pos.y));
         }
+        syncSlotPositionControls();
       });
     });
     input.addEventListener('change', () => { flushSliderFrame(); flushPositionSave(); });
   };
   bindPosSlider('x', els.posX);
   bindPosSlider('y', els.posY);
+
+  /* Slot-wide position: "Apply to all in slot" copies the on-screen origin
+     to every wallpaper of the active slot (a snapshot — later uploads still
+     start at center); "Reset slot" returns them all to center. Both stay
+     per client, like every origin, and only ask first when they would
+     discard another wallpaper's own (non-center) origin. Each wallpaper gets
+     a *fresh* object: the slider handler mutates the on-screen entry in
+     place, so a shared one would drag the whole slot along with it. */
+  const pctPair = (p) => Math.round(p.x) + '% \u00b7 ' + Math.round(p.y) + '%';
+  const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+  function applyPositionToSlot() {
+    flushSliderFrame();
+    const st = slotPositionState(settings);
+    const slot = activeSlot(settings);
+    if (!st || !slot || st.differing === 0) return;
+    if (st.applyCustom > 0 && !window.confirm('Apply ' + pctPair(st.pos) + ' to all ' + st.total +
+      ' wallpapers in this slot?\n\n' + plural(st.applyCustom, 'of them has its', 'of them have their') +
+      ' own position, which will be replaced. This only affects this browser.')) return;
+    for (const w of slot.wallpapers) {
+      if (isCenter(st.pos)) delete positionMap[w.id];
+      else positionMap[w.id] = { x: st.pos.x, y: st.pos.y };
+    }
+    writePositionMap();
+    commitLocal();
+  }
+  function resetSlotPositions() {
+    flushSliderFrame();
+    const st = slotPositionState(settings);
+    const slot = activeSlot(settings);
+    if (!st || !slot || st.offCenter === 0) return;
+    if (st.resetCustom > 0 && !window.confirm('Return all ' + st.total + ' wallpapers in this slot to center?\n\n' +
+      plural(st.resetCustom, 'of them has its', 'of them have their') +
+      ' own position, which will be lost. This only affects this browser.')) return;
+    for (const w of slot.wallpapers) delete positionMap[w.id];
+    lastPos = { x: 50, y: 50 }; // center becomes the hysteresis reference, as with anchor 5
+    writePositionMap();
+    commitLocal();
+  }
+  els.posApplySlot.addEventListener('click', applyPositionToSlot);
+  els.posResetSlot.addEventListener('click', resetSlotPositions);
 
   els.remove.addEventListener('click', removeCurrentWallpaper);
   els.reset.addEventListener('click', resetAppearance);

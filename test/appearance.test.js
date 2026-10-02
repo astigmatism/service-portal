@@ -631,6 +631,7 @@ for (const needle of [
   '.sp-nav{', 'accept="image/jpeg,image/png,image/webp,image/gif,image/avif,application/zip,application/x-zip-compressed,.zip" multiple>',
   'Drop images or a .zip of images here, or', "new DecompressionStream('deflate-raw')",
   'id="spPosGrid"', 'id="spPos-br"', '.sp-pos{', '.sp-pos:disabled{', 'id="spPosX"', 'id="spPosY"',
+  'id="spPosApplySlot"', 'id="spPosResetSlot"', 'id="spPosSlotHint"', '.sp-pos-slot{', '.sp-pos-slot-hint:empty{',
   'background-position:var(--sp-bg-position,50% 50%)',
   "const POS_LS_KEY = 'sp-wallpaper-positions'",
   'id="spAddSlot"', 'id="spRemoveSlot"', 'id="spThumbsWrap"', 'id="spThumbs"',
@@ -649,6 +650,10 @@ assert.ok(html.indexOf('id="bgSlot"') < html.indexOf('id="bgShuffle"') &&
 assert.ok(html.indexOf('<span class="sp-label">Slots</span>') < html.indexOf('id="spSlotName"') &&
   html.indexOf('id="spSlotName"') < html.indexOf('id="spAddSlot"'),
   'the Name field heads the Slots group');
+assert.ok(html.indexOf('id="spPosY"') < html.indexOf('id="spPosApplySlot"') &&
+  html.indexOf('id="spPosApplySlot"') < html.indexOf('id="spPosResetSlot"') &&
+  html.indexOf('id="spPosResetSlot"') < html.indexOf('<span class="sp-label">This wallpaper</span>'),
+  'the slot-wide position actions sit under the sliders, inside Position');
 
 /* ------------------------------------------------------------------ */
 /* Real-server helper (used by the protocol + migration scenarios).   */
@@ -1517,6 +1522,9 @@ function spawnServer(dataDir, port) {
     assert.ok(t.elements.spPosX.disabled, 'horizontal slider disabled with no wallpaper');
     assert.ok(t.elements.spPosY.disabled, 'vertical slider disabled with no wallpaper');
     assert.ok(t.elements['spPos-tl'].disabled, 'the grid is disabled with no wallpaper');
+    assert.ok(t.elements.spPosApplySlot.disabled, 'apply-to-slot disabled with no wallpaper');
+    assert.ok(t.elements.spPosResetSlot.disabled, 'reset-slot disabled with no wallpaper');
+    assert.strictEqual(t.elements.spPosSlotHint.textContent, '', 'no slot hint with no wallpaper');
     assert.strictEqual(t.body.style.props['--sp-bg-position'], '50% 50%', 'the origin falls back to center');
     map = JSON.parse(t.localStorage.getItem('sp-wallpaper-positions'));
     assert.deepStrictEqual(map, {}, 'orphaned positions are pruned');
@@ -2178,6 +2186,127 @@ function spawnServer(dataDir, port) {
       proc.kill();
       fs.rmSync(dataDir, { recursive: true, force: true });
     }
+  }
+
+  /* ---------- Scenario 30: position — "Apply to all in slot" / "Reset slot"
+     Apply copies the on-screen origin to every wallpaper of the active slot
+     (fresh objects, so a later drag moves only the on-screen one); Reset
+     sends the slot back to center. Both are client-local (no request at all),
+     leave other slots alone, dim when they would do nothing, and only
+     confirm when they would discard another wallpaper's own origin. */
+  {
+    const wp = (id) => ({ id, type: 'image/png', imageDark: false, accent: '', accentTouched: true });
+    const slotA = { id: '30303030-aaaa-4aaa-8aaa-000000000000',
+      wallpapers: [wp('30303030-aaaa-4aaa-8aaa-000000000001'), wp('30303030-aaaa-4aaa-8aaa-000000000002'), wp('30303030-aaaa-4aaa-8aaa-000000000003')] };
+    const slotB = { id: '30303030-bbbb-4bbb-8bbb-000000000000', wallpapers: [wp('30303030-bbbb-4bbb-8bbb-000000000001')] };
+    const [a1, a2, a3] = slotA.wallpapers.map((w) => w.id);
+    const b1 = slotB.wallpapers[0].id;
+    const t = boot(() => makeBitmap(1, 1, () => [128, 128, 128]),
+      { slots: [slotA, slotB], activeSlotId: slotA.id },
+      {
+        'sp-wallpaper-positions': JSON.stringify({ [a2]: { x: 0, y: 0 }, [b1]: { x: 100, y: 100 } }),
+        'sp-wallpaper-positions-migrated': '1'
+      });
+    await sleep(30); // let the startup fetch settle
+    const E = t.elements;
+    const map = () => JSON.parse(t.localStorage.getItem('sp-wallpaper-positions'));
+    const counts = () => [t.fetchState.putBodies.length, t.fetchState.metaPuts.length,
+      t.fetchState.deletes.length, t.fetchState.slotDeletes.length, t.fetchState.slotPosts];
+    const before = counts();
+    const thumbs = E.spThumbs.children.slice();
+    assert.strictEqual(thumbs.length, 3, 'the strip lists slot A');
+    thumbs[0].listeners.click[0](); // show a1 deliberately
+
+    assert.ok(!E.spPosApplySlot.disabled, 'apply enabled: another wallpaper differs');
+    assert.ok(!E.spPosResetSlot.disabled, 'reset enabled: a wallpaper is off center');
+    assert.strictEqual(E.spPosSlotHint.textContent,
+      'Copies 50% · 50% to 1 other wallpaper in this slot. This browser only.');
+
+    // The hint follows a drag live.
+    E.spPosX.value = '72'; E.spPosX.listeners.input[0]();
+    E.spPosY.value = '30'; E.spPosY.listeners.input[0]();
+    t.flushFrames();
+    assert.strictEqual(t.body.style.props['--sp-bg-position'], '72% 30%');
+    assert.strictEqual(E.spPosSlotHint.textContent,
+      'Copies 72% · 30% to 2 other wallpapers in this slot. This browser only.', 'hint tracks the drag');
+
+    // Cancelled: a2's own origin would be replaced, so it asks — and nothing changes.
+    t.fetchState.confirmResult = false;
+    click(E, 'spPosApplySlot');
+    assert.strictEqual(t.fetchState.confirmations.length, 1, 'overwriting a custom origin asks first');
+    assert.match(t.fetchState.confirmations[0], /^Apply 72% · 30% to all 3 wallpapers in this slot\?/);
+    assert.match(t.fetchState.confirmations[0], /1 of them has its own position, which will be replaced/);
+    assert.deepStrictEqual(map()[a2], { x: 0, y: 0 }, 'cancel keeps a2');
+    assert.ok(!(a3 in map()), 'cancel keeps a3 at center');
+
+    // Accepted: the whole slot takes a1's origin; slot B is untouched.
+    t.fetchState.confirmResult = true;
+    click(E, 'spPosApplySlot');
+    let m = map();
+    for (const id of [a1, a2, a3]) assert.deepStrictEqual(m[id], { x: 72, y: 30 }, 'slot A wallpaper ' + id + ' applied');
+    assert.deepStrictEqual(m[b1], { x: 100, y: 100 }, 'the other slot keeps its origin');
+    assert.ok(E.spPosApplySlot.disabled, 'nothing left to apply');
+    assert.ok(!E.spPosResetSlot.disabled);
+    assert.strictEqual(E.spPosSlotHint.textContent, 'All 3 wallpapers in this slot share this position.');
+
+    // Fresh objects: dragging a1 afterwards moves only a1.
+    E.spPosX.value = '40'; E.spPosX.listeners.input[0]();
+    E.spPosX.listeners.change[0]();
+    m = map();
+    assert.deepStrictEqual(m[a1], { x: 40, y: 30 }, 'the on-screen wallpaper moved');
+    assert.deepStrictEqual(m[a2], { x: 72, y: 30 }, 'a2 did not ride along');
+    assert.deepStrictEqual(m[a3], { x: 72, y: 30 }, 'a3 did not ride along');
+    assert.ok(!E.spPosApplySlot.disabled, 'apply is live again once a1 differs');
+
+    // Another wallpaper of the slot shows the applied origin.
+    thumbs[1].listeners.click[0]();
+    assert.strictEqual(t.body.style.props['--sp-bg-position'], '72% 30%', 'a2 shows the applied origin');
+    assert.strictEqual(E.spPosX.value, '72');
+
+    // Reset: the others have their own origins, so it asks; then all center.
+    click(E, 'spPosResetSlot');
+    assert.strictEqual(t.fetchState.confirmations.length, 3);
+    assert.match(t.fetchState.confirmations[2], /^Return all 3 wallpapers in this slot to center\?/);
+    assert.match(t.fetchState.confirmations[2], /2 of them have their own position, which will be lost/);
+    m = map();
+    for (const id of [a1, a2, a3]) assert.ok(!(id in m), 'slot A wallpaper ' + id + ' back to center');
+    assert.deepStrictEqual(m[b1], { x: 100, y: 100 }, 'reset leaves the other slot alone');
+    assert.strictEqual(t.body.style.props['--sp-bg-position'], '50% 50%');
+    assert.strictEqual(E.spPosX.value, '50');
+    assert.strictEqual(E.spPosY.value, '50');
+    assert.strictEqual(E['spPos-mc'].attrs['aria-pressed'], 'true', 'center anchor pressed');
+    assert.ok(E.spPosApplySlot.disabled && E.spPosResetSlot.disabled, 'both dim at an all-center slot');
+
+    // Overwriting only center origins needs no confirmation.
+    click(E, 'spPos-tl');
+    assert.strictEqual(E.spPosSlotHint.textContent,
+      'Copies 0% · 0% to 2 other wallpapers in this slot. This browser only.');
+    click(E, 'spPosApplySlot');
+    assert.strictEqual(t.fetchState.confirmations.length, 3, 'no prompt when only center origins change');
+    m = map();
+    for (const id of [a1, a2, a3]) assert.deepStrictEqual(m[id], { x: 0, y: 0 });
+
+    // A one-wallpaper slot: nothing to apply to; reset needs no prompt.
+    await sleep(400); // past every debounce: still nothing was sent
+    assert.deepStrictEqual(counts(), before, 'apply/reset/drags in slot A sent no request');
+    click(E, 'spNext');
+    await sleep(400);
+    assert.strictEqual(t.fetchState.settings.activeSlotId, slotB.id);
+    assert.strictEqual(t.body.style.props['--sp-bg-position'], '100% 100%');
+    assert.ok(E.spPosApplySlot.disabled, 'apply dims in a one-wallpaper slot');
+    assert.ok(!E.spPosResetSlot.disabled);
+    assert.strictEqual(E.spPosSlotHint.textContent, 'This is the only wallpaper in this slot.');
+    click(E, 'spPosResetSlot');
+    assert.strictEqual(t.fetchState.confirmations.length, 3, 'resetting just the on-screen wallpaper does not ask');
+    m = map();
+    assert.ok(!(b1 in m), 'b1 back to center');
+    for (const id of [a1, a2, a3]) assert.deepStrictEqual(m[id], { x: 0, y: 0 }, 'slot A untouched by slot B reset');
+    assert.strictEqual(t.body.style.props['--sp-bg-position'], '50% 50%');
+    assert.ok(E.spPosResetSlot.disabled);
+    await sleep(400);
+    assert.deepStrictEqual(counts().slice(1), before.slice(1), 'only the slot switch talked to the server');
+    assert.ok(t.fetchState.putBodies.every((p) => !('backgroundPosition' in p)), 'no position rides a PUT');
+    console.log('  ok 30. position: apply to all in slot / reset slot (client-local, confirmed overwrites)');
   }
 
   console.log('all appearance tests passed');
