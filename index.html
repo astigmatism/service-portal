@@ -208,18 +208,41 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
 .sp-input:focus{border-color:var(--accent)}
 .sp-input:disabled{opacity:.45;cursor:default}
 .sp-field-hint{font-size:11.5px;color:var(--muted);margin:3px 0 0 50px}
-/* Thumbnail strip: one item per wallpaper of the active slot. The item on
-   screen gets the accent ring; the × sits over its corner and removes just
-   that wallpaper. */
-.sp-thumbs-wrap{margin:4px 0 2px}
-.sp-thumbs-label{display:block;font-size:12.5px;color:var(--muted);margin-bottom:6px}
-.sp-thumbs{display:flex;flex-wrap:wrap;gap:8px}
-.sp-thumb-item{position:relative;width:72px;height:44px;border:1px solid var(--line);border-radius:7px;overflow:hidden;cursor:pointer;background:rgb(var(--panel-2-rgb))}
+/* Appearance panel: two columns — the controls keep their 300px column on the
+   left, the active slot's wallpapers fill a gallery on the right. The panel
+   is capped at the viewport height and each column scrolls on its own, so a
+   full slot never pushes Slots/Effects out of reach. Narrow windows fall
+   back to one scrolling column (see the media query below). */
+.sp-panel.appearance-panel{width:min(880px,calc(100vw - 32px));display:flex;flex-direction:column;overflow:hidden;padding-bottom:0}
+.sp-ap-body{flex:1 1 auto;min-height:0;display:flex;gap:18px}
+.sp-ap-controls{flex:0 0 300px;min-width:0;overflow-y:auto;padding:0 8px 14px 0}
+.sp-ap-gallery{flex:1 1 auto;min-width:0;overflow-y:auto;padding:0 4px 14px 18px;border-left:1px solid var(--line)}
+.sp-gallery-head{position:sticky;top:0;z-index:2;display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0;padding:0 0 8px;background:var(--panel)}
+.sp-gallery-count{flex:none;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.sp-gallery-empty{font-size:12.5px;color:var(--muted);text-align:center;padding:24px 0}
+/* Gallery tiles: one per wallpaper of the active slot. The tile on screen
+   gets the accent ring; the × in its top corner removes just that
+   wallpaper, the download button in its bottom corner saves the original
+   stored image (not the preview). */
+.sp-thumbs-wrap{margin:0}
+.sp-thumbs-label{display:block;font-size:12.5px;color:var(--muted)}
+.sp-thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.sp-thumb-item{position:relative;aspect-ratio:16/10;border:1px solid var(--line);border-radius:9px;overflow:hidden;cursor:pointer;background:rgb(var(--panel-2-rgb))}
 .sp-thumb-item img{width:100%;height:100%;object-fit:cover;display:block}
 .sp-thumb-item:hover{border-color:var(--accent)}
 .sp-thumb-item.current{border-color:var(--accent);box-shadow:0 0 0 1.5px var(--accent)}
-.sp-thumb-del{position:absolute;top:2px;right:2px;width:17px;height:17px;line-height:15px;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:13px;cursor:pointer}
+.sp-thumb-del{position:absolute;top:5px;right:5px;width:22px;height:22px;line-height:20px;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:15px;cursor:pointer}
 .sp-thumb-del:hover{background:var(--bad)}
+.sp-thumb-dl{position:absolute;right:5px;bottom:5px;width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;text-decoration:none;cursor:pointer}
+.sp-thumb-dl:hover,.sp-thumb-dl:focus-visible{background:var(--accent)}
+.sp-thumb-dl:focus-visible{outline:2px solid #fff;outline-offset:1px}
+@media (max-width:760px){
+  .sp-panel.appearance-panel{display:block;overflow-y:auto;padding-bottom:14px}
+  .sp-ap-body{display:block}
+  .sp-ap-controls,.sp-ap-gallery{overflow:visible;padding:0}
+  .sp-ap-gallery{border-left:0;border-top:1px solid var(--line);margin-top:14px;padding-top:12px}
+  .sp-thumbs{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}
+}
 .sp-nav{display:flex;align-items:center;justify-content:flex-start;gap:10px;margin:10px 0 0}
 .sp-nav-count{font-size:12.5px;color:var(--muted);min-width:44px;text-align:center;font-variant-numeric:tabular-nums}
 .sp-slider{display:block;font-size:12.5px;color:var(--muted);margin-top:10px}
@@ -329,11 +352,14 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
     <div class="empty hidden" id="empty"></div>
   </main>
 </div>
-<div id="appearancePanel" class="sp-panel hidden" role="dialog" aria-label="Appearance">
+<div id="appearancePanel" class="sp-panel appearance-panel hidden" role="dialog" aria-label="Appearance">
   <div class="sp-panel-head">
     <span class="sp-panel-title">Appearance</span>
     <button id="appearanceClose" class="btn iconbtn" type="button" title="Close">&times;</button>
   </div>
+  <div class="sp-ap-body">
+  <!-- left column: every control, in scope order -->
+  <div class="sp-ap-controls">
   <div id="spDropZone" class="sp-drop">
     <img id="spThumb" class="sp-thumb hidden" alt="Current wallpaper" loading="lazy" decoding="async">
     <span>Drop images or a .zip of images here, or</span>
@@ -369,10 +395,6 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
   <div class="sp-row">
     <button id="spRemove" class="btn" type="button" title="Delete the wallpaper currently on screen (an emptied slot is removed too, and the pointer moves to the previous slot)">Remove wallpaper</button>
     <button id="spResetColors" class="btn" type="button" title="Drop the wallpaper-derived color scheme (the wallpaper stays)">Reset colors</button>
-  </div>
-  <div id="spThumbsWrap" class="sp-thumbs-wrap hidden">
-    <span class="sp-thumbs-label" title="The wallpapers in this slot — this browser shows one at random on every refresh and on every slot switch. Click one to show it now (until the next roll); &times; removes just that wallpaper.">Wallpapers in this slot</span>
-    <div id="spThumbs" class="sp-thumbs"></div>
   </div>
   <span class="sp-label">Slots</span>
   <div class="sp-field">
@@ -417,6 +439,19 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
     <button id="spReset" class="btn" type="button" title="Delete every slot and its wallpapers, and restore the default settings">Reset appearance</button>
   </div>
   <div id="spStatus" class="sp-status" role="status"></div>
+  </div><!-- /.sp-ap-controls -->
+  <!-- right column: the active slot's wallpapers -->
+  <section class="sp-ap-gallery" aria-labelledby="spThumbsLabel">
+    <div class="sp-gallery-head">
+      <span id="spThumbsLabel" class="sp-thumbs-label" title="The wallpapers in this slot — this browser shows one at random on every refresh and on every slot switch. Click one to show it now (until the next roll); the download button saves its original image file; &times; removes just that wallpaper.">Wallpapers in this slot</span>
+      <span id="spThumbsCount" class="sp-gallery-count"></span>
+    </div>
+    <div id="spThumbsEmpty" class="sp-gallery-empty">No wallpapers in this slot yet &mdash; upload images or a .zip to add some.</div>
+    <div id="spThumbsWrap" class="sp-thumbs-wrap hidden">
+      <div id="spThumbs" class="sp-thumbs"></div>
+    </div>
+  </section>
+  </div><!-- /.sp-ap-body -->
 </div>
 <div id="activityPanel" class="sp-panel activity-panel hidden" role="dialog" aria-label="Activity">
   <div class="sp-panel-head">
@@ -1429,6 +1464,8 @@ let refreshActivity = () => {};
     moveDown: $id('spMoveDown'),
     thumbsWrap: $id('spThumbsWrap'),
     thumbs: $id('spThumbs'),
+    thumbsCount: $id('spThumbsCount'),
+    thumbsEmpty: $id('spThumbsEmpty'),
     opacity: $id('spOpacity'), opacityOut: $id('spOpacityOut'),
     blur: $id('spBlur'), blurOut: $id('spBlurOut'),
     scrim: $id('spScrim'), scrimOut: $id('spScrimOut'),
@@ -1584,6 +1621,9 @@ let refreshActivity = () => {};
   const WALLPAPERS_URL = '/api/appearance/wallpapers';
   const wallpaperUrl = (id) => WALLPAPERS_URL + '/' + encodeURIComponent(id);
   const thumbnailUrl = (id) => wallpaperUrl(id) + '/thumbnail';
+  /* Same original bytes, served as an attachment named after the slot
+     ("<slot name or Slot N> NN.<ext>", derived server-side per request). */
+  const downloadUrl = (id) => wallpaperUrl(id) + '?download=1';
   const SLOTS_URL = '/api/appearance/slots';
   const slotWallpapersUrl = (slotId) => SLOTS_URL + '/' + encodeURIComponent(slotId) + '/wallpapers';
   const PUT_DEBOUNCE_MS = 250;
@@ -2383,9 +2423,13 @@ let refreshActivity = () => {};
       settings.scrim === 0 && settings.surfaceAlpha === 1 && settings.glassBlur === 0;
   }
 
-  /* ---- thumbnail strip: one item per wallpaper of the active slot. Click
-         an item to show it (deliberate pick until the next roll); × removes
-         just that wallpaper. Hidden while the slot is empty. ---- */
+  /* ---- gallery: one tile per wallpaper of the active slot. Click a tile
+         to show it (deliberate pick until the next roll); × removes just
+         that wallpaper; the download button saves its original stored
+         image. The tiles are hidden (and an empty note shown) while the
+         slot is empty. ---- */
+  const DOWNLOAD_ICON = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="5" y1="20" x2="19" y2="20"></line></svg>';
+
   function previewFailed(img) {
     // Keep the tile selectable, with a placeholder, without decoding an original.
     img.removeAttribute('src');
@@ -2397,6 +2441,9 @@ let refreshActivity = () => {};
     const list = slot && Array.isArray(slot.wallpapers) ? slot.wallpapers : [];
     const ids = new Set(list.map((w) => w.id));
     els.thumbsWrap.classList.toggle('hidden', list.length === 0);
+    els.thumbsEmpty.classList.toggle('hidden', list.length !== 0);
+    const count = list.length === 0 ? '' : list.length === 1 ? '1 wallpaper' : list.length + ' wallpapers';
+    if (els.thumbsCount.textContent !== count) els.thumbsCount.textContent = count;
     for (const [id, entry] of thumbNodes) {
       if (!ids.has(id)) {
         els.thumbs.removeChild(entry.item);
@@ -2426,6 +2473,19 @@ let refreshActivity = () => {};
         });
         item.appendChild(img);
         item.appendChild(del);
+        // Third child, after [img, ×]: a real link, so keyboard focus,
+        // middle-click and "Save link as" work too. The empty download
+        // attribute lets the server's Content-Disposition name the file.
+        const dl = document.createElement('a');
+        dl.className = 'sp-thumb-dl';
+        dl.href = downloadUrl(w.id);
+        dl.setAttribute('download', '');
+        dl.title = 'Download the original image';
+        dl.setAttribute('aria-label', 'Download this wallpaper');
+        dl.innerHTML = DOWNLOAD_ICON;
+        // Let the browser download, but do not also show the wallpaper.
+        dl.addEventListener('click', (e) => e.stopPropagation());
+        item.appendChild(dl);
         item.addEventListener('click', () => showWallpaper(w.id));
         entry = { item, img };
         thumbNodes.set(w.id, entry);

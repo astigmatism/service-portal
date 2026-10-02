@@ -54,7 +54,7 @@ on every request. No reconfiguration, no restart for discovery.
 | `POST /api/appearance/slots/<id>/move` | Move the slot one position in the navigation order — body `{"delta": -1 \| 1}`; the active-slot pointer rides along by id (404 unknown slot, 400 bad delta, 422 already at the end it wants to move toward) (`no-store`) |
 | `/api/appearance/slots/<id>/wallpapers` | `POST` → upload a wallpaper into that slot (image/* bodies up to 1 GB; optional `x-sp-image-dark: 1` and `x-sp-accent: #rrggbb` headers) and make the slot active; 404 for an unknown slot (`no-store`) |
 | `/api/appearance/wallpapers` | Flat view over the slots: `GET` → the slots, the active-slot pointer, plus a derived flat wallpaper list for pre-slot clients · `POST` → (legacy) append a wallpaper to the active slot, creating a slot when there is none · `DELETE` → remove every wallpaper (`no-store`) |
-| `/api/appearance/wallpapers/<id>` | One wallpaper: `GET` → stream its original stored bytes (404 if unknown; private cache with ETag revalidation) · `PUT` → update its meta (`imageDark`, `accent`, `accentTouched`) · `DELETE` → remove it from its slot — a drained slot is removed too and the active pointer moves to the previous slot (mutations: `no-store`) |
+| `/api/appearance/wallpapers/<id>` | One wallpaper: `GET` → stream its original stored bytes (404 if unknown; private cache with ETag revalidation); `GET ?download=1` → the same bytes as an attachment (`Content-Disposition: attachment`) named `<slot name or "Slot N"> NN.<ext>` — NN is its position in the slot, the extension follows its stored type · `PUT` → update its meta (`imageDark`, `accent`, `accentTouched`) · `DELETE` → remove it from its slot — a drained slot is removed too and the active pointer moves to the previous slot (mutations: `no-store`) |
 | `/api/appearance/wallpapers/<id>/thumbnail` | `GET` → WebP preview within 640 × 640 pixels, generated on demand and cached on disk; private cache with ETag revalidation; 404 for unknown images, 422 if a preview cannot be decoded |
 | `/api/appearance/background` | Legacy single-wallpaper endpoint, kept working: it always addresses the *first wallpaper of the active slot* — `GET` → stream its bytes (404 if none; private cache with ETag revalidation) · `POST` → replace it in place, or create it · `DELETE` → remove it (mutations: `no-store`) |
 | `/healthz` | Plain-text `ok` |
@@ -290,15 +290,21 @@ confirmation/polling, and the update script's fail-closed command ordering.
   **slots** on the server in the `/data` volume, shared by every machine on the
   network. A slot can hold several wallpapers, and each browser rolls its *own* random
   wallpaper from the active slot — re-rolled on every refresh and on every slot switch —
-  while the slot membership itself stays shared. The panel groups its controls by
-  scope, top to bottom: **Position** (how the wallpaper on screen is framed — a 3×3
+  while the slot membership itself stays shared. The panel has two columns. The
+  left one holds the controls, grouped by scope, top to bottom: **Position** (how the wallpaper on screen is framed — a 3×3
   anchor grid plus Horizontal / Vertical sliders, remembered per wallpaper in this
   browser only; **Apply to all in slot** copies the current position to every
   wallpaper in the active slot, **Reset slot** returns them all to center, and both
   ask first when they would overwrite another wallpaper's own position), **This wallpaper** (remove the wallpaper on screen, reset
-  its derived colors), **Wallpapers in this slot** (the thumbnail strip), **Slots**
+  its derived colors), **Slots**
   (a **Name** field, Add / Remove, Move up / Move down, and the prev/next "N of M"
-  stepper beneath them), and **Effects** (the sliders above). **Name** gives the
+  stepper beneath them), and **Effects** (the sliders above). The right one is the
+  **Wallpapers in this slot** gallery: a count and one large tile per wallpaper of
+  the active slot — click a tile to show it, **×** removes it, and the download
+  button saves its original stored image (not the preview), named after its slot
+  (e.g. `Nature 07.jpg`, or `Slot 1 07.jpg` when unnamed). The two columns scroll
+  independently, so a full slot never pushes the controls out of reach; on narrow
+  windows the panel falls back to one column with the gallery last. **Name** gives the
   active slot a name, shared by every machine — it saves when you press Enter or
   leave the field, Esc reverts, and an empty name falls back to "Slot N" (its
   position). **Add** appends an empty
@@ -334,11 +340,13 @@ confirmation/polling, and the update script's fail-closed command ordering.
   hold a wallpaper from the old browser-only storage get it migrated to the server
   automatically on first load, then their local copies are cleared.
 - **Wallpaper performance**: the panel loads small previews only when opened,
-  with offscreen thumbnails loaded lazily. Preview images preserve transparency
+  with offscreen thumbnails loaded lazily — the larger gallery tiles still use the
+  same 640 px previews, never the originals. Preview images preserve transparency
   and orientation; animated wallpapers use a still first frame in the panel.
   A failed preview shows a placeholder and remains selectable. The background
   uses the original stored image, with the existing upload resizing rules
-  unchanged. Slider drags update effects once per frame without rebuilding
+  unchanged — so a download returns that stored file, which for an image whose
+  longest edge exceeded 4096 px is the copy resized at upload. Slider drags update effects once per frame without rebuilding
   thumbnails, and saves are debounced with a final save when the control is released.
 - **Auto color scheme**: when a wallpaper is uploaded, the browser samples its dominant
   hue (32×32 grid, 12 hue buckets, saturation-weighted; the accent is re-normalized to a

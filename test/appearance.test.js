@@ -636,6 +636,9 @@ for (const needle of [
   "const POS_LS_KEY = 'sp-wallpaper-positions'",
   'id="spAddSlot"', 'id="spRemoveSlot"', 'id="spThumbsWrap"', 'id="spThumbs"',
   '.sp-thumb-item{', '.sp-thumb-item.current{', '.sp-thumb-del{',
+  'class="sp-panel appearance-panel', '.sp-ap-body{', '.sp-ap-controls{', '.sp-ap-gallery{',
+  'id="spThumbsLabel"', 'id="spThumbsCount"', 'id="spThumbsEmpty"', '.sp-thumb-dl{', '@media (max-width:760px)',
+  "const downloadUrl = (id) => wallpaperUrl(id) + '?download=1'",
   'const SLOTS_URL = \'/api/appearance/slots\'',
   'Previous slot (re-rolls a random wallpaper of it)'
 ]) {
@@ -654,6 +657,19 @@ assert.ok(html.indexOf('id="spPosY"') < html.indexOf('id="spPosApplySlot"') &&
   html.indexOf('id="spPosApplySlot"') < html.indexOf('id="spPosResetSlot"') &&
   html.indexOf('id="spPosResetSlot"') < html.indexOf('<span class="sp-label">This wallpaper</span>'),
   'the slot-wide position actions sit under the sliders, inside Position');
+{
+  const controls = html.indexOf('class="sp-ap-controls"');
+  const gallery = html.indexOf('class="sp-ap-gallery"');
+  assert.ok(controls !== -1 && gallery > controls, 'the gallery column follows the controls column');
+  for (const needle of ['id="spDropZone"', '<span class="sp-label">This wallpaper</span>', 'id="spSlotName"',
+    '<span class="sp-label">Effects</span>', 'id="spReset"', 'id="spStatus"']) {
+    const at = html.indexOf(needle);
+    assert.ok(at > controls && at < gallery, 'controls column holds ' + needle);
+  }
+  for (const needle of ['id="spThumbsLabel"', 'id="spThumbsCount"', 'id="spThumbsEmpty"', 'id="spThumbsWrap"', 'id="spThumbs"']) {
+    assert.ok(html.indexOf(needle) > gallery, 'gallery column holds ' + needle);
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /* Real-server helper (used by the protocol + migration scenarios).   */
@@ -745,6 +761,8 @@ function spawnServer(dataDir, port) {
     assert.strictEqual(t.elements.spNavCount.textContent, '1 of 1');
     assert.ok(!t.elements.spThumbsWrap.classList.contains('hidden'), 'thumb strip shown for a non-empty slot');
     assert.strictEqual(t.elements.spThumbs.children.length, 1, 'one thumbnail for the slot wallpaper');
+    assert.strictEqual(t.elements.spThumbsCount.textContent, '1 wallpaper', 'gallery count is singular for one');
+    assert.ok(t.elements.spThumbsEmpty.classList.contains('hidden'), 'empty note hidden for a non-empty slot');
     console.log('  ok 1. red upload → slot minted, pick rolled for display, accent #b03b3b, palette applied and persisted');
   }
 
@@ -798,6 +816,8 @@ function spawnServer(dataDir, port) {
     assert.strictEqual(t.body.style.props['--bg'], undefined, 'stock palette restored');
     assert.ok(t.elements.spNav.classList.contains('hidden'), 'nav row hidden with no slots');
     assert.ok(t.elements.spThumbsWrap.classList.contains('hidden'), 'thumb strip hidden again');
+    assert.ok(!t.elements.spThumbsEmpty.classList.contains('hidden'), 'empty note shown with nothing to list');
+    assert.strictEqual(t.elements.spThumbsCount.textContent, '', 'no count with nothing to list');
     assert.strictEqual(t.fetchState.putBodies[t.fetchState.putBodies.length - 1].activeSlotId, null,
       'cleared pointer persisted');
     console.log('  ok 4. removing the displayed wallpaper drains and removes its slot, back to stock');
@@ -941,7 +961,29 @@ function spawnServer(dataDir, port) {
     const keepC = st.slots[0].wallpapers[2].id;
     const items = t.elements.spThumbs.children;
     assert.strictEqual(items.length, 3, 'three thumbnails rendered');
-    const del = items[1].children[1]; // each thumbnail: [img, × button]
+    assert.strictEqual(t.elements.spThumbsCount.textContent, '3 wallpapers', 'gallery head counts the slot');
+    // Each tile's third child downloads the original: a real link to the
+    // ?download=1 variant (server names the file), and clicking it neither
+    // shows that wallpaper nor talks to the API.
+    st.slots[0].wallpapers.forEach((w, i) => {
+      const dl = items[i].children[2];
+      assert.strictEqual(dl.className, 'sp-thumb-dl', 'third child is the download link');
+      assert.strictEqual(dl.href, '/api/appearance/wallpapers/' + encodeURIComponent(w.id) + '?download=1',
+        'download points at the original, not the thumbnail');
+      assert.strictEqual(dl.attrs.download, '', 'empty download attribute defers naming to the server');
+    });
+    const currentBefore = items.findIndex((item) => item.classList.contains('current'));
+    const other = currentBefore === 0 ? 1 : 0;
+    const fetchesBefore = t.fetchState.posts.length + t.fetchState.deletes.length + t.fetchState.putBodies.length + t.fetchState.metaPuts.length;
+    let stopped = false;
+    items[other].children[2].listeners.click[0]({ stopPropagation() { stopped = true; } });
+    await sleep(30);
+    assert.ok(stopped, 'download click does not bubble to the tile');
+    assert.strictEqual(items.findIndex((item) => item.classList.contains('current')), currentBefore,
+      'downloading does not switch the displayed wallpaper');
+    assert.strictEqual(t.fetchState.posts.length + t.fetchState.deletes.length + t.fetchState.putBodies.length + t.fetchState.metaPuts.length,
+      fetchesBefore, 'downloading sends no API request');
+    const del = items[1].children[1]; // each thumbnail: [img, × button, download link]
     assert.strictEqual(del.className, 'sp-thumb-del', 'second child is the delete button');
     del.listeners.click[0]({ stopPropagation() {} });
     await sleep(500);

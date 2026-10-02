@@ -5,7 +5,7 @@ const http = require('http');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { createWallpaperImages, serveImage } = require('./wallpaper-images');
+const { createWallpaperImages, serveImage, attachmentDisposition } = require('./wallpaper-images');
 
 const PORT = parseInt(process.env.PORT || '80', 10);
 const SOCKET = process.env.DOCKER_SOCKET || '/var/run/docker.sock';
@@ -196,6 +196,28 @@ function sanitizeSlotName(raw) {
     .replace(/\s+/g, ' ')
     .trim();
   return Array.from(flat).slice(0, SLOT_NAME_MAX).join('').trim();
+}
+
+/* Download filename for one wallpaper: "<slot label> <NN>.<ext>". The label
+   is the slot's name made filesystem-safe (path and reserved characters
+   become '-', leading/trailing dots and spaces go), or "Slot N" (its
+   position) when unnamed; NN is the wallpaper's 1-based position in the
+   slot, zero-padded to at least two digits; the extension follows the
+   stored MIME type (none for a blank type). Derived per request, so it
+   follows renames and reorders; nothing extra is stored. */
+const WALLPAPER_EXTENSIONS = {
+  'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+  'image/avif': 'avif', 'image/svg+xml': 'svg', 'image/bmp': 'bmp', 'image/tiff': 'tiff',
+  'image/x-icon': 'ico', 'image/vnd.microsoft.icon': 'ico', 'image/heic': 'heic', 'image/heif': 'heif',
+};
+function wallpaperDownloadName(slots, slot, entry) {
+  const label = String(slot.name || '').replace(/[\\/:*?"<>|]/g, '-').replace(/^[\s.]+|[\s.]+$/g, '') ||
+    'Slot ' + (slots.indexOf(slot) + 1);
+  const position = slot.wallpapers.findIndex((w) => w.id === entry.id) + 1;
+  const digits = Math.max(2, String(slot.wallpapers.length).length);
+  const type = String(entry.type || '').toLowerCase();
+  const ext = WALLPAPER_EXTENSIONS[type] || (/^image\/([a-z0-9]+)$/.exec(type) || [])[1] || '';
+  return label + ' ' + String(position).padStart(digits, '0') + (ext ? '.' + ext : '');
 }
 
 /* Validate one slot entry: its wallpapers revalidated against disk, deduped
@@ -1028,7 +1050,15 @@ function toService(c, capability, job, lifecycle) {
 
 const server = http.createServer((req, res) => {
   let pathname;
-  try { pathname = new URL(req.url, 'http://internal').pathname; } catch { pathname = req.url; }
+  let searchParams;
+  try {
+    const parsed = new URL(req.url, 'http://internal');
+    pathname = parsed.pathname;
+    searchParams = parsed.searchParams;
+  } catch {
+    pathname = req.url;
+    searchParams = new URLSearchParams();
+  }
 
   if (pathname === '/api/services') {
     dockerApi('/containers/json?all=1')
@@ -1226,7 +1256,11 @@ const server = http.createServer((req, res) => {
                                                    pre-slot clients
      DELETE /api/appearance/wallpapers             (legacy) remove every
                                                    wallpaper (all slots)
-     GET    /api/appearance/wallpapers/<id>        one wallpaper's bytes
+     GET    /api/appearance/wallpapers/<id>        one wallpaper's bytes;
+                                                   ?download=1 adds
+                                                   Content-Disposition:
+                                                   attachment with a name
+                                                   derived from its slot
      GET    /api/appearance/wallpapers/<id>/thumbnail
                                                   cached small WebP preview
      PUT    /api/appearance/wallpapers/<id>        update its meta (imageDark,
@@ -1475,7 +1509,12 @@ const server = http.createServer((req, res) => {
       return;
     }
     if (id && req.method === 'GET') {
-      serveImage(req, res, path.join(WALLPAPERS_DIR, id), entry.type || 'application/octet-stream');
+      // ?download=1 serves the same original bytes as an attachment, named
+      // after its slot (see wallpaperDownloadName).
+      const extra = searchParams.get('download') === '1'
+        ? { 'Content-Disposition': attachmentDisposition(wallpaperDownloadName(state.slots, holder, entry)) }
+        : {};
+      serveImage(req, res, path.join(WALLPAPERS_DIR, id), entry.type || 'application/octet-stream', extra);
       return;
     }
     if (id && req.method === 'PUT') {

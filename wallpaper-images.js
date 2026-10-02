@@ -87,7 +87,17 @@ function createWallpaperImages(dataDir, { generate = generatePreview } = {}) {
   return { thumbnail, invalidate, remove };
 }
 
-async function serveImage(req, res, file, type) {
+/* Content-Disposition for a download named `name` (RFC 6266): an ASCII
+   fallback for old clients plus the exact UTF-8 name (RFC 5987). Both parts
+   are pure printable ASCII, so the value is always a legal header. */
+function attachmentDisposition(name) {
+  const fallback = String(name).replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
+  const encoded = encodeURIComponent(String(name))
+    .replace(/['()*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+  return 'attachment; filename="' + fallback + '"; filename*=UTF-8\'\'' + encoded;
+}
+
+async function serveImage(req, res, file, type, extraHeaders = {}) {
   let handle;
   try {
     handle = await fs.promises.open(file, 'r');
@@ -96,7 +106,7 @@ async function serveImage(req, res, file, type) {
     const stat = await handle.stat();
     if (res.destroyed) { await handle.close(); handle = null; return; }
     const etag = '"' + fingerprint(stat) + '"';
-    const headers = { 'Cache-Control': 'private, no-cache', ETag: etag };
+    const headers = { 'Cache-Control': 'private, no-cache', ETag: etag, ...extraHeaders };
     const matches = String(req.headers['if-none-match'] || '').split(',')
       .some((value) => value.trim() === '*' || value.trim().replace(/^W\//, '') === etag);
     if (matches) {
@@ -122,4 +132,4 @@ async function serveImage(req, res, file, type) {
   }
 }
 
-module.exports = { createWallpaperImages, serveImage };
+module.exports = { createWallpaperImages, serveImage, attachmentDisposition };

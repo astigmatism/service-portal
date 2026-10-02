@@ -9,7 +9,7 @@ const net = require('net');
 const { spawn } = require('child_process');
 const { once } = require('events');
 const sharp = require('sharp');
-const { createWallpaperImages } = require('../wallpaper-images');
+const { createWallpaperImages, attachmentDisposition } = require('../wallpaper-images');
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const deferred = () => {
@@ -232,4 +232,63 @@ test('HTTP originals and previews revalidate, stream unchanged bytes, invalidate
     assert.equal((await request(url, { method: 'DELETE' })).status, 200);
     assert.equal(fs.existsSync(cachePath(root, currentId)), false, route + ' cleans up previews');
   }
+});
+
+test('attachmentDisposition keeps the header ASCII and the exact name in filename*', () => {
+  assert.equal(attachmentDisposition('Slot 1 07.png'),
+    'attachment; filename="Slot 1 07.png"; filename*=UTF-8\'\'Slot%201%2007.png');
+  // Quotes/backslashes cannot break out of the quoted fallback; RFC 5987
+  // reserves '()* so they are percent-encoded too.
+  assert.equal(attachmentDisposition('a"b\\c (it\'s)*.jpg'),
+    'attachment; filename="a_b_c (it\'s)*.jpg"; filename*=UTF-8\'\'a%22b%5Cc%20%28it%27s%29%2A.jpg');
+  assert.equal(attachmentDisposition('Ünï 01.webp'),
+    'attachment; filename="_n_ 01.webp"; filename*=UTF-8\'\'%C3%9Cn%C3%AF%2001.webp');
+});
+
+test('?download=1 serves the stored original as an attachment named after its slot', async (t) => {
+  const root = fixture(t);
+  const server = await startServer(root);
+  t.after(() => server.stop());
+  const request = (url, options) => fetch(server.base + url, options);
+  const first = await png(320, 200, '#336699');
+  const second = await png(200, 320, '#996633');
+  const upload = async (body) => {
+    const res = await request('/api/appearance/wallpapers', { method: 'POST', headers: { 'Content-Type': 'image/png' }, body });
+    assert.equal(res.status, 200);
+    return (await res.json()).wallpaper.id;
+  };
+  await upload(first);
+  const id = await upload(second);
+  const url = '/api/appearance/wallpapers/' + id;
+
+  let res = await request(url);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-disposition'), null, 'plain GET (the background) stays inline');
+  await res.arrayBuffer();
+
+  res = await request(url + '?download=1');
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'image/png');
+  assert.equal(res.headers.get('content-disposition'),
+    'attachment; filename="Slot 1 02.png"; filename*=UTF-8\'\'Slot%201%2002.png', 'unnamed slot falls back to "Slot N"');
+  assert.deepEqual(Buffer.from(await res.arrayBuffer()), second, 'download is the stored original, not the preview');
+  const etag = res.headers.get('etag');
+  res = await request(url + '?download=1', { headers: { 'If-None-Match': etag } });
+  assert.equal(res.status, 304, 'downloads revalidate like the original');
+
+  const state = await (await request('/api/appearance')).json();
+  const slotId = state.settings.activeSlotId;
+  res = await request('/api/appearance/slots/' + slotId, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: ' Ünïcode "Sky"/Night. ' })
+  });
+  assert.equal(res.status, 200);
+  res = await request(url + '?download=1');
+  assert.equal(res.headers.get('content-disposition'),
+    'attachment; filename="_n_code -Sky--Night 02.png"; filename*=UTF-8\'\'%C3%9Cn%C3%AFcode%20-Sky--Night%2002.png',
+    'the slot name is made filesystem-safe and follows renames');
+  await res.arrayBuffer();
+
+  res = await request('/api/appearance/wallpapers/00000000-0000-4000-8000-000000000000?download=1');
+  assert.equal(res.status, 404);
+  await res.arrayBuffer();
 });
