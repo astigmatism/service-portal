@@ -73,9 +73,10 @@ const code = html.slice(fnStart, fnEnd + '})();'.length);
 /* ------------------------------------------------------------------ */
 function mkStyle() {
   const props = {};
+  const writes = [];
   return {
-    props,
-    setProperty: (k, v) => { props[k] = String(v); },
+    props, writes,
+    setProperty: (k, v) => { props[k] = String(v); writes.push(k); },
     removeProperty: (k) => { delete props[k]; }
   };
 }
@@ -89,7 +90,9 @@ function mkClassList() {
       want ? set.add(c) : set.delete(c);
       return want;
     },
-    contains: (c) => set.has(c)
+    contains: (c) => set.has(c),
+    toString: () => [...set].join(' '),
+    set: (value) => { set.clear(); String(value).split(/\s+/).filter(Boolean).forEach((c) => set.add(c)); }
   };
 }
 function mkEl(id) {
@@ -104,6 +107,14 @@ function mkEl(id) {
     files: []
   };
   let _text = '';
+  Object.defineProperty(el, 'className', {
+    get: () => el.classList.toString(), set: (v) => el.classList.set(v)
+  });
+  let _src;
+  el.srcWrites = 0;
+  Object.defineProperty(el, 'src', {
+    get: () => _src, set: (v) => { _src = v; el.srcWrites++; }
+  });
   Object.defineProperty(el, 'textContent', {
     get: () => _text,
     /* Real DOM: clearing textContent empties the element's children. */
@@ -111,11 +122,17 @@ function mkEl(id) {
   });
   el.children = [];
   el.setAttribute = (k, v) => { el.attrs[k] = v; };
-  el.removeAttribute = (k) => { delete el.attrs[k]; };
+  el.removeAttribute = (k) => { delete el.attrs[k]; if (k === 'src') _src = undefined; };
   el.toggleAttribute = (k, on) => { on ? el.setAttribute(k, '') : el.removeAttribute(k); };
   el.addEventListener = (type, fn) => { (el.listeners[type] = el.listeners[type] || []).push(fn); };
   el.click = () => {};
   el.appendChild = (c) => { el.children.push(c); return c; };
+  el.insertBefore = (c, before) => {
+    el.children = el.children.filter((x) => x !== c);
+    const i = before ? el.children.indexOf(before) : el.children.length;
+    el.children.splice(i, 0, c);
+    return c;
+  };
   el.removeChild = (c) => { el.children = el.children.filter((x) => x !== c); };
   return el;
 }
@@ -371,7 +388,7 @@ const SERVER_DEFAULTS = {
 /* Default RNG seed so every roll in the suite is reproducible. */
 const DEFAULT_SEED = 20240101;
 
-function boot(bitmapFactory, serverSettings, preLS, seed) {
+function boot(bitmapFactory, serverSettings, preLS, seed, options = {}) {
   const elements = {};
   const getEl = (id) => (elements[id] = elements[id] || mkEl(id));
   const body = getEl('body');
@@ -393,16 +410,41 @@ function boot(bitmapFactory, serverSettings, preLS, seed) {
     slotPosts: 0, slotWipes: 0, slotDeletes: [], slotMoves: [], slotWpPosts: [],
     nextId: 1, nextSlotId: 1
   };
+  fetchState.confirmResult = true;
+  fetchState.confirmations = [];
+  const baseFetch = mkFetch(fetchState);
+  const frames = new Map();
+  let frameId = 0;
+  const flushFrames = () => {
+    const pending = [...frames.values()];
+    frames.clear();
+    for (const entry of pending) { clearTimeout(entry.timer); entry.callback(); }
+  };
   const sandbox = {
     document: documentStub,
     Math: mkMath(seed === undefined ? DEFAULT_SEED : seed),
     localStorage: {
       _s: {},
+      writes: [],
       getItem(k) { return k in this._s ? this._s[k] : null; },
-      setItem(k, v) { this._s[k] = String(v); },
+      setItem(k, v) { this._s[k] = String(v); this.writes.push(k); },
       removeItem(k) { delete this._s[k]; }
     },
-    fetch: mkFetch(fetchState),
+    fetch: options.fetch ? (...args) => options.fetch(baseFetch, ...args) : baseFetch,
+    confirm: (message) => { fetchState.confirmations.push(message); return fetchState.confirmResult; },
+    requestAnimationFrame(callback) {
+      const id = ++frameId;
+      frames.set(id, { callback, timer: setTimeout(() => {
+        frames.delete(id);
+        callback();
+      }, 16) });
+      return id;
+    },
+    cancelAnimationFrame(id) {
+      const entry = frames.get(id);
+      if (entry) clearTimeout(entry.timer);
+      frames.delete(id);
+    },
     indexedDB: { open() { throw new Error('indexedDB should not be hit by the tested flows'); } },
     createImageBitmap: async () => bitmapFactory(),
     setTimeout, clearTimeout,
@@ -414,10 +456,11 @@ function boot(bitmapFactory, serverSettings, preLS, seed) {
   };
   sandbox.window = sandbox;
   sandbox.addEventListener = () => {};
+  getEl('appearancePanel').classList.add('hidden');
   if (preLS) for (const [k, v] of Object.entries(preLS)) sandbox.localStorage.setItem(k, v);
   vm.createContext(sandbox);
   vm.runInContext(code, sandbox);
-  return { elements, body, fetchState, localStorage: sandbox.localStorage };
+  return { elements, body, fetchState, localStorage: sandbox.localStorage, flushFrames, frames };
 }
 
 /* Fire the file input's change listener with the given fake file(s). */
@@ -773,6 +816,7 @@ function spawnServer(dataDir, port) {
     const input = t.elements.spListOpacity.listeners.input;
     assert.ok(input && input.length, 'list opacity slider wired');
     input[0]();
+    t.flushFrames();
     assert.strictEqual(t.body.style.props['--sp-list-alpha'], '0.35', 'dragging updates the list live');
     assert.strictEqual(t.elements.spListOpacityOut.textContent, '35%');
     await sleep(400);
@@ -1179,13 +1223,16 @@ function spawnServer(dataDir, port) {
     const yIn = t.elements.spPosY.listeners.input;
     t.elements.spPosY.value = '63';
     yIn[0]();
+    t.flushFrames();
     assert.strictEqual(t.body.style.props['--sp-bg-position'], '100% 63%', 'off-detent offset applied live');
     t.elements.spPosY.value = '53';
     yIn[0]();
+    t.flushFrames();
     assert.strictEqual(t.elements.spPosY.value, '50', 'magnetized onto the detent');
     assert.strictEqual(t.body.style.props['--sp-bg-position'], '100% 50%', 'snapped onto the right-edge anchor');
     t.elements.spPosY.value = '49';
     yIn[0]();
+    t.flushFrames();
     assert.strictEqual(t.elements.spPosY.value, '49', 'can step out of a detent one step at a time');
     assert.strictEqual(t.body.style.props['--sp-bg-position'], '100% 49%', 'free value held next to the anchor');
 
@@ -1372,6 +1419,7 @@ function spawnServer(dataDir, port) {
       'url("/api/appearance/wallpapers/' + slotB.wallpapers[0].id + '")', 'boots on the second slot pick');
 
     click(t.elements, 'spRemove'); // deletes slot B's only wallpaper
+    assert.match(t.fetchState.confirmations[0], /also remove the slot/);
     await sleep(500);
     const st = t.fetchState.settings;
     assert.deepStrictEqual(t.fetchState.deletes, [slotB.wallpapers[0].id], 'the displayed wallpaper was deleted');
@@ -1664,6 +1712,124 @@ function spawnServer(dataDir, port) {
     assert.strictEqual(t.fetchState.settings.slots[0].wallpapers.length, 2, 'the two good files became wallpapers');
     assert.strictEqual(t.elements.spStatus.textContent, 'Uploaded 2 of 3 — failed: b.png (upload failed (HTTP 413))');
     console.log('  ok 26. a failing upload is reported and the rest of the batch still lands');
+  }
+
+  /* Performance regression: populated slots must not add work to dragging. */
+  {
+    const wallpapers = Array.from({ length: 30 }, (_, i) => ({
+      id: 'perf-' + i, type: 'image/png', imageDark: false, accent: '#b03b3b', accentTouched: true
+    }));
+    const t = boot(() => makeBitmap(1, 1, () => [0, 0, 0]), {
+      slots: [{ id: 'perf-slot', wallpapers }], activeSlotId: 'perf-slot'
+    });
+    await sleep(30);
+    const nodes = t.elements.spThumbs.children.slice();
+    const images = nodes.map((node) => node.children[0]);
+    assert.ok(images.every((img) => !img.src), 'closed panel does not load previews');
+    assert.ok(!t.elements.spThumb.src, 'closed panel does not load the current preview');
+    click(t.elements, 'appearanceBtn');
+    assert.ok(images.every((img) => img.src.endsWith('/thumbnail') && img.loading === 'lazy' && img.decoding === 'async'));
+    assert.ok(t.elements.spThumb.src.endsWith('/thumbnail'));
+    const initialStorageWrites = t.localStorage.writes.length;
+    const initialCssWrites = t.body.style.writes.length;
+    for (let i = 0; i < 100; i++) {
+      t.elements.spOpacity.value = String(i);
+      t.elements.spOpacity.listeners.input[0]();
+      t.elements.spBlur.value = String(i % 31);
+      t.elements.spBlur.listeners.input[0]();
+    }
+    assert.equal(t.frames.size, 1, 'a burst of inputs schedules one frame');
+    assert.equal(t.body.style.writes.length, initialCssWrites, 'CSS waits for the frame');
+    assert.equal(t.localStorage.writes.length, initialStorageWrites, 'dragging does not serialize local storage');
+    assert.equal(t.fetchState.putBodies.length, 0, 'dragging does not immediately save');
+    t.flushFrames();
+    assert.equal(t.body.style.props['--sp-bg-opacity'], '0.99');
+    assert.equal(t.body.style.props['--sp-bg-blur'], '6px');
+    assert.ok(t.body.style.writes.slice(initialCssWrites).every((key) => key.startsWith('--sp-')), 'palette untouched');
+    assert.deepEqual(t.elements.spThumbs.children, nodes, 'all thumbnail nodes survive dragging');
+    assert.ok(images.every((img) => img.srcWrites === 1), 'no image source is reassigned');
+    t.elements.spOpacity.listeners.change[0]();
+    await sleep(20);
+    assert.equal(t.fetchState.putBodies.length, 1, 'release flushes before debounce');
+    assert.equal(t.fetchState.putBodies[0].backgroundOpacity, 0.99);
+    assert.equal(JSON.parse(t.localStorage.getItem('sp-appearance')).backgroundOpacity, 0.99);
+
+    const displayedBefore = t.body.style.props['--sp-bg-image'];
+    const putsBeforePosition = t.fetchState.putBodies.length;
+    for (let i = 10; i < 40; i++) {
+      t.elements.spPosX.value = String(i);
+      t.elements.spPosX.listeners.input[0]();
+    }
+    t.elements.spPosX.listeners.change[0]();
+    assert.equal(t.frames.size, 0);
+    assert.equal(t.body.style.props['--sp-bg-position'], '39% 50%');
+    assert.ok(Object.values(JSON.parse(t.localStorage.getItem('sp-wallpaper-positions'))).some((p) => p.x === 39));
+    assert.equal(t.fetchState.putBodies.length, putsBeforePosition, 'position remains client-local');
+    assert.equal(t.body.style.props['--sp-bg-image'], displayedBefore);
+    assert.deepEqual(t.elements.spThumbs.children, nodes);
+    t.elements.spPosY.value = '66';
+    t.elements.spPosY.listeners.input[0]();
+    nodes[10].listeners.click[0]();
+    const positionAfterSelection = t.body.style.props['--sp-bg-position'];
+    t.flushFrames();
+    assert.equal(t.body.style.props['--sp-bg-position'], positionAfterSelection, 'selection cancels stale position paints');
+    assert.equal(nodes[10].classList.contains('current'), true);
+    assert.deepEqual(t.elements.spThumbs.children, nodes, 'selecting a wallpaper retains nodes');
+
+    t.fetchState.confirmResult = false;
+    nodes[0].children[1].listeners.click[0]({ stopPropagation() {} });
+    click(t.elements, 'spRemove');
+    assert.equal(t.fetchState.confirmations.length, 2);
+    assert.equal(t.fetchState.deletes.length, 0, 'both cancel paths send no delete');
+    t.fetchState.confirmResult = true;
+    nodes[0].children[1].listeners.click[0]({ stopPropagation() {} });
+    await sleep(30);
+    assert.deepEqual(t.fetchState.deletes, ['perf-0']);
+    assert.equal(t.elements.spThumbs.children[0], nodes[1], 'deleting one retains surviving elements');
+    click(t.elements, 'spRemove');
+    await sleep(30);
+    assert.deepEqual(t.fetchState.deletes, ['perf-0', 'perf-10'], 'current removal targets the selected wallpaper');
+    images[1].listeners.error[0]();
+    nodes[2].listeners.click[0]();
+    assert.equal(images[1].src, undefined, 'failed preview does not fall back to an original');
+    assert.equal(images[1].srcWrites, 1, 'failed preview does not retry on panel synchronization');
+    const survivors = t.elements.spThumbs.children.slice();
+    upload(t.elements, { type: 'image/png', size: 100 });
+    await sleep(50);
+    assert.deepEqual(t.elements.spThumbs.children.slice(0, survivors.length), survivors, 'upload appends without replacing existing thumbnails');
+    console.log('  ok 27. 30 wallpapers: bounded slider work, stable lazy thumbnails, confirmed removal');
+  }
+
+  /* A delayed save response cannot undo the latest intent or win on the server. */
+  {
+    let release;
+    let putCount = 0;
+    const t = boot(() => makeBitmap(1, 1, () => [0, 0, 0]), undefined, undefined, undefined, {
+      fetch: async (base, url, options) => {
+        const result = await base(url, options);
+        if (url === '/api/appearance' && options && options.method === 'PUT' && ++putCount === 1)
+          await new Promise((resolve) => { release = resolve; });
+        return result;
+      }
+    });
+    await sleep(30);
+    t.elements.spOpacity.value = '80';
+    t.elements.spOpacity.listeners.input[0]();
+    t.elements.spOpacity.listeners.change[0]();
+    await sleep(20);
+    assert.ok(release);
+    t.elements.spOpacity.value = '25';
+    t.elements.spOpacity.listeners.input[0]();
+    t.elements.spOpacity.listeners.change[0]();
+    await sleep(20);
+    assert.equal(putCount, 1, 'new save waits for the previous one');
+    release();
+    await sleep(30);
+    assert.equal(putCount, 2);
+    assert.equal(t.fetchState.settings.backgroundOpacity, 0.25);
+    assert.equal(t.body.style.props['--sp-bg-opacity'], '0.25');
+    assert.equal(JSON.parse(t.localStorage.getItem('sp-appearance')).backgroundOpacity, 0.25);
+    console.log('  ok 28. delayed save responses preserve newer slider values');
   }
 
   console.log('all appearance tests passed');

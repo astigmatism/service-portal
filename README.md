@@ -1,6 +1,6 @@
 # Service Portal
 
-A zero-dependency Docker container that acts as a **gateway/portal to every container
+A lightweight Docker container that acts as a **gateway/portal to every container
 on the host**. Open the portal in a browser (plain port 80) to see a live table of all
 containers; click a service row or one of its port chips to open that service in a new browser
 tab via its published port.
@@ -10,7 +10,8 @@ on every request. No reconfiguration, no restart for discovery.
 
 ## How it works
 
-- One Node.js HTTP server on `node:20-alpine`. There are no runtime npm dependencies.
+- One Node.js HTTP server on `node:20-alpine`, with Sharp for small wallpaper previews.
+  Running outside Docker requires Node.js 20.9 or newer and `npm ci`.
 - The container mounts the **host Docker socket** read-write and calls the Docker Engine REST
   API (`GET /containers/json?all=1`) over the Unix socket on every `/api/services` request,
   so the UI is always a live view of the host.
@@ -53,8 +54,9 @@ on every request. No reconfiguration, no restart for discovery.
 | `POST /api/appearance/slots/<id>/move` | Move the slot one position in the navigation order — body `{"delta": -1 \| 1}`; the active-slot pointer rides along by id (404 unknown slot, 400 bad delta, 422 already at the end it wants to move toward) (`no-store`) |
 | `/api/appearance/slots/<id>/wallpapers` | `POST` → upload a wallpaper into that slot (image/* bodies up to 1 GB; optional `x-sp-image-dark: 1` and `x-sp-accent: #rrggbb` headers) and make the slot active; 404 for an unknown slot (`no-store`) |
 | `/api/appearance/wallpapers` | Flat view over the slots: `GET` → the slots, the active-slot pointer, plus a derived flat wallpaper list for pre-slot clients · `POST` → (legacy) append a wallpaper to the active slot, creating a slot when there is none · `DELETE` → remove every wallpaper (`no-store`) |
-| `/api/appearance/wallpapers/<id>` | One wallpaper: `GET` → its bytes (404 if unknown) · `PUT` → update its meta (`imageDark`, `accent`, `accentTouched`) · `DELETE` → remove it from its slot — a drained slot is removed too and the active pointer moves to the previous slot (`no-store`) |
-| `/api/appearance/background` | Legacy single-wallpaper endpoint, kept working: it always addresses the *first wallpaper of the active slot* — `GET` → its bytes (404 if none) · `POST` → replace it in place, or create it · `DELETE` → remove it (`no-store`) |
+| `/api/appearance/wallpapers/<id>` | One wallpaper: `GET` → stream its original stored bytes (404 if unknown; private cache with ETag revalidation) · `PUT` → update its meta (`imageDark`, `accent`, `accentTouched`) · `DELETE` → remove it from its slot — a drained slot is removed too and the active pointer moves to the previous slot (mutations: `no-store`) |
+| `/api/appearance/wallpapers/<id>/thumbnail` | `GET` → WebP preview within 640 × 640 pixels, generated on demand and cached on disk; private cache with ETag revalidation; 404 for unknown images, 422 if a preview cannot be decoded |
+| `/api/appearance/background` | Legacy single-wallpaper endpoint, kept working: it always addresses the *first wallpaper of the active slot* — `GET` → stream its bytes (404 if none; private cache with ETag revalidation) · `POST` → replace it in place, or create it · `DELETE` → remove it (mutations: `no-store`) |
 | `/healthz` | Plain-text `ok` |
 | `/favicon.ico` | The deployment's configured favicon (the star by default) — served to both the browser-tab icon and the header logo next to the portal title |
 | `/star.svg` | The built-in star icon (`image/svg+xml`); the page no longer references it, kept for compatibility |
@@ -158,6 +160,10 @@ deployment, see [`docs/setup-on-another-ubuntu-server.md`](docs/setup-on-another
   A pre-slot `background.bin`/`background.json` or a flat pre-slot wallpaper
   array is migrated into slots automatically on first boot (each legacy
   wallpaper becomes its own slot).
+- `/data/wallpaper-thumbnails/` is a disposable preview cache. Previews are created
+  on first request, including for existing uploads, and reused after a restart.
+  Replacing or deleting a wallpaper removes its previews. No re-upload or data
+  migration is needed; previews never overwrite the stored wallpaper.
 - The `/data` volume also holds `maintenance/<job-id>.json` (update job records)
   and `activity.jsonl` (container start/stop events for the Activity panel), so
   the activity history survives container recreation too.
@@ -233,6 +239,7 @@ For a copy/paste prompt and complete integration checklist for other repositorie
 The project uses Node's built-in test runner and has no test-framework dependency:
 
 ```sh
+npm ci
 npm test
 ```
 
@@ -306,12 +313,21 @@ confirmation/polling, and the update script's fail-closed command ordering.
   with its own sampled colors. Archives are capped at 1 GB; Zip64 and encrypted
   entries are not supported. A file that fails does not stop the rest of the batch —
   the status line lists what failed. **Remove wallpaper** deletes the
-  currently displayed wallpaper. The active slot is persisted server-side, so the
+  currently displayed wallpaper. Both this button and the thumbnail × ask for
+  confirmation; cancelling keeps the wallpaper. The confirmation also notes when
+  removing the last wallpaper will remove its slot. The active slot is persisted server-side, so the
   portal always comes back to the slot you left on (showing a fresh roll of it);
   **Reset appearance**, alone at the bottom of the panel, deletes every slot and
   restores the default settings. Browsers that still
   hold a wallpaper from the old browser-only storage get it migrated to the server
   automatically on first load, then their local copies are cleared.
+- **Wallpaper performance**: the panel loads small previews only when opened,
+  with offscreen thumbnails loaded lazily. Preview images preserve transparency
+  and orientation; animated wallpapers use a still first frame in the panel.
+  A failed preview shows a placeholder and remains selectable. The background
+  uses the original stored image, with the existing upload resizing rules
+  unchanged. Slider drags update effects once per frame without rebuilding
+  thumbnails, and saves are debounced with a final save when the control is released.
 - **Auto color scheme**: when a wallpaper is uploaded, the browser samples its dominant
   hue (32×32 grid, 12 hue buckets, saturation-weighted; the accent is re-normalized to a
   fixed lightness/saturation so it always reads as an accent) and derives a coordinated
@@ -392,8 +408,10 @@ docker logs service-portal                            # → "service-portal list
 ```
 service-portal/
 ├── package.json
+├── package-lock.json
 ├── Dockerfile
 ├── server.js
+├── wallpaper-images.js
 ├── index.html
 ├── labels.json
 ├── update and restart

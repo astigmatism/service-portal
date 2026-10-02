@@ -5,6 +5,7 @@ const http = require('http');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { createWallpaperImages, serveImage } = require('./wallpaper-images');
 
 const PORT = parseInt(process.env.PORT || '80', 10);
 const SOCKET = process.env.DOCKER_SOCKET || '/var/run/docker.sock';
@@ -96,6 +97,7 @@ try {
 // then the flat wallpaper-collection era) is migrated into slots once on
 // first boot.
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const wallpaperImages = createWallpaperImages(DATA_DIR);
 const SETTINGS_FILE = path.join(DATA_DIR, 'appearance.json');
 const IMAGE_FILE = path.join(DATA_DIR, 'background.bin');       // legacy single-wallpaper storage
 const IMAGE_META_FILE = path.join(DATA_DIR, 'background.json'); // legacy single-wallpaper storage
@@ -1203,6 +1205,8 @@ const server = http.createServer((req, res) => {
      DELETE /api/appearance/wallpapers             (legacy) remove every
                                                    wallpaper (all slots)
      GET    /api/appearance/wallpapers/<id>        one wallpaper's bytes
+     GET    /api/appearance/wallpapers/<id>/thumbnail
+                                                  cached small WebP preview
      PUT    /api/appearance/wallpapers/<id>        update its meta (imageDark,
                                                    accent, accentTouched)
      DELETE /api/appearance/wallpapers/<id>        remove it from its slot; a
@@ -1213,6 +1217,7 @@ const server = http.createServer((req, res) => {
   const slotMove = pathname.match(/^\/api\/appearance\/slots\/([0-9a-f-]{36})\/move$/i);
   const slotItem = pathname.match(/^\/api\/appearance\/slots\/([0-9a-f-]{36})$/i);
   const wallpaperItem = pathname.match(/^\/api\/appearance\/wallpapers\/([0-9a-f-]{36})$/i);
+  const wallpaperThumbnail = pathname.match(/^\/api\/appearance\/wallpapers\/([0-9a-f-]{36})\/thumbnail$/i);
   if (pathname === '/api/appearance/slots' || slotItem || slotWallpapersPath || slotMove) {
     const slotId = slotItem
       ? slotItem[1].toLowerCase()
@@ -1234,7 +1239,7 @@ const server = http.createServer((req, res) => {
         const current = loadAppearanceState();
         const settings = { ...current, slots: [], activeSlotId: null };
         saveAppearanceSettings(settings);
-        for (const s of current.slots) for (const w of s.wallpapers) fs.rm(path.join(WALLPAPERS_DIR, w.id), () => {});
+        for (const s of current.slots) for (const w of s.wallpapers) wallpaperImages.remove(w.id);
         return { ok: true, settings };
       })
         .then((body) => sendJson(res, 200, body))
@@ -1253,7 +1258,7 @@ const server = http.createServer((req, res) => {
         }
         const settings = { ...current, slots, activeSlotId };
         saveAppearanceSettings(settings);
-        for (const w of current.slots[slotIdx].wallpapers) fs.rm(path.join(WALLPAPERS_DIR, w.id), () => {});
+        for (const w of current.slots[slotIdx].wallpapers) wallpaperImages.remove(w.id);
         return { ok: true, settings };
       })
         .then((body) => sendJson(res, 200, body))
@@ -1322,6 +1327,7 @@ const server = http.createServer((req, res) => {
             };
             fs.mkdirSync(WALLPAPERS_DIR, { recursive: true });
             saveAppearanceSettings(settings);
+            wallpaperImages.invalidate(wallpaper.id);
             atomicWriteFileSync(path.join(WALLPAPERS_DIR, wallpaper.id), buf);
             return { ok: true, wallpaper, settings };
           });
@@ -1334,8 +1340,8 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (pathname === '/api/appearance/wallpapers' || wallpaperItem) {
-    const id = wallpaperItem ? wallpaperItem[1].toLowerCase() : null;
+  if (pathname === '/api/appearance/wallpapers' || wallpaperItem || wallpaperThumbnail) {
+    const id = (wallpaperItem || wallpaperThumbnail) ? (wallpaperItem || wallpaperThumbnail)[1].toLowerCase() : null;
     const state = readAppearanceSettings();
     // A wallpaper lives in exactly one slot; find the slot that holds it.
     let holder = null;
@@ -1347,6 +1353,13 @@ const server = http.createServer((req, res) => {
     const entry = id ? holder && holder.wallpapers.find((w) => w.id === id) : null;
     if (id && !entry) {
       sendJson(res, 404, { error: 'wallpaper not found' });
+      return;
+    }
+    if (wallpaperThumbnail) {
+      if (req.method !== 'GET') { sendJson(res, 405, { error: 'method not allowed' }); return; }
+      wallpaperImages.thumbnail(id)
+        .then((file) => serveImage(req, res, file, 'image/webp'))
+        .catch((err) => sendJson(res, err.status || (err.code === 'ENOENT' ? 404 : 500), { error: 'thumbnail unavailable' }));
       return;
     }
     if (pathname === '/api/appearance/wallpapers' && req.method === 'GET') {
@@ -1395,6 +1408,7 @@ const server = http.createServer((req, res) => {
             }
             fs.mkdirSync(WALLPAPERS_DIR, { recursive: true });
             saveAppearanceSettings(settings);
+            wallpaperImages.invalidate(wallpaper.id);
             atomicWriteFileSync(path.join(WALLPAPERS_DIR, wallpaper.id), buf);
             return { ok: true, wallpaper, settings };
           });
@@ -1408,7 +1422,7 @@ const server = http.createServer((req, res) => {
         const current = loadAppearanceState();
         const settings = { ...current, slots: [], activeSlotId: null };
         saveAppearanceSettings(settings);
-        for (const s of current.slots) for (const w of s.wallpapers) fs.rm(path.join(WALLPAPERS_DIR, w.id), () => {});
+        for (const s of current.slots) for (const w of s.wallpapers) wallpaperImages.remove(w.id);
         return { ok: true, settings };
       })
         .then((body) => sendJson(res, 200, body))
@@ -1416,14 +1430,7 @@ const server = http.createServer((req, res) => {
       return;
     }
     if (id && req.method === 'GET') {
-      fs.readFile(path.join(WALLPAPERS_DIR, id), (err, buf) => {
-        if (err) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('wallpaper not found'); return; }
-        res.writeHead(200, {
-          'Content-Type': entry.type || 'application/octet-stream',
-          'Cache-Control': 'no-store',
-        });
-        res.end(buf);
-      });
+      serveImage(req, res, path.join(WALLPAPERS_DIR, id), entry.type || 'application/octet-stream');
       return;
     }
     if (id && req.method === 'PUT') {
@@ -1475,7 +1482,7 @@ const server = http.createServer((req, res) => {
         }
         const settings = { ...current, slots, activeSlotId };
         saveAppearanceSettings(settings);
-        fs.rm(path.join(WALLPAPERS_DIR, id), () => {});
+        wallpaperImages.remove(id);
         return { ok: true, settings };
       })
         .then((body) => sendJson(res, 200, body))
@@ -1499,14 +1506,7 @@ const server = http.createServer((req, res) => {
       const slot = state.slots.find((s) => s.id === state.activeSlotId) || null;
       const entry = slot && slot.wallpapers.length ? slot.wallpapers[0] : null;
       if (!entry) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('no background'); return; }
-      fs.readFile(path.join(WALLPAPERS_DIR, entry.id), (err, buf) => {
-        if (err) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('no background'); return; }
-        res.writeHead(200, {
-          'Content-Type': entry.type || 'application/octet-stream',
-          'Cache-Control': 'no-store',
-        });
-        res.end(buf);
-      });
+      serveImage(req, res, path.join(WALLPAPERS_DIR, entry.id), entry.type || 'application/octet-stream');
       return;
     }
     if (req.method === 'POST') {
@@ -1551,6 +1551,7 @@ const server = http.createServer((req, res) => {
             }
             fs.mkdirSync(WALLPAPERS_DIR, { recursive: true });
             saveAppearanceSettings(settings);
+            wallpaperImages.invalidate(wallpaper.id);
             atomicWriteFileSync(path.join(WALLPAPERS_DIR, wallpaper.id), buf);
             return { ok: true, bytes: buf.length, wallpaper, settings };
           });
@@ -1585,7 +1586,7 @@ const server = http.createServer((req, res) => {
         }
         const settings = { ...current, slots, activeSlotId };
         saveAppearanceSettings(settings);
-        fs.rm(path.join(WALLPAPERS_DIR, curFirst.id), () => {});
+        wallpaperImages.remove(curFirst.id);
         return { ok: true, settings };
       })
         .then((body) => sendJson(res, 200, body))

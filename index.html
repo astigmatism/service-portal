@@ -279,7 +279,7 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
     <button id="appearanceClose" class="btn iconbtn" type="button" title="Close">&times;</button>
   </div>
   <div id="spDropZone" class="sp-drop">
-    <img id="spThumb" class="sp-thumb hidden" alt="Current wallpaper">
+    <img id="spThumb" class="sp-thumb hidden" alt="Current wallpaper" loading="lazy" decoding="async">
     <span>Drop images or a .zip of images here, or</span>
     <button id="spUploadBtn" class="btn" type="button" title="Add wallpapers to this slot — pick images, or a .zip archive: every supported image inside (jpeg/png/webp/gif/avif) becomes its own wallpaper">Upload background&hellip;</button>
   </div>
@@ -1457,16 +1457,20 @@ let refreshActivity = () => {};
          for structural changes) + the wallpaper endpoints ---- */
   const WALLPAPERS_URL = '/api/appearance/wallpapers';
   const wallpaperUrl = (id) => WALLPAPERS_URL + '/' + encodeURIComponent(id);
+  const thumbnailUrl = (id) => wallpaperUrl(id) + '/thumbnail';
   const SLOTS_URL = '/api/appearance/slots';
   const slotWallpapersUrl = (slotId) => SLOTS_URL + '/' + encodeURIComponent(slotId) + '/wallpapers';
   const PUT_DEBOUNCE_MS = 250;
   let putTimer = 0;
+  let putRevision = 0;
+  let putQueue = Promise.resolve();
 
   function putSettings(body) {
     return fetch('/api/appearance', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      keepalive: true
     }).then((r) => {
       if (!r.ok) throw new Error('settings save failed (HTTP ' + r.status + ')');
       return r.json();
@@ -1506,17 +1510,27 @@ let refreshActivity = () => {};
      cache is refreshed either way (on success from the server's copy, on
      failure from intent) so a later offline visit still shows the last
      configuration. */
-  function pushSettings(next, urgent) {
+  function pushSettings(urgent) {
+    const revision = ++putRevision;
     const run = () => {
-      putSettings(putBodyOf(next)).then((data) => {
-        const merged = adoptServerSettings(next, data);
-        settings = merged;
-        if (merged !== next) {
+      putTimer = 0;
+      cacheSettings(settings);
+      // Serialize saves, skip superseded queued intents, and never let an
+      // older response roll back a newer edit or structural operation.
+      putQueue = putQueue.then(async () => {
+        if (revision !== putRevision) return;
+        const data = await putSettings(putBodyOf(settings));
+        if (revision !== putRevision) return;
+        const merged = adoptServerSettings(settings, data);
+        if (merged !== settings) {
+          settings = merged;
           applyAppearance(settings);
           syncPanel();
         }
         cacheSettings(settings);
-      }).catch(() => cacheSettings(next));
+      }).catch(() => {
+        if (revision === putRevision) cacheSettings(settings);
+      });
     };
     clearTimeout(putTimer);
     if (urgent) run();
@@ -1871,12 +1885,45 @@ let refreshActivity = () => {};
      longer exist. It runs only on the server's copy (or the cache when
      offline) in the startup fetch below. */
   let imageToken = '';
+  let sliderWallpaperId = null;
+  let sliderFrame = 0;
+  const sliderUpdates = new Map();
+  let positionTimer = 0;
+  let positionDirty = false;
+  const thumbNodes = new Map();
+  const previewTokens = new WeakMap();
+
+  function cancelSliderFrame() {
+    if (sliderFrame) cancelAnimationFrame(sliderFrame);
+    sliderFrame = 0;
+    sliderUpdates.clear();
+  }
+
+  function flushSliderFrame() {
+    if (sliderFrame) cancelAnimationFrame(sliderFrame);
+    sliderFrame = 0;
+    for (const update of sliderUpdates.values()) update();
+    sliderUpdates.clear();
+  }
+
+  function scheduleSlider(key, update) {
+    sliderUpdates.set(key, update);
+    if (!sliderFrame) sliderFrame = requestAnimationFrame(flushSliderFrame);
+  }
+
+  function flushPositionSave() {
+    clearTimeout(positionTimer);
+    positionTimer = 0;
+    if (positionDirty) writePositionMap();
+    positionDirty = false;
+  }
 
   // The displayed wallpaper is resolved by displayedWallpaper() (the
   // per-browser random roll of the active slot, declared up top).
 
   /* ---- render: the four body variables are the single source of truth ---- */
   function applyAppearance(s) {
+    cancelSliderFrame();
     const body = document.body;
     prunePositionMap(s); // the map must never outlive the collection
     body.style.setProperty('--sp-bg-opacity', String(s.backgroundOpacity));
@@ -1931,30 +1978,32 @@ let refreshActivity = () => {};
     }
   }
 
-  /* Apply the active wallpaper. The server serves each wallpaper at
-     /api/appearance/wallpapers/<id> (Cache-Control: no-store), shared by
-     every client on the network. */
+  /* Only the background uses the original. Panel images use small previews,
+     loaded on demand; slider updates never touch any image source. */
   function syncWallpaper() {
     const w = displayedWallpaper(settings);
     const token = w ? wallpaperUrl(w.id) : '';
-    if (token === imageToken) return;
-    imageToken = token;
-    const body = document.body;
-    if (token === '') {
-      body.style.setProperty('--sp-bg-image', 'none');
-      setThumb(undefined);
-      return;
+    if (token !== imageToken) {
+      imageToken = token;
+      document.body.style.setProperty('--sp-bg-image', token ? 'url("' + token + '")' : 'none');
     }
-    body.style.setProperty('--sp-bg-image', 'url("' + token + '")');
-    setThumb(token);
+    setThumb(w ? thumbnailUrl(w.id) : undefined);
+  }
+
+  function loadPreview(img, url) {
+    if (previewTokens.get(img) === url) return;
+    previewTokens.set(img, url);
+    img.alt = img === els.thumb ? 'Current wallpaper' : '';
+    img.src = url;
   }
 
   function setThumb(url) {
     if (url) {
-      els.thumb.src = url;
+      if (panelOpen()) loadPreview(els.thumb, url);
       els.thumb.classList.remove('hidden');
     } else {
       els.thumb.removeAttribute('src');
+      previewTokens.delete(els.thumb);
       els.thumb.classList.add('hidden');
     }
   }
@@ -1967,15 +2016,17 @@ let refreshActivity = () => {};
      Styling applies live locally; the settings blob lands on the server
      (slider drags debounced, structural changes immediately). */
   function commit(urgent) {
+    flushPositionSave();
     applyAppearance(settings);
     syncPanel();
     cacheSettings(settings);
-    pushSettings(settings, urgent);
+    pushSettings(urgent);
   }
 
   /* Local-only commit: the per-client position map never rides the settings
      PUT, so it needs no cache refresh or push — just repaint and resync. */
   function commitLocal() {
+    flushPositionSave();
     applyAppearance(settings);
     syncPanel();
   }
@@ -2091,21 +2142,16 @@ let refreshActivity = () => {};
      entry before it, when possible). */
   function removeCurrentWallpaper() {
     const w = displayedWallpaper(settings);
-    if (!w) return;
-    setStatus('');
-    fetch(wallpaperUrl(w.id), { method: 'DELETE' }).then((r) => {
-      if (!r.ok) throw new Error('delete failed (HTTP ' + r.status + ')');
-      return r.json();
-    }).then((data) => {
-      settings = adoptServerSettings(settings, data);
-      displayedId = null; // the pick was just deleted — roll a replacement
-      commit(true);
-    }).catch((e) => setStatus(e && e.message ? e.message : 'could not delete wallpaper'));
+    if (w) removeWallpaperById(w.id);
   }
 
-  /* Remove one wallpaper of the active slot by id (the thumbnail ×); same
-     drained-slot rules as removeCurrentWallpaper. */
   function removeWallpaperById(id) {
+    const slot = activeSlot(settings);
+    if (!slot || !slot.wallpapers.some((w) => w.id === id)) return;
+    let message = 'Remove this wallpaper from this slot?';
+    if (slot.wallpapers.length === 1)
+      message += '\n\nThis is the last wallpaper in this slot. Removing it will also remove the slot.';
+    if (!window.confirm(message)) return;
     setStatus('');
     fetch(wallpaperUrl(id), { method: 'DELETE' }).then((r) => {
       if (!r.ok) throw new Error('delete failed (HTTP ' + r.status + ')');
@@ -2204,32 +2250,55 @@ let refreshActivity = () => {};
   /* ---- thumbnail strip: one item per wallpaper of the active slot. Click
          an item to show it (deliberate pick until the next roll); × removes
          just that wallpaper. Hidden while the slot is empty. ---- */
+  function previewFailed(img) {
+    // Keep the tile selectable, with a placeholder, without decoding an original.
+    img.removeAttribute('src');
+    img.alt = 'Preview unavailable';
+  }
+
   function renderSlotThumbs() {
     const slot = activeSlot(settings);
     const list = slot && Array.isArray(slot.wallpapers) ? slot.wallpapers : [];
+    const ids = new Set(list.map((w) => w.id));
     els.thumbsWrap.classList.toggle('hidden', list.length === 0);
-    els.thumbs.textContent = '';
-    for (const w of list) {
-      const item = document.createElement('div');
-      item.className = 'sp-thumb-item' + (w.id === displayedId ? ' current' : '');
-      item.title = 'Show this wallpaper';
-      const img = document.createElement('img');
-      img.src = wallpaperUrl(w.id);
-      img.alt = '';
-      const del = document.createElement('button');
-      del.type = 'button';
-      del.className = 'sp-thumb-del';
-      del.textContent = '×';
-      del.title = 'Remove this wallpaper';
-      del.addEventListener('click', (e) => {
-        e.stopPropagation();
-        removeWallpaperById(w.id);
-      });
-      item.appendChild(img);
-      item.appendChild(del);
-      item.addEventListener('click', () => showWallpaper(w.id));
-      els.thumbs.appendChild(item);
+    for (const [id, entry] of thumbNodes) {
+      if (!ids.has(id)) {
+        els.thumbs.removeChild(entry.item);
+        thumbNodes.delete(id);
+      }
     }
+    list.forEach((w, index) => {
+      let entry = thumbNodes.get(w.id);
+      if (!entry) {
+        const item = document.createElement('div');
+        item.className = 'sp-thumb-item';
+        item.title = 'Show this wallpaper';
+        const img = document.createElement('img');
+        img.alt = '';
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        img.addEventListener('error', () => previewFailed(img));
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'sp-thumb-del';
+        del.textContent = '×';
+        del.title = 'Remove this wallpaper';
+        del.setAttribute('aria-label', 'Remove this wallpaper');
+        del.addEventListener('click', (e) => {
+          e.stopPropagation();
+          removeWallpaperById(w.id);
+        });
+        item.appendChild(img);
+        item.appendChild(del);
+        item.addEventListener('click', () => showWallpaper(w.id));
+        entry = { item, img };
+        thumbNodes.set(w.id, entry);
+      }
+      entry.item.classList.toggle('current', w.id === displayedId);
+      if (els.thumbs.children[index] !== entry.item)
+        els.thumbs.insertBefore(entry.item, els.thumbs.children[index] || null);
+      if (panelOpen()) loadPreview(entry.img, thumbnailUrl(w.id));
+    });
   }
 
   function syncPanel() {
@@ -2242,6 +2311,7 @@ let refreshActivity = () => {};
     const wp = displayedWallpaper(settings);
     const pos = positionFor(settings);
     const hasWp = wp !== null;
+    sliderWallpaperId = hasWp ? wp.id : null;
     els.posX.value = String(Math.round(pos.x));
     els.posXOut.textContent = Math.round(pos.x) + '%';
     els.posY.value = String(Math.round(pos.y));
@@ -2285,7 +2355,11 @@ let refreshActivity = () => {};
 
   /* ---- panel wiring ---- */
   const panelOpen = () => !els.panel.classList.contains('hidden');
-  const openPanel = (open) => els.panel.classList.toggle('hidden', !open);
+  const openPanel = (open) => {
+    els.panel.classList.toggle('hidden', !open);
+    if (open) { syncWallpaper(); renderSlotThumbs(); }
+  };
+  els.thumb.addEventListener('error', () => previewFailed(els.thumb));
 
   els.gear.addEventListener('click', () => openPanel(!panelOpen()));
   els.close.addEventListener('click', () => openPanel(false));
@@ -2372,27 +2446,37 @@ let refreshActivity = () => {};
     const key = NUMPAD_KEYS[e.key];
     if (key) { e.preventDefault(); setAnchor(key); }
   });
-  const bindPosSlider = (axis, input, out) => {
+  const bindPosSlider = (axis, input) => {
     input.addEventListener('input', () => {
-      const w = displayedWallpaper(settings);
-      if (!w) return;
-      if (!lastPos) lastPos = { x: positionFor(settings).x, y: positionFor(settings).y };
+      const id = sliderWallpaperId;
+      if (!id) return;
+      const pos = positionMap[id] || { x: 50, y: 50 };
+      if (!lastPos) lastPos = { ...pos };
       let v = Number(input.value);
       for (const d of POS_DETENTS) {
         const inZone = (val) => Math.abs(val - d) <= POS_SNAP;
         if (inZone(v) && !inZone(lastPos[axis])) { v = d; input.value = String(d); break; }
       }
       lastPos[axis] = v;
-      const pos = positionMap[w.id] || { x: 50, y: 50 };
       pos[axis] = v;
-      positionMap[w.id] = pos;
-      writePositionMap();
-      out.textContent = v + '%';
-      commitLocal();
+      positionMap[id] = pos;
+      positionDirty = true;
+      clearTimeout(positionTimer);
+      positionTimer = setTimeout(flushPositionSave, PUT_DEBOUNCE_MS);
+      scheduleSlider('position', () => {
+        document.body.style.setProperty('--sp-bg-position', pos.x + '% ' + pos.y + '%');
+        els.posXOut.textContent = pos.x + '%';
+        els.posYOut.textContent = pos.y + '%';
+        for (const key of POS_CELLS) {
+          const a = ANCHORS[key];
+          els.posCells[key].setAttribute('aria-pressed', String(a[0] === pos.x && a[1] === pos.y));
+        }
+      });
     });
+    input.addEventListener('change', () => { flushSliderFrame(); flushPositionSave(); });
   };
-  bindPosSlider('x', els.posX, els.posXOut);
-  bindPosSlider('y', els.posY, els.posYOut);
+  bindPosSlider('x', els.posX);
+  bindPosSlider('y', els.posY);
 
   els.remove.addEventListener('click', removeCurrentWallpaper);
   els.reset.addEventListener('click', resetAppearance);
@@ -2402,19 +2486,39 @@ let refreshActivity = () => {};
   els.moveUp.addEventListener('click', () => moveSlot(-1));
   els.moveDown.addEventListener('click', () => moveSlot(1));
 
-  /* Sliders use 'input' (not 'change') so the page restyles live while dragging. */
-  const bindSlider = (input, out, apply, format) => {
-    input.addEventListener('input', () => {
-      apply(Number(input.value));
-      out.textContent = format(input.value);
-      commit();
-    });
+  /* Live slider work is independent of wallpaper count. Persistence is
+     debounced separately, with a final flush on release/keyboard change. */
+  const paintBlur = () => {
+    document.body.style.setProperty('--sp-bg-blur', (settings.backgroundBlur + settings.glassBlur) + 'px');
+    document.body.toggleAttribute('data-sp-glass', settings.glassBlur > 0);
+    if (settings.glassBlur > 0) document.body.style.setProperty('--sp-glass-blur', settings.glassBlur + 'px');
+    else document.body.style.removeProperty('--sp-glass-blur');
   };
-  bindSlider(els.opacity, els.opacityOut, (v) => { settings.backgroundOpacity = v / 100; }, (v) => v + '%');
-  bindSlider(els.blur, els.blurOut, (v) => { settings.backgroundBlur = v; }, (v) => v + 'px');
-  bindSlider(els.scrim, els.scrimOut, (v) => { settings.scrim = v / 100; }, (v) => v + '%');
-  bindSlider(els.listOpacity, els.listOpacityOut, (v) => { settings.surfaceAlpha = v / 100; }, (v) => v + '%');
-  bindSlider(els.glass, els.glassOut, (v) => { settings.glassBlur = v; }, (v) => v + 'px');
+  const bindSlider = (input, out, field, scale, paint, format) => {
+    input.addEventListener('input', () => {
+      settings[field] = Number(input.value) / scale;
+      scheduleSlider(field, () => {
+        paint();
+        out.textContent = format(settings[field] * scale);
+        els.reset.disabled = isDefault();
+      });
+      pushSettings(false);
+    });
+    input.addEventListener('change', () => { flushSliderFrame(); pushSettings(true); });
+  };
+  bindSlider(els.opacity, els.opacityOut, 'backgroundOpacity', 100,
+    () => document.body.style.setProperty('--sp-bg-opacity', String(settings.backgroundOpacity)), (v) => Math.round(v) + '%');
+  bindSlider(els.blur, els.blurOut, 'backgroundBlur', 1, paintBlur, (v) => v + 'px');
+  bindSlider(els.scrim, els.scrimOut, 'scrim', 100,
+    () => document.body.style.setProperty('--sp-scrim', String(settings.scrim)), (v) => Math.round(v) + '%');
+  bindSlider(els.listOpacity, els.listOpacityOut, 'surfaceAlpha', 100,
+    () => document.body.style.setProperty('--sp-list-alpha', String(settings.surfaceAlpha)), (v) => Math.round(v) + '%');
+  bindSlider(els.glass, els.glassOut, 'glassBlur', 1, paintBlur, (v) => v + 'px');
+  window.addEventListener('pagehide', () => {
+    flushPositionSave();
+    cacheSettings(settings);
+    if (putTimer) pushSettings(true);
+  });
 
   /* Cross-tab sync: change the wallpaper in one tab, every other tab follows
      (each tab's debounced PUT is what updates the shared server state). */
@@ -2471,7 +2575,7 @@ let refreshActivity = () => {};
       cacheSettings(settings);
       applyAppearance(settings);
       syncPanel();
-      pushSettings(settings, true);
+      pushSettings(true);
     }).catch(() => {});
   }
 
