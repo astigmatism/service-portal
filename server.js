@@ -79,10 +79,10 @@ try {
 // ---- Appearance persistence (wallpaper slots + styling settings) ----------
 // Shared across all clients on the network: settings live in
 // <DATA_DIR>/appearance.json — the wallpaper slots (an ordered collection of
-// slots, each holding an ordered list of wallpaper entries with MIME type,
-// sampled darkness and sampled accent), the id of the active slot, and the
-// global styling sliders — with one image file per wallpaper in
-// <DATA_DIR>/wallpapers/<id> (id = random UUID). DATA_DIR defaults to ./data
+// slots, each with an optional display name and an ordered list of wallpaper
+// entries with MIME type, sampled darkness and sampled accent), the id of the
+// active slot, and the global styling sliders — with one image file per
+// wallpaper in <DATA_DIR>/wallpapers/<id> (id = random UUID). DATA_DIR defaults to ./data
 // next to this file; the container deployment bind-mounts a persistent host
 // volume at /data so the wallpapers survive container recreation.
 //
@@ -119,7 +119,7 @@ const MAINTENANCE_LABEL = 'io.service-portal.maintenance';
 const HIDDEN_LABEL = 'io.service-portal.hidden';
 
 const APPEARANCE_DEFAULTS = {
-  slots: [], // ordered collection: [{ id, wallpapers: [{ id, type, imageDark, accent, accentTouched }] }]
+  slots: [], // ordered collection: [{ id, name, wallpapers: [{ id, type, imageDark, accent, accentTouched }] }]
   activeSlotId: null, // id into slots — the slot clients navigate between
   backgroundPosition: { x: 50, y: 50 }, // origin in the cover crop, 0..100 per axis
   backgroundOpacity: 1,
@@ -181,6 +181,23 @@ function sanitizeWallpaperEntry(entry) {
   };
 }
 
+/* A slot's optional display name (the header slot menu and the panel's Name
+   field show it; unnamed slots fall back to "Slot N" client-side). Control
+   and bidi-override characters become spaces, whitespace runs collapse to
+   one space, the ends are trimmed, and the result is capped at
+   SLOT_NAME_MAX code points (never splitting a surrogate pair). Anything
+   that is not a string — including the field missing from a pre-name
+   appearance.json — reads as '' (unnamed). */
+const SLOT_NAME_MAX = 60;
+function sanitizeSlotName(raw) {
+  if (typeof raw !== 'string') return '';
+  const flat = raw
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return Array.from(flat).slice(0, SLOT_NAME_MAX).join('').trim();
+}
+
 /* Validate one slot entry: its wallpapers revalidated against disk, deduped
    across the whole collection (a wallpaper file belongs to at most one
    slot — the first occurrence wins). */
@@ -196,7 +213,7 @@ function sanitizeSlotEntry(slot, seenWallpapers) {
       }
     }
   }
-  return { id: slot.id.toLowerCase(), wallpapers };
+  return { id: slot.id.toLowerCase(), name: sanitizeSlotName(slot.name), wallpapers };
 }
 
 /* Global styling sliders (position/opacity/blur/scrim/list-background/glass)
@@ -302,7 +319,7 @@ function migrateLegacyBackground() {
     accent: typeof raw.accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.accent) ? raw.accent.toLowerCase() : '',
     accentTouched: raw.accentTouched === true || raw.accentTouched === 1,
   };
-  const slot = { id: crypto.randomUUID(), wallpapers: [entry] };
+  const slot = { id: crypto.randomUUID(), name: '', wallpapers: [entry] };
   const settings = loadAppearanceState();
   settings.slots = [slot];
   settings.activeSlotId = slot.id;
@@ -343,7 +360,7 @@ function migrateLegacyWallpapers() {
     return;
   }
   if (!wallpapers.length) return;
-  const slots = wallpapers.map((w) => ({ id: crypto.randomUUID(), wallpapers: [w] }));
+  const slots = wallpapers.map((w) => ({ id: crypto.randomUUID(), name: '', wallpapers: [w] }));
   const activeIdx = Math.max(0, wallpapers.findIndex((w) => w.id === raw.activeWallpaperId));
   const settings = sanitizeSliders(raw);
   settings.slots = slots;
@@ -1184,6 +1201,11 @@ const server = http.createServer((req, res) => {
                                                    slot moves to the previous
                                                    slot (next, if it was the
                                                    first)
+     PUT    /api/appearance/slots/<id>             rename the slot ({name});
+                                                   sanitized (see
+                                                   sanitizeSlotName), '' clears
+                                                   it; the active pointer and
+                                                   the order are untouched
      POST   /api/appearance/slots/<id>/move        move the slot one position
                                                    ({delta: -1 | 1}); the
                                                    active-slot pointer rides
@@ -1225,7 +1247,7 @@ const server = http.createServer((req, res) => {
     if (pathname === '/api/appearance/slots' && req.method === 'POST') {
       withStateLock(() => {
         const current = loadAppearanceState();
-        const slot = { id: crypto.randomUUID(), wallpapers: [] };
+        const slot = { id: crypto.randomUUID(), name: '', wallpapers: [] };
         const settings = { ...current, slots: [...current.slots, slot], activeSlotId: slot.id };
         saveAppearanceSettings(settings);
         return { ok: true, slot, settings };
@@ -1263,6 +1285,29 @@ const server = http.createServer((req, res) => {
       })
         .then((body) => sendJson(res, 200, body))
         .catch((err) => sendJson(res, err.httpStatus || 500, { error: err.message }));
+      return;
+    }
+    if (slotItem && req.method === 'PUT') {
+      readBody(req, 4096)
+        .then((buf) => {
+          let raw;
+          try { raw = JSON.parse(buf.toString('utf8')); } catch (err) { const e = new Error('invalid JSON body'); e.httpStatus = 400; throw e; }
+          if (typeof raw !== 'object' || raw === null || Array.isArray(raw) || typeof raw.name !== 'string') {
+            const e = new Error('name must be a string'); e.httpStatus = 400; throw e;
+          }
+          const name = sanitizeSlotName(raw.name);
+          return withStateLock(() => {
+            const current = loadAppearanceState();
+            const slotIdx = current.slots.findIndex((s) => s.id === slotId);
+            if (slotIdx === -1) { const e = new Error('slot not found'); e.httpStatus = 404; throw e; }
+            const slot = { ...current.slots[slotIdx], name };
+            const settings = { ...current, slots: current.slots.map((s, i) => (i === slotIdx ? slot : s)) };
+            saveAppearanceSettings(settings);
+            return { ok: true, slot, settings };
+          });
+        })
+        .then((body) => sendJson(res, 200, body))
+        .catch((err) => sendJson(res, err.httpStatus || (err.message === 'payload too large' ? 413 : 400), { error: err.message }));
       return;
     }
     if (slotMove && req.method === 'POST') {
@@ -1403,7 +1448,7 @@ const server = http.createServer((req, res) => {
                 slots: current.slots.map((s) => (s.id === current.activeSlotId ? { ...s, wallpapers: [...s.wallpapers, wallpaper] } : s)),
               };
             } else {
-              const slot = { id: crypto.randomUUID(), wallpapers: [wallpaper] };
+              const slot = { id: crypto.randomUUID(), name: '', wallpapers: [wallpaper] };
               settings = { ...current, slots: [slot], activeSlotId: slot.id };
             }
             fs.mkdirSync(WALLPAPERS_DIR, { recursive: true });
@@ -1546,7 +1591,7 @@ const server = http.createServer((req, res) => {
               };
             } else {
               wallpaper = { id: crypto.randomUUID(), ...meta };
-              const fresh = { id: crypto.randomUUID(), wallpapers: [wallpaper] };
+              const fresh = { id: crypto.randomUUID(), name: '', wallpapers: [wallpaper] };
               settings = { ...current, slots: [...current.slots, fresh], activeSlotId: fresh.id };
             }
             fs.mkdirSync(WALLPAPERS_DIR, { recursive: true });

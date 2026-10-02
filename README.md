@@ -48,9 +48,9 @@ on every request. No reconfiguration, no restart for discovery.
 | `POST /api/projects/<project>/start` / `POST /api/projects/<project>/stop` | Starts an opted-in detached project action; requires the matching `X-Service-Portal-Action: start` or `stop` header; serialized with updates |
 | `GET /api/maintenance/<job-id>` | Persisted action, state, exit code, error, and bounded runner logs (`no-store`) |
 | `GET /api/activity` | JSON: `{generatedAt, events: [...]}` — newest-first feed merging project-job events and container start/stop events, capped at 200 (`no-store`) |
-| `/api/appearance` | `GET` → `{settings: {...}}` including the wallpaper slots and the active-slot pointer; `PUT` → updates the global styling settings (position, opacity, blur, scrim, glass) and the active-slot pointer (sanitized and clamped server-side; the slots themselves can only change through the slot/wallpaper endpoints) (`no-store`) |
-| `/api/appearance/slots` | `POST` → append an empty slot and make it active · `DELETE` → remove every slot and all its wallpapers (`no-store`) |
-| `/api/appearance/slots/<id>` | `DELETE` → remove one slot and every wallpaper in it (404 if unknown) — if it was the active slot, the pointer moves to the previous slot (`no-store`) |
+| `/api/appearance` | `GET` → `{settings: {...}}` including the wallpaper slots (`{id, name, wallpapers}` each) and the active-slot pointer; `PUT` → updates the global styling settings (position, opacity, blur, scrim, glass) and the active-slot pointer (sanitized and clamped server-side; the slots themselves can only change through the slot/wallpaper endpoints) (`no-store`) |
+| `/api/appearance/slots` | `POST` → append an empty, unnamed slot and make it active · `DELETE` → remove every slot and all its wallpapers (`no-store`) |
+| `/api/appearance/slots/<id>` | `PUT` → rename the slot — body `{"name": "..."}`; the name is trimmed, whitespace runs collapse, control/bidi characters are dropped and it is capped at 60 characters; `""` clears it (unnamed slots display as "Slot N"); the active pointer and order are untouched → `{ok, slot, settings}` (404 unknown slot, 400 bad JSON or a non-string `name`) · `DELETE` → remove one slot and every wallpaper in it (404 if unknown) — if it was the active slot, the pointer moves to the previous slot (`no-store`) |
 | `POST /api/appearance/slots/<id>/move` | Move the slot one position in the navigation order — body `{"delta": -1 \| 1}`; the active-slot pointer rides along by id (404 unknown slot, 400 bad delta, 422 already at the end it wants to move toward) (`no-store`) |
 | `/api/appearance/slots/<id>/wallpapers` | `POST` → upload a wallpaper into that slot (image/* bodies up to 1 GB; optional `x-sp-image-dark: 1` and `x-sp-accent: #rrggbb` headers) and make the slot active; 404 for an unknown slot (`no-store`) |
 | `/api/appearance/wallpapers` | Flat view over the slots: `GET` → the slots, the active-slot pointer, plus a derived flat wallpaper list for pre-slot clients · `POST` → (legacy) append a wallpaper to the active slot, creating a slot when there is none · `DELETE` → remove every wallpaper (`no-store`) |
@@ -293,17 +293,25 @@ confirmation/polling, and the update script's fail-closed command ordering.
   while the slot membership itself stays shared. The panel groups its controls by
   scope, top to bottom: **This wallpaper** (remove the wallpaper on screen, reset
   its derived colors), **Wallpapers in this slot** (the thumbnail strip), **Slots**
-  (Add / Remove, Move up / Move down, and the prev/next "N of M" stepper
-  beneath them), and **Effects** (the sliders above). **Add** appends an empty
+  (a **Name** field, Add / Remove, Move up / Move down, and the prev/next "N of M"
+  stepper beneath them), and **Effects** (the sliders above). **Name** gives the
+  active slot a name, shared by every machine — it saves when you press Enter or
+  leave the field, Esc reverts, and an empty name falls back to "Slot N" (its
+  position). **Add** appends an empty
   slot and jumps to it; **Remove** deletes the active slot with all its
   wallpapers (and a slot whose last wallpaper is removed is removed too, with the
   pointer moving to the previous slot). **Move up** / **Move down** move the
   active slot one position in the navigation order — its wallpapers, and each
   browser's current pick, travel with it (moving, unlike prev/next, does not
-  switch to a different slot). Prev/next (and the
-  header arrows) move between slots — previous is disabled on the first, next on
-  the last (both stay visible, dimmed like the move buttons), with an "N of M"
-  counter. The shuffle button between the header arrows picks a different random
+  switch to a different slot). Prev/next move between slots — previous is
+  disabled on the first, next on the last (both stay visible, dimmed like the
+  move buttons), with an "N of M" counter. In the header, the **slot menu**
+  button names the active slot; open it to see every slot (a thumbnail, its name
+  and wallpaper count, the active one checked) and pick any of them to jump
+  straight there with a fresh random wallpaper — no stepping through the slots in
+  between. It works from the keyboard too (↑/↓, Home/End, Enter, Esc), and its
+  last entry, **Name & manage slots…**, opens this panel on the Name field. The
+  shuffle button next to it picks a different random
   wallpaper from the current slot, without switching slots; it dims when the
   slot has fewer than two wallpapers. An upload appends its wallpapers to the
   active slot, multi-file selections in order. A **.zip** picked or dropped there is

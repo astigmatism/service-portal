@@ -24,7 +24,7 @@
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
 #app{display:flex;flex-direction:column;height:100vh}
-header{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgb(var(--header-a-rgb)),rgb(var(--header-b-rgb)));min-height:52px;flex-wrap:wrap}
+header{position:relative;z-index:20;display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgb(var(--header-a-rgb)),rgb(var(--header-b-rgb)));min-height:52px;flex-wrap:wrap}
 .title{font-size:17px;font-weight:650;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .logo{width:24px;height:24px;flex:none}
 .sub{color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -78,12 +78,43 @@ header{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:
 .seg-btn + .seg-btn{border-left:1px solid var(--line)}
 .seg-btn:hover{color:var(--text)}
 .seg-btn.active{color:var(--text);background:rgb(var(--hover-rgb))}
-/* Icon-only wallpaper stepper, left of the layout switch. Stays subtle:
-   muted at rest, dimmed (same .45 disabled language as .ctlbtn) at the
-   ends of the collection. */
+/* Icon-only header buttons (the wallpaper shuffle). Stays subtle: muted at
+   rest, dimmed (same .45 disabled language as .ctlbtn) when there is
+   nothing to do. */
 .seg-arrow{padding:7px 9px}
 .seg-arrow:disabled{opacity:.45;cursor:default}
 .seg-arrow:disabled:hover{color:var(--muted)}
+/* Header slot picker: a menu button naming the active slot (unnamed slots
+   read as an italic "Slot N"), next to the shuffle button in one segmented
+   group. The menu lives outside .seg — the group clips to its rounded
+   corners — and lists every slot with a lazily loaded thumbnail and its
+   wallpaper count; the active slot carries the check + accent ring. */
+.slot-pick{position:relative;display:inline-flex}
+.slot-btn{max-width:230px;color:var(--text)}
+.slot-btn-icon{flex:none;color:var(--muted)}
+.slot-btn-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.slot-btn-name.unnamed,.slot-opt-name.unnamed{color:var(--muted);font-style:italic}
+.slot-btn-chev{flex:none;opacity:.75;transition:transform .15s}
+.slot-btn[aria-expanded=true]{background:rgb(var(--hover-rgb))}
+.slot-btn[aria-expanded=true] .slot-btn-chev{transform:rotate(180deg)}
+.slot-btn:disabled{cursor:default;opacity:.6}
+.slot-btn:disabled:hover{color:var(--text)}
+.slot-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:55;width:270px;max-width:calc(100vw - 24px);max-height:min(60vh,420px);overflow-y:auto;margin:0;padding:6px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,.55);font-size:13px}
+.slot-menu.align-right{left:auto;right:0}
+.slot-menu-head{font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);padding:4px 8px 6px}
+.slot-opt{display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:7px;cursor:pointer;color:var(--text);outline:none}
+.slot-opt:focus{background:rgb(var(--hover-rgb))}
+.slot-opt-check{width:14px;height:14px;flex:none;display:inline-flex;align-items:center;justify-content:center}
+/* The check is drawn, not a glyph — no font dependency. */
+.slot-opt[aria-checked=true] .slot-opt-check::before{content:'';width:9px;height:5px;margin-bottom:3px;border-left:2px solid var(--accent);border-bottom:2px solid var(--accent);transform:rotate(-45deg)}
+.slot-opt-thumb{width:40px;height:26px;flex:none;border:1px solid var(--line);border-radius:5px;overflow:hidden;background:rgb(var(--panel-2-rgb))}
+.slot-opt-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.slot-opt[aria-checked=true] .slot-opt-thumb{border-color:var(--accent);box-shadow:0 0 0 1.5px var(--accent)}
+.slot-opt-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.slot-opt-count{flex:none;color:var(--muted);font-size:11.5px;font-variant-numeric:tabular-nums}
+.slot-menu-sep{height:1px;background:var(--line);margin:6px 2px}
+.slot-opt-manage{color:var(--muted)}
+.slot-opt-manage svg{flex:none;margin:0 12px 0 34px}
 body[data-layout="sidebar"] #listView{display:flex;gap:18px;overflow:hidden}
 body[data-layout="sidebar"] #empty{flex:1}
 #sidebar{position:relative;display:flex;flex-direction:column;align-self:flex-start;flex:0 1 calc(100%/3);min-width:280px;max-width:720px;min-height:0;max-height:100%;background:rgba(var(--panel-rgb),var(--sp-list-alpha,1));border:1px solid var(--line);border-radius:12px;overflow:hidden}
@@ -169,6 +200,14 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
 .sp-row{display:flex;gap:8px;margin:10px 0}
 .sp-label{display:block;font-size:12.5px;color:var(--muted);margin:14px 0 2px}
 .sp-reset-row{display:flex;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+/* Slot name: a labelled text field at the top of the Slots group. */
+.sp-field{display:flex;align-items:center;gap:8px;margin:8px 0 0}
+.sp-field-label{flex:none;width:42px;font-size:12.5px;color:var(--muted)}
+.sp-input{flex:1;min-width:0;appearance:none;border:1px solid var(--line);background:rgb(var(--panel-2-rgb));color:var(--text);border-radius:8px;padding:6px 10px;font:inherit;font-size:13px;outline:none}
+.sp-input::placeholder{color:var(--muted);font-style:italic}
+.sp-input:focus{border-color:var(--accent)}
+.sp-input:disabled{opacity:.45;cursor:default}
+.sp-field-hint{font-size:11.5px;color:var(--muted);margin:3px 0 0 50px}
 /* Thumbnail strip: one item per wallpaper of the active slot. The item on
    screen gets the accent ring; the × sits over its corner and removes just
    that wallpaper. */
@@ -218,16 +257,26 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
     <div class="title" id="title">{{PORTAL_TITLE}}</div>
     <div class="sub" id="meta">loading&hellip;</div>
     <div class="spacer"></div>
-    <div class="seg" role="group" aria-label="Background image">
-      <button id="bgPrev" class="seg-btn seg-arrow" type="button" title="Previous slot (re-rolls a random wallpaper of it)" aria-label="Previous slot">
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
-      </button>
-      <button id="bgShuffle" class="seg-btn seg-arrow" type="button" title="Show another random wallpaper in this slot" aria-label="Shuffle wallpaper in this slot">
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h2c4 0 6 10 10 10h4"></path><path d="M17 14l3 3-3 3"></path><path d="M4 17h2c4 0 6-10 10-10h4"></path><path d="M17 4l3 3-3 3"></path></svg>
-      </button>
-      <button id="bgNext" class="seg-btn seg-arrow" type="button" title="Next slot (re-rolls a random wallpaper of it)" aria-label="Next slot">
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
-      </button>
+    <div class="slot-pick" id="bgSlotPick">
+      <div class="seg" role="group" aria-label="Background image">
+        <button id="bgSlot" class="seg-btn slot-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="bgSlotMenu" title="Wallpaper slot — pick one to jump straight to it (re-rolls a random wallpaper of it)">
+          <svg class="slot-btn-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="9" cy="10" r="1.6"></circle><polyline points="21 16 15.5 11 6 20"></polyline></svg>
+          <span id="bgSlotLabel" class="slot-btn-name unnamed">No slots</span>
+          <svg class="slot-btn-chev" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </button>
+        <button id="bgShuffle" class="seg-btn seg-arrow" type="button" title="Show another random wallpaper in this slot" aria-label="Shuffle wallpaper in this slot">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h2c4 0 6 10 10 10h4"></path><path d="M17 14l3 3-3 3"></path><path d="M4 17h2c4 0 6-10 10-10h4"></path><path d="M17 4l3 3-3 3"></path></svg>
+        </button>
+      </div>
+      <div id="bgSlotMenu" class="slot-menu hidden" role="menu" aria-label="Wallpaper slots">
+        <div class="slot-menu-head" aria-hidden="true">Wallpaper slots</div>
+        <div id="bgSlotList" role="group" aria-label="Slots"></div>
+        <div class="slot-menu-sep" role="separator"></div>
+        <div id="bgSlotManage" class="slot-opt slot-opt-manage" role="menuitem" tabindex="-1" title="Open Appearance to name, add, remove and reorder slots">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
+          <span class="slot-opt-name">Name &amp; manage slots&hellip;</span>
+        </div>
+      </div>
     </div>
     <div class="seg" role="group" aria-label="List layout">
       <button id="layoutTable" class="seg-btn" type="button" aria-pressed="true" title="Full table — service, image, ports, status">
@@ -314,6 +363,11 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
     <div id="spThumbs" class="sp-thumbs"></div>
   </div>
   <span class="sp-label">Slots</span>
+  <div class="sp-field">
+    <label class="sp-field-label" for="spSlotName">Name</label>
+    <input type="text" id="spSlotName" class="sp-input" maxlength="60" placeholder="No slot" spellcheck="false" autocomplete="off" title="This slot's name, shown in the header slot menu — saved when you press Enter or leave the field; Esc reverts. Leave it empty for the default &ldquo;Slot N&rdquo;." disabled>
+  </div>
+  <div class="sp-field-hint">Enter saves &middot; Esc reverts</div>
   <div class="sp-row">
     <button id="spAddSlot" class="btn" type="button" title="Append an empty wallpaper slot and switch to it (fill it with an upload)">Add</button>
     <button id="spRemoveSlot" class="btn" type="button" title="Delete this slot and every wallpaper in it (the pointer moves to the previous slot)">Remove</button>
@@ -1140,10 +1194,12 @@ let refreshActivity = () => {};
    DELETE /api/appearance/slots/<id>, POST
    /api/appearance/slots/<id>/wallpapers, GET/PUT/DELETE
    /api/appearance/wallpapers[/<id>]), shared by every client on the
-   network. A slot holds one or more wallpapers. The server tracks the
+   network. A slot holds one or more wallpapers and an optional name (set
+   in the panel's Name field via PUT /api/appearance/slots/<id>; unnamed
+   slots read as "Slot N"). The server tracks the
    active *slot* only; which wallpaper of the active slot is displayed is a
    per-browser random roll, re-rolled on every page refresh and on every
-   slot navigation (toolbar stepper or panel prev/next), so a page visit
+   slot navigation (header slot menu or panel prev/next), so a page visit
    can show any wallpaper of the slot. The displayed wallpaper carries its
    own sampled accent + darkness (the theme follows what is on screen); the
    styling sliders stay global to the portal. Uploads land in the active
@@ -1267,8 +1323,8 @@ let refreshActivity = () => {};
   }
 
   const DEFAULTS = {
-    slots: [],                // the ordered collection: [{ id, wallpapers: [{ id, type, imageDark, accent, accentTouched }] }]
-    activeSlotId: null,       // the slot the stepper is parked on (an id into slots)
+    slots: [],                // the ordered collection: [{ id, name, wallpapers: [{ id, type, imageDark, accent, accentTouched }] }]
+    activeSlotId: null,       // the slot the header menu is parked on (an id into slots)
     // (which wallpaper of the active slot is displayed is a per-browser
     //  random roll — see displayedId below; the background origin is per
     //  wallpaper + per client: positionMap in localStorage, not a shared
@@ -1321,6 +1377,7 @@ let refreshActivity = () => {};
     resetColors: $id('spResetColors'),
     addSlot: $id('spAddSlot'),
     removeSlot: $id('spRemoveSlot'),
+    slotName: $id('spSlotName'),
     moveUp: $id('spMoveUp'),
     moveDown: $id('spMoveDown'),
     thumbsWrap: $id('spThumbsWrap'),
@@ -1336,11 +1393,16 @@ let refreshActivity = () => {};
     navCount: $id('spNavCount'),
     status: $id('spStatus')
   };
-  /* Header controls stay mounted: arrows walk slots, while shuffle rolls a
-     different wallpaper in the active slot when it has multiple choices. */
-  const bgPrev = $id('bgPrev');
+  /* Header controls stay mounted: the slot menu button names the active slot
+     and jumps straight to any other, while shuffle rolls a different
+     wallpaper in the active slot when it has multiple choices. */
+  const bgSlotPick = $id('bgSlotPick');
+  const bgSlot = $id('bgSlot');
+  const bgSlotLabel = $id('bgSlotLabel');
+  const bgSlotMenu = $id('bgSlotMenu');
+  const bgSlotList = $id('bgSlotList');
+  const bgSlotManage = $id('bgSlotManage');
   const bgShuffle = $id('bgShuffle');
-  const bgNext = $id('bgNext');
 
   /* ---- the displayed wallpaper: a per-browser random roll of the active
          slot. It is local to this page visit — never persisted, never sent
@@ -1385,6 +1447,23 @@ let refreshActivity = () => {};
       accentTouched: w.accentTouched === true || w.accentTouched === 1
     };
   }
+  /* A slot's display name, normalized exactly like the server's
+     sanitizeSlotName (which stays authoritative): control and bidi-override
+     characters become spaces, whitespace runs collapse, the ends are
+     trimmed, capped at SLOT_NAME_MAX code points. '' = unnamed. */
+  const SLOT_NAME_MAX = 60;
+  function cleanSlotName(raw) {
+    if (typeof raw !== 'string') return '';
+    const flat = raw
+      .replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return Array.from(flat).slice(0, SLOT_NAME_MAX).join('').trim();
+  }
+  /* What the header menu and panel call a slot: its name, or "Slot N" by
+     its current position when it has none. */
+  const slotLabel = (slot, idx) => (slot && slot.name) || 'Slot ' + (idx + 1);
+
   function sanitizeSettings(raw) {
     const slots = [];
     const seen = {};
@@ -1392,7 +1471,7 @@ let refreshActivity = () => {};
       const clean = sanitizeWallpaperShape(w);
       if (!clean || seen[clean.id]) return;
       seen[clean.id] = true;
-      slots.push({ id: 'legacy-slot-' + clean.id, wallpapers: [clean] });
+      slots.push({ id: 'legacy-slot-' + clean.id, name: '', wallpapers: [clean] });
     };
     if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
       if (Array.isArray(raw.slots)) {
@@ -1408,7 +1487,7 @@ let refreshActivity = () => {};
               wallpapers.push(clean);
             }
           }
-          slots.push({ id: slot.id, wallpapers });
+          slots.push({ id: slot.id, name: cleanSlotName(slot.name), wallpapers });
         }
       } else if (Array.isArray(raw.wallpapers)) {
         for (const w of raw.wallpapers) pushWallpaper(w);
@@ -1892,6 +1971,16 @@ let refreshActivity = () => {};
   let positionDirty = false;
   const thumbNodes = new Map();
   const previewTokens = new WeakMap();
+  /* Slot-name editing: whether the panel's Name field is being edited (so
+     syncPanel leaves the draft alone) and which slot it is editing — fixed
+     at focus time, so a save always lands on the slot you were typing for. */
+  let nameEditing = false;
+  let nameEditSlotId = null;
+  /* Header slot menu: open state, its focusable items (one per slot, then
+     "Name & manage slots…") and the index of the focused one. */
+  let slotMenuOpen = false;
+  let slotMenuItems = [];
+  let slotMenuFocus = -1;
 
   function cancelSliderFrame() {
     if (sliderFrame) cancelAnimationFrame(sliderFrame);
@@ -2340,9 +2429,7 @@ let refreshActivity = () => {};
     els.nav.classList.toggle('hidden', list.length === 0);
     els.prev.disabled = idx <= 0;
     els.next.disabled = idx === -1 || idx >= list.length - 1;
-    bgPrev.disabled = idx <= 0;
     bgShuffle.disabled = !list[idx] || list[idx].wallpapers.length < 2;
-    bgNext.disabled = idx === -1 || idx >= list.length - 1;
     els.navCount.textContent = list.length ? (idx + 1) + ' of ' + list.length : 'none';
     els.remove.disabled = idx === -1 || !list[idx] || list[idx].wallpapers.length === 0;
     els.reset.disabled = isDefault();
@@ -2350,6 +2437,16 @@ let refreshActivity = () => {};
     els.removeSlot.disabled = idx === -1;
     els.moveUp.disabled = idx <= 0;
     els.moveDown.disabled = idx === -1 || idx >= list.length - 1;
+    /* The Name field edits the active slot. A draft being typed is left
+       alone — unless the active slot itself changed underneath it. */
+    const activeId = idx === -1 ? null : list[idx].id;
+    els.slotName.disabled = idx === -1;
+    els.slotName.placeholder = idx === -1 ? 'No slot' : 'Slot ' + (idx + 1);
+    if (!nameEditing || nameEditSlotId !== activeId) {
+      els.slotName.value = idx === -1 ? '' : list[idx].name || '';
+      nameEditSlotId = activeId;
+    }
+    renderSlotPicker();
     renderSlotThumbs();
   }
 
@@ -2367,22 +2464,30 @@ let refreshActivity = () => {};
     if (e.key === 'Escape' && panelOpen()) openPanel(false);
   });
 
-  /* Walk the slot collection: previous disabled on the first slot, next
-     disabled on the last — both stay visible, dimmed like the move buttons.
-     Every step re-rolls the random wallpaper of the newly
-     active slot (that's the whole point of multi-wallpaper slots), and the
-     active-slot pointer is persisted immediately (not debounced), so the
-     page always comes back to the slot you left on — with a fresh roll. */
+  /* ---- slot switching: one path for the header slot menu and the panel's
+         prev/next. Every switch re-rolls the random wallpaper of the newly
+         active slot (that's the whole point of multi-wallpaper slots), and
+         the active-slot pointer is persisted immediately (not debounced), so
+         the page always comes back to the slot you left on — with a fresh
+         roll. Picking the slot you are already on is a no-op (shuffle is
+         the re-roll). ---- */
+  function selectSlot(id) {
+    const list = Array.isArray(settings.slots) ? settings.slots : [];
+    if (id === settings.activeSlotId || !list.some((s) => s.id === id)) return;
+    settings.activeSlotId = id;
+    displayedId = null;
+    rollSlot(settings);
+    commit(true);
+  }
+  /* Panel prev/next: previous disabled on the first slot, next disabled on
+     the last — both stay visible, dimmed like the move buttons. */
   function stepSlot(delta) {
     const list = Array.isArray(settings.slots) ? settings.slots : [];
     if (!list.length) return;
     const idx = settings.activeSlotId ? list.findIndex((s) => s.id === settings.activeSlotId) : -1;
     const target = idx + delta;
     if (target < 0 || target >= list.length) return;
-    settings.activeSlotId = list[target].id;
-    displayedId = null;
-    rollSlot(settings);
-    commit(true);
+    selectSlot(list[target].id);
   }
   function shuffleWallpaper() {
     const slot = activeSlot(settings);
@@ -2395,9 +2500,217 @@ let refreshActivity = () => {};
   }
   els.prev.addEventListener('click', () => stepSlot(-1));
   els.next.addEventListener('click', () => stepSlot(1));
-  bgPrev.addEventListener('click', () => stepSlot(-1));
   bgShuffle.addEventListener('click', shuffleWallpaper);
-  bgNext.addEventListener('click', () => stepSlot(1));
+
+  /* ---- header slot picker: a menu button naming the active slot, and a
+         menu listing every slot (thumbnail, name or "Slot N", wallpaper
+         count; the active one checked) plus "Name & manage slots…", which
+         opens the panel on the Name field. Thumbnails load only while the
+         menu is open — the active slot shows the wallpaper on screen, the
+         others their first wallpaper. Keyboard: ↑/↓ (wrapping), Home/End,
+         Enter/Space to pick, Esc to close (without also closing the
+         Appearance panel); focus leaving the picker or a click outside it
+         closes the menu. ---- */
+  function renderSlotPicker() {
+    const list = Array.isArray(settings.slots) ? settings.slots : [];
+    const idx = settings.activeSlotId ? list.findIndex((s) => s.id === settings.activeSlotId) : -1;
+    const slot = idx === -1 ? null : list[idx];
+    const label = slot ? slotLabel(slot, idx) : 'No slots';
+    bgSlotLabel.textContent = label;
+    bgSlotLabel.classList.toggle('unnamed', !slot || !slot.name);
+    bgSlot.disabled = list.length === 0;
+    bgSlot.title = slot
+      ? 'Wallpaper slot: ' + label + ' — pick one to jump straight to it (re-rolls a random wallpaper of it)'
+      : 'No wallpaper slots yet — add one in Appearance';
+    bgSlot.setAttribute('aria-label', slot ? 'Wallpaper slot: ' + label : 'No wallpaper slots');
+    if (slotMenuOpen) {
+      if (list.length) renderSlotMenu();
+      else closeSlotMenu(false);
+    }
+  }
+
+  function renderSlotMenu() {
+    const list = Array.isArray(settings.slots) ? settings.slots : [];
+    const shown = displayedWallpaper(settings);
+    bgSlotList.textContent = '';
+    slotMenuItems = [];
+    list.forEach((slot, i) => {
+      const active = slot.id === settings.activeSlotId;
+      const wps = Array.isArray(slot.wallpapers) ? slot.wallpapers : [];
+      const label = slotLabel(slot, i);
+      const item = document.createElement('div');
+      item.className = 'slot-opt';
+      item.setAttribute('role', 'menuitemradio');
+      item.setAttribute('aria-checked', String(active));
+      item.tabIndex = -1;
+      item.title = label;
+      const check = document.createElement('span');
+      check.className = 'slot-opt-check'; // drawn by CSS on [aria-checked=true]
+      check.setAttribute('aria-hidden', 'true');
+      const thumb = document.createElement('span');
+      thumb.className = 'slot-opt-thumb';
+      thumb.setAttribute('aria-hidden', 'true');
+      const pick = active && shown ? shown : wps[0];
+      if (pick) {
+        const img = document.createElement('img');
+        img.alt = '';
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        img.addEventListener('error', () => previewFailed(img));
+        thumb.appendChild(img);
+        loadPreview(img, thumbnailUrl(pick.id));
+      }
+      const name = document.createElement('span');
+      name.className = 'slot-opt-name' + (slot.name ? '' : ' unnamed');
+      name.textContent = label;
+      const count = document.createElement('span');
+      count.className = 'slot-opt-count';
+      count.textContent = wps.length ? String(wps.length) : 'empty';
+      count.title = wps.length === 1 ? '1 wallpaper' : wps.length + ' wallpapers';
+      item.appendChild(check);
+      item.appendChild(thumb);
+      item.appendChild(name);
+      item.appendChild(count);
+      const index = slotMenuItems.length;
+      const run = () => pickSlotFromMenu(slot.id);
+      item.addEventListener('click', run);
+      item.addEventListener('mouseenter', () => focusSlotMenuItem(index));
+      bgSlotList.appendChild(item);
+      slotMenuItems.push({ el: item, run });
+    });
+    slotMenuItems.push({ el: bgSlotManage, run: manageSlots });
+  }
+
+  function focusSlotMenuItem(i) {
+    const n = slotMenuItems.length;
+    if (!n) return;
+    slotMenuFocus = ((i % n) + n) % n;
+    slotMenuItems[slotMenuFocus].el.focus();
+  }
+
+  function openSlotMenu() {
+    const list = Array.isArray(settings.slots) ? settings.slots : [];
+    if (!list.length || slotMenuOpen) return;
+    slotMenuOpen = true;
+    renderSlotMenu();
+    bgSlotMenu.classList.remove('hidden');
+    bgSlot.setAttribute('aria-expanded', 'true');
+    // Keep the menu on screen when the header wraps the picker to the right.
+    bgSlotMenu.classList.remove('align-right');
+    if (typeof bgSlotMenu.getBoundingClientRect === 'function' && window.innerWidth) {
+      if (bgSlotMenu.getBoundingClientRect().right > window.innerWidth - 8) bgSlotMenu.classList.add('align-right');
+    }
+    focusSlotMenuItem(Math.max(0, list.findIndex((s) => s.id === settings.activeSlotId)));
+  }
+
+  function closeSlotMenu(restoreFocus) {
+    if (!slotMenuOpen) return;
+    slotMenuOpen = false;
+    slotMenuFocus = -1;
+    bgSlotMenu.classList.add('hidden');
+    bgSlot.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) bgSlot.focus();
+  }
+
+  function pickSlotFromMenu(id) {
+    closeSlotMenu(true);
+    selectSlot(id);
+  }
+
+  function manageSlots() {
+    closeSlotMenu(false);
+    openPanel(true);
+    if (!els.slotName.disabled) els.slotName.focus();
+  }
+
+  bgSlot.addEventListener('click', () => {
+    if (slotMenuOpen) closeSlotMenu(false);
+    else openSlotMenu();
+  });
+  bgSlot.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      openSlotMenu();
+    } else if (e.key === 'Escape' && slotMenuOpen) {
+      e.preventDefault();
+      e.stopPropagation();
+      closeSlotMenu(true);
+    }
+  });
+  bgSlotMenu.addEventListener('keydown', (e) => {
+    const k = e.key;
+    if (k === 'ArrowDown') { e.preventDefault(); focusSlotMenuItem(slotMenuFocus + 1); }
+    else if (k === 'ArrowUp') { e.preventDefault(); focusSlotMenuItem(slotMenuFocus - 1); }
+    else if (k === 'Home') { e.preventDefault(); focusSlotMenuItem(0); }
+    else if (k === 'End') { e.preventDefault(); focusSlotMenuItem(slotMenuItems.length - 1); }
+    else if (k === 'Enter' || k === ' ') {
+      e.preventDefault();
+      const item = slotMenuItems[slotMenuFocus];
+      if (item) item.run();
+    } else if (k === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation(); // the Appearance panel stays open
+      closeSlotMenu(true);
+    }
+  });
+  bgSlotManage.addEventListener('click', manageSlots);
+  bgSlotManage.addEventListener('mouseenter', () => focusSlotMenuItem(slotMenuItems.length - 1));
+  bgSlotPick.addEventListener('focusout', (e) => {
+    if (slotMenuOpen && e.relatedTarget && !bgSlotPick.contains(e.relatedTarget)) closeSlotMenu(false);
+  });
+  document.addEventListener('pointerdown', (e) => {
+    if (slotMenuOpen && !bgSlotPick.contains(e.target)) closeSlotMenu(false);
+  });
+
+  /* ---- slot name (panel): saves on change — Enter, or leaving the field —
+         through PUT /api/appearance/slots/<id>; Esc restores the stored name
+         without saving and keeps the panel open. The save targets the slot
+         whose name the field was showing when editing began. A rename needs
+         no settings PUT (it changes neither the sliders nor the pointer). On
+         failure the status line says so and the field falls back to the
+         stored name. ---- */
+  function renameSlot() {
+    const id = nameEditSlotId;
+    const list = Array.isArray(settings.slots) ? settings.slots : [];
+    const slot = list.find((s) => s.id === id);
+    if (!slot) return;
+    const name = cleanSlotName(els.slotName.value);
+    els.slotName.value = name;
+    if (name === (slot.name || '')) return;
+    setStatus('');
+    fetch(SLOTS_URL + '/' + encodeURIComponent(id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    }).then((r) => {
+      if (!r.ok) throw new Error('rename failed (HTTP ' + r.status + ')');
+      return r.json();
+    }).then((data) => {
+      settings = adoptServerSettings(settings, data);
+      cacheSettings(settings);
+      applyAppearance(settings);
+      syncPanel();
+    }).catch((e) => {
+      setStatus(e && e.message ? e.message : 'could not rename the slot');
+      syncPanel(); // back to the stored name, unless a new draft is being typed
+    });
+  }
+  els.slotName.addEventListener('focus', () => { nameEditing = true; });
+  els.slotName.addEventListener('blur', () => { nameEditing = false; });
+  els.slotName.addEventListener('change', renameSlot);
+  els.slotName.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      els.slotName.blur(); // commits through the change event
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation(); // first Esc reverts, a second one closes the panel
+      const list = Array.isArray(settings.slots) ? settings.slots : [];
+      const slot = list.find((s) => s.id === nameEditSlotId);
+      els.slotName.value = slot ? slot.name || '' : '';
+      els.slotName.blur();
+    }
+  });
 
   els.upload.addEventListener('click', () => els.file.click());
   els.file.addEventListener('change', () => {

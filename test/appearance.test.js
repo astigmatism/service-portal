@@ -95,6 +95,9 @@ function mkClassList() {
     set: (value) => { set.clear(); String(value).split(/\s+/).filter(Boolean).forEach((c) => set.add(c)); }
   };
 }
+/* Which stub element last received focus() (reset on every boot) — the
+   header slot menu moves real focus between its items. */
+const FOCUS = { last: null };
 function mkEl(id) {
   const el = {
     id,
@@ -134,6 +137,9 @@ function mkEl(id) {
     return c;
   };
   el.removeChild = (c) => { el.children = el.children.filter((x) => x !== c); };
+  el.focus = () => { FOCUS.last = el; };
+  el.blur = () => { if (FOCUS.last === el) FOCUS.last = null; };
+  el.contains = (x) => x === el || el.children.some((c) => c && typeof c.contains === 'function' && c.contains(x));
   return el;
 }
 function mkCanvas() {
@@ -242,7 +248,7 @@ function mkFetch(state) {
 
     if (url === '/api/appearance/slots' && method === 'POST') {
       state.slotPosts += 1;
-      const slot = { id: 'slot-' + String(state.nextSlotId++).padStart(2, '0'), wallpapers: [] };
+      const slot = { id: 'slot-' + String(state.nextSlotId++).padStart(2, '0'), name: '', wallpapers: [] };
       state.settings.slots.push(slot);
       state.settings.activeSlotId = slot.id;
       return respond(200, { ok: true, settings: clone(state.settings) });
@@ -285,6 +291,18 @@ function mkFetch(state) {
           ? state.settings.slots[Math.max(0, idx - 1)].id : null;
         return respond(200, { ok: true, settings: clone(state.settings) });
       }
+      if (method === 'PUT') {
+        // Rename: records what the client sent (it normalizes before
+        // sending), stores it, and leaves the pointer and order alone.
+        const slot = state.settings.slots.find((s) => s.id === sm[1]);
+        if (!slot) return respond(404, {});
+        if (state.failSlotPut) return respond(500, { error: 'boom' });
+        const sent = JSON.parse(opts.body);
+        if (!sent || typeof sent.name !== 'string') return respond(400, {});
+        state.slotRenames.push({ slotId: sm[1], name: sent.name });
+        slot.name = sent.name.replace(/\s+/g, ' ').trim().slice(0, 60);
+        return respond(200, { ok: true, slot: clone(slot), settings: clone(state.settings) });
+      }
       return respond(405, {});
     }
 
@@ -321,7 +339,7 @@ function mkFetch(state) {
       });
       let slot = state.settings.slots.find((s) => s.id === state.settings.activeSlotId);
       if (!slot) {
-        slot = { id: 'slot-' + String(state.nextSlotId++).padStart(2, '0'), wallpapers: [] };
+        slot = { id: 'slot-' + String(state.nextSlotId++).padStart(2, '0'), name: '', wallpapers: [] };
         state.settings.slots.push(slot);
         state.settings.activeSlotId = slot.id;
       }
@@ -392,22 +410,27 @@ function boot(bitmapFactory, serverSettings, preLS, seed, options = {}) {
   const elements = {};
   const getEl = (id) => (elements[id] = elements[id] || mkEl(id));
   const body = getEl('body');
+  const docListeners = {};
+  FOCUS.last = null;
   const documentStub = {
     body,
     getElementById: getEl,
     createElement: (tag) => (tag === 'canvas' ? mkCanvas() : mkEl('anon')),
-    addEventListener: () => {}
+    addEventListener: (type, fn) => { (docListeners[type] = docListeners[type] || []).push(fn); }
   };
   const ss = serverSettings || {};
   const fetchState = {
     settings: {
       ...SERVER_DEFAULTS,
       ...ss,
-      slots: Array.isArray(ss.slots) ? clone(ss.slots) : []
+      // Same shape the real server returns: every slot carries a name.
+      slots: Array.isArray(ss.slots)
+        ? clone(ss.slots).map((s) => ({ id: s.id, name: typeof s.name === 'string' ? s.name : '', wallpapers: s.wallpapers }))
+        : []
     },
     blobs: new Map(),
     putBodies: [], posts: [], deletes: [], deletesAll: 0, metaPuts: [],
-    slotPosts: 0, slotWipes: 0, slotDeletes: [], slotMoves: [], slotWpPosts: [],
+    slotPosts: 0, slotWipes: 0, slotDeletes: [], slotMoves: [], slotWpPosts: [], slotRenames: [],
     nextId: 1, nextSlotId: 1
   };
   fetchState.confirmResult = true;
@@ -457,10 +480,27 @@ function boot(bitmapFactory, serverSettings, preLS, seed, options = {}) {
   sandbox.window = sandbox;
   sandbox.addEventListener = () => {};
   getEl('appearancePanel').classList.add('hidden');
+  getEl('bgSlotMenu').classList.add('hidden'); // as in the markup: the menu starts closed
   if (preLS) for (const [k, v] of Object.entries(preLS)) sandbox.localStorage.setItem(k, v);
   vm.createContext(sandbox);
   vm.runInContext(code, sandbox);
-  return { elements, body, fetchState, localStorage: sandbox.localStorage, flushFrames, frames };
+  return { elements, body, fetchState, localStorage: sandbox.localStorage, flushFrames, frames, docListeners, focus: FOCUS };
+}
+
+/* Fire every listener of `type` on a stub element with a minimal event. */
+function fire(el, type, ev) {
+  for (const fn of el.listeners[type] || []) fn(ev || {});
+}
+/* Fire a keydown on a stub element; the returned event records whether
+   the handlers prevented the default or stopped propagation. */
+function key(el, k) {
+  const ev = {
+    key: k, defaultPrevented: false, propagationStopped: false,
+    preventDefault() { this.defaultPrevented = true; },
+    stopPropagation() { this.propagationStopped = true; }
+  };
+  fire(el, 'keydown', ev);
+  return ev;
 }
 
 /* Fire the file input's change listener with the given fake file(s). */
@@ -583,7 +623,11 @@ for (const needle of [
   'rgb(var(--header-a-rgb))', 'rgb(var(--panel-2-rgb))', 'rgb(var(--hover-rgb))',
   'border:1px solid var(--selftag-line)',
   'id="spNav"', 'id="spPrev"', 'id="spNext"', 'id="spNavCount"',
-  'id="bgPrev"', 'id="bgShuffle"', 'id="bgNext"', '.seg-arrow{',
+  'id="bgSlotPick"', 'id="bgSlot"', 'id="bgSlotLabel"', 'id="bgSlotMenu"', 'id="bgSlotList"', 'id="bgSlotManage"',
+  'aria-haspopup="menu"', 'role="menu"', '.slot-menu{', '.slot-opt{', '.slot-btn-name.unnamed',
+  '.slot-opt[aria-checked=true] .slot-opt-check::before{',
+  'id="bgShuffle"', '.seg-arrow{', 'header{position:relative;z-index:20;',
+  'id="spSlotName"', '.sp-input{', 'maxlength="60"',
   '.sp-nav{', 'accept="image/jpeg,image/png,image/webp,image/gif,image/avif,application/zip,application/x-zip-compressed,.zip" multiple>',
   'Drop images or a .zip of images here, or', "new DecompressionStream('deflate-raw')",
   'id="spPosGrid"', 'id="spPos-br"', '.sp-pos{', '.sp-pos:disabled{', 'id="spPosX"', 'id="spPosY"',
@@ -596,9 +640,15 @@ for (const needle of [
 ]) {
   assert.ok(html.includes(needle), 'index.html missing: ' + needle);
 }
-assert.ok(html.indexOf('id="bgPrev"') < html.indexOf('id="bgShuffle"') &&
-  html.indexOf('id="bgShuffle"') < html.indexOf('id="bgNext"'),
-  'shuffle sits between the header slot arrows');
+for (const gone of ['id="bgPrev"', 'id="bgNext"']) {
+  assert.ok(!html.includes(gone), 'the header slot arrows are replaced by the slot menu: ' + gone);
+}
+assert.ok(html.indexOf('id="bgSlot"') < html.indexOf('id="bgShuffle"') &&
+  html.indexOf('id="bgShuffle"') < html.indexOf('id="bgSlotMenu"'),
+  'the slot menu button and shuffle share one group; the menu sits after it');
+assert.ok(html.indexOf('<span class="sp-label">Slots</span>') < html.indexOf('id="spSlotName"') &&
+  html.indexOf('id="spSlotName"') < html.indexOf('id="spAddSlot"'),
+  'the Name field heads the Slots group');
 
 /* ------------------------------------------------------------------ */
 /* Real-server helper (used by the protocol + migration scenarios).   */
@@ -1087,55 +1137,143 @@ function spawnServer(dataDir, port) {
     }
   }
 
-  /* ---- Scenario 14: header stepper — walks the slots, dims at the ends,
-     no-op on empty. The header arrows stay mounted at all times; only
-     their disabled state tracks the active slot. ---- */
+  /* ---- Scenario 14: header slot menu — names the active slot (unnamed:
+     "Slot N"), lists every slot with thumbnail + count, jumps straight to
+     any slot (skipping the ones between), re-rolls and persists right away,
+     is keyboard-driven, closes on Esc / outside click without closing the
+     Appearance panel, and is inert with no slots. ---- */
   {
-    const mk = (id, accent) => ({
-      id, wallpapers: [{ id: id + '-wp', type: 'image/png', imageDark: true, accent, accentTouched: true }]
+    const mk = (id, name, accent) => ({
+      id, name, wallpapers: [{ id: id + '-wp', type: 'image/png', imageDark: true, accent, accentTouched: true }]
     });
     const slots = [
-      mk('11111111-1111-4111-8111-111111111111', '#b03b3b'),
-      mk('22222222-2222-4222-8222-222222222222', '#3b3bb0'),
-      mk('33333333-3333-4333-8333-333333333333', '#3bb05e')
+      mk('11111111-1111-4111-8111-111111111111', 'Sunsets', '#b03b3b'),
+      mk('22222222-2222-4222-8222-222222222222', '', '#3b3bb0'),
+      mk('33333333-3333-4333-8333-333333333333', 'Forest', '#3bb05e')
     ];
     const t = boot(() => makeBitmap(1, 1, () => [128, 128, 128]),
       { slots, activeSlotId: slots[1].id });
     await sleep(30); // let the startup fetch settle
+    const E = t.elements;
+    const menuOpen = () => !E.bgSlotMenu.classList.contains('hidden');
+    const lastPut = () => t.fetchState.putBodies[t.fetchState.putBodies.length - 1];
     assert.strictEqual(t.body.style.props['--sp-bg-image'],
       'url("/api/appearance/wallpapers/' + slots[1].wallpapers[0].id + '")', 'boots on the middle slot pick');
-    assert.ok(!t.elements.bgPrev.disabled, 'header previous enabled in the middle');
-    assert.ok(!t.elements.bgNext.disabled, 'header next enabled in the middle');
-    assert.ok(t.elements.bgShuffle.disabled, 'shuffle dimmed for a single-wallpaper slot');
+    assert.strictEqual(E.bgSlotLabel.textContent, 'Slot 2', 'an unnamed slot reads as "Slot N"');
+    assert.ok(E.bgSlotLabel.classList.contains('unnamed'), 'the fallback label is styled as a placeholder');
+    assert.ok(!E.bgSlot.disabled, 'the menu button is live with slots');
+    assert.ok(E.bgShuffle.disabled, 'shuffle dimmed for a single-wallpaper slot');
+    assert.ok(!menuOpen(), 'the menu starts closed');
+    assert.strictEqual(E.bgSlotList.children.length, 0, 'a closed menu builds no rows (and loads no thumbnails)');
 
-    click(t.elements, 'bgPrev');
-    await sleep(400);
-    assert.strictEqual(t.fetchState.settings.activeSlotId, slots[0].id, 'header previous steps back a slot');
-    assert.strictEqual(t.body.style.props['--accent'], '#b03b3b', 'theme follows the header step');
-    assert.ok(t.elements.bgPrev.disabled, 'header previous dimmed on the first');
-    assert.ok(!t.elements.bgNext.disabled, 'header next still enabled on the first');
-    assert.strictEqual(t.fetchState.putBodies[t.fetchState.putBodies.length - 1].activeSlotId, slots[0].id,
-      'header step persisted immediately');
+    // Open: every slot in order, the active one checked, thumbnails + counts.
+    click(E, 'bgSlot');
+    assert.ok(menuOpen(), 'clicking the button opens the menu');
+    assert.strictEqual(E.bgSlot.attrs['aria-expanded'], 'true');
+    let rows = E.bgSlotList.children;
+    assert.strictEqual(rows.length, 3, 'one row per slot');
+    assert.deepStrictEqual(rows.map((r) => r.children[2].textContent), ['Sunsets', 'Slot 2', 'Forest'], 'names, with the fallback');
+    assert.ok(rows[1].children[2].className.includes('unnamed') && !rows[0].children[2].className.includes('unnamed'));
+    assert.deepStrictEqual(rows.map((r) => r.attrs.role), ['menuitemradio', 'menuitemradio', 'menuitemradio']);
+    assert.deepStrictEqual(rows.map((r) => r.attrs['aria-checked']), ['false', 'true', 'false'], 'the active slot is checked');
+    assert.deepStrictEqual(rows.map((r) => r.children[0].className), ['slot-opt-check', 'slot-opt-check', 'slot-opt-check'],
+      'every row has the check cell (CSS draws it on the checked one)');
+    assert.deepStrictEqual(rows.map((r) => r.children[3].textContent), ['1', '1', '1'], 'wallpaper counts');
+    rows.forEach((r, i) => assert.strictEqual(r.children[1].children[0].src,
+      '/api/appearance/wallpapers/' + slots[i].wallpapers[0].id + '/thumbnail', 'row ' + i + ' previews its slot'));
+    assert.strictEqual(t.focus.last, rows[1], 'opening focuses the active slot');
 
-    click(t.elements, 'bgNext');
-    await sleep(400);
-    click(t.elements, 'bgNext');
-    await sleep(400);
-    assert.strictEqual(t.fetchState.settings.activeSlotId, slots[2].id, 'header next steps forward to the last');
-    assert.ok(!t.elements.bgPrev.disabled, 'header previous enabled off the last');
-    assert.ok(t.elements.bgNext.disabled, 'header next dimmed on the last');
+    // Picking the slot you are on: closes, saves nothing, keeps the pick.
+    const putsBefore = t.fetchState.putBodies.length;
+    rows[1].listeners.click[0]();
+    await sleep(50);
+    assert.ok(!menuOpen(), 'picking closes the menu');
+    assert.strictEqual(E.bgSlot.attrs['aria-expanded'], 'false');
+    assert.strictEqual(t.focus.last, E.bgSlot, 'focus returns to the button');
+    assert.strictEqual(t.fetchState.putBodies.length, putsBefore, 'picking the current slot is a no-op');
 
-    // No slots: both arrows stay mounted and dimmed, and clicking a dimmed
-    // arrow changes nothing.
+    // Jump straight from slot 2 to slot 1, then (by keyboard) to slot 3.
+    click(E, 'bgSlot');
+    E.bgSlotList.children[0].listeners.click[0]();
+    await sleep(400);
+    assert.strictEqual(t.fetchState.settings.activeSlotId, slots[0].id, 'the picked slot becomes active');
+    assert.strictEqual(t.body.style.props['--accent'], '#b03b3b', 'theme follows the pick');
+    assert.strictEqual(lastPut().activeSlotId, slots[0].id, 'the switch is persisted immediately');
+    assert.strictEqual(E.bgSlotLabel.textContent, 'Sunsets', 'the button names the new slot');
+    assert.ok(!E.bgSlotLabel.classList.contains('unnamed'));
+    assert.ok(!menuOpen(), 'the menu closed after the pick');
+
+    // Keyboard: ↓ on the button opens on the active slot; ↓/↑ wrap through
+    // the slots and "Name & manage slots…"; Home/End jump; Enter picks.
+    key(E.bgSlot, 'ArrowDown');
+    assert.ok(menuOpen(), 'arrow down opens the menu');
+    rows = E.bgSlotList.children;
+    assert.strictEqual(t.focus.last, rows[0], 'focus starts on the active slot');
+    key(E.bgSlotMenu, 'ArrowDown');
+    key(E.bgSlotMenu, 'ArrowDown');
+    assert.strictEqual(t.focus.last, rows[2]);
+    key(E.bgSlotMenu, 'ArrowDown');
+    assert.strictEqual(t.focus.last, E.bgSlotManage, 'the manage item follows the slots');
+    key(E.bgSlotMenu, 'ArrowDown');
+    assert.strictEqual(t.focus.last, rows[0], 'arrow down wraps to the top');
+    key(E.bgSlotMenu, 'ArrowUp');
+    assert.strictEqual(t.focus.last, E.bgSlotManage, 'arrow up wraps to the bottom');
+    key(E.bgSlotMenu, 'Home');
+    assert.strictEqual(t.focus.last, rows[0]);
+    key(E.bgSlotMenu, 'End');
+    key(E.bgSlotMenu, 'ArrowUp');
+    assert.strictEqual(t.focus.last, rows[2]);
+    const enter = key(E.bgSlotMenu, 'Enter');
+    assert.ok(enter.defaultPrevented);
+    await sleep(400);
+    assert.strictEqual(t.fetchState.settings.activeSlotId, slots[2].id, 'Enter picks the focused slot');
+    assert.strictEqual(t.body.style.props['--accent'], '#3bb05e');
+    assert.strictEqual(E.bgSlotLabel.textContent, 'Forest');
+    assert.ok(!menuOpen());
+
+    // Esc closes without switching and without closing the Appearance panel.
+    click(E, 'appearanceBtn');
+    assert.ok(!E.appearancePanel.classList.contains('hidden'), 'panel open');
+    key(E.bgSlot, 'ArrowDown');
+    key(E.bgSlotMenu, 'Home');
+    const esc = key(E.bgSlotMenu, 'Escape');
+    assert.ok(esc.propagationStopped, 'Esc stops at the menu, so the panel stays open');
+    assert.ok(!menuOpen(), 'Esc closes the menu');
+    assert.strictEqual(t.focus.last, E.bgSlot, 'Esc returns focus to the button');
+    assert.strictEqual(t.fetchState.settings.activeSlotId, slots[2].id, 'Esc does not switch');
+
+    // A click inside the picker keeps the menu; one outside closes it; the
+    // button toggles it.
+    click(E, 'bgSlot');
+    for (const fn of t.docListeners.pointerdown) fn({ target: E.bgSlotPick });
+    assert.ok(menuOpen(), 'a click inside the picker keeps the menu open');
+    for (const fn of t.docListeners.pointerdown) fn({ target: E.rows });
+    assert.ok(!menuOpen(), 'a click outside closes the menu');
+    click(E, 'bgSlot');
+    click(E, 'bgSlot');
+    assert.ok(!menuOpen(), 'the button toggles the menu closed');
+
+    // "Name & manage slots…" opens the panel on the Name field.
+    click(E, 'appearanceClose');
+    assert.ok(E.appearancePanel.classList.contains('hidden'));
+    click(E, 'bgSlot');
+    E.bgSlotManage.listeners.click[0]();
+    assert.ok(!menuOpen(), 'manage closes the menu');
+    assert.ok(!E.appearancePanel.classList.contains('hidden'), 'manage opens the Appearance panel');
+    assert.strictEqual(t.focus.last, E.spSlotName, 'manage puts the cursor in the Name field');
+
+    // No slots: the button is dimmed, says so, and opens nothing.
     const t2 = boot(() => makeBitmap(1, 1, () => [128, 128, 128]));
     await sleep(30);
-    assert.ok(t2.elements.bgPrev.disabled, 'header previous dimmed with no slots');
+    assert.ok(t2.elements.bgSlot.disabled, 'menu button dimmed with no slots');
+    assert.strictEqual(t2.elements.bgSlotLabel.textContent, 'No slots');
     assert.ok(t2.elements.bgShuffle.disabled, 'shuffle dimmed with no slots');
-    assert.ok(t2.elements.bgNext.disabled, 'header next dimmed with no slots');
-    click(t2.elements, 'bgNext');
+    click(t2.elements, 'bgSlot');
+    key(t2.elements.bgSlot, 'ArrowDown');
+    assert.ok(t2.elements.bgSlotMenu.classList.contains('hidden'), 'nothing opens without slots');
     await sleep(300);
-    assert.strictEqual(t2.fetchState.settings.activeSlotId, null, 'clicking a dimmed arrow changes nothing');
-    console.log('  ok 14. header arrows walk the slots and dim at the ends (and when empty)');
+    assert.strictEqual(t2.fetchState.settings.activeSlotId, null, 'clicking the dimmed button changes nothing');
+    console.log('  ok 14. header slot menu names the slot, jumps straight to any slot, keyboard + dismiss');
   }
 
   /* ---- Scenario 14b: header shuffle picks a different wallpaper from
@@ -1173,6 +1311,119 @@ function spawnServer(dataDir, port) {
     assert.strictEqual(t.fetchState.settings.activeSlotId, slot.id, 'shuffle keeps the same active slot');
     assert.strictEqual(t.fetchState.putBodies.length, putsBefore, 'shuffle does not save a shared setting');
     console.log('  ok 14b. header shuffle randomly selects another wallpaper in the current slot');
+  }
+
+  /* ---- Scenario 14c: naming a slot from the panel's Name field — saved
+     on change (Enter / leaving the field) through the slot endpoint,
+     normalized, no settings PUT; Esc reverts; a draft survives repaints;
+     switching slots swaps in that slot's name; an empty name falls back to
+     "Slot N"; a failed save reverts and reports. ---- */
+  {
+    const mkWp = (id, accent) => ({ id, type: 'image/png', imageDark: true, accent, accentTouched: true });
+    const slotA = { id: 'slot-a', name: '', wallpapers: [mkWp('a1', '#b03b3b')] };
+    const slotB = { id: 'slot-b', name: 'Blues', wallpapers: [mkWp('b1', '#3b3bb0')] };
+    const t = boot(() => makeBitmap(1, 1, () => [128, 128, 128]),
+      { slots: [slotA, slotB], activeSlotId: slotA.id });
+    await sleep(30);
+    const E = t.elements;
+    const field = E.spSlotName;
+    const edit = (value) => { field.focus(); fire(field, 'focus'); field.value = value; };
+    const leave = () => { fire(field, 'change'); fire(field, 'blur'); field.blur(); };
+    assert.ok(!field.disabled, 'the Name field is live with a slot');
+    assert.strictEqual(field.value, '', 'an unnamed slot shows an empty field');
+    assert.strictEqual(field.placeholder, 'Slot 1', 'with its fallback as the placeholder');
+    const putsBefore = t.fetchState.putBodies.length;
+
+    // Type and leave: saved normalized; the header follows; no settings PUT.
+    edit('  Red \t  carpet  ');
+    leave();
+    await sleep(100);
+    assert.deepStrictEqual(t.fetchState.slotRenames, [{ slotId: 'slot-a', name: 'Red carpet' }],
+      'the rename went to the slot endpoint, trimmed and collapsed');
+    assert.strictEqual(t.fetchState.settings.slots[0].name, 'Red carpet', 'stored on the server');
+    assert.strictEqual(field.value, 'Red carpet', 'the field shows the saved name');
+    assert.strictEqual(E.bgSlotLabel.textContent, 'Red carpet', 'the header names the slot');
+    assert.ok(!E.bgSlotLabel.classList.contains('unnamed'));
+    assert.strictEqual(t.fetchState.putBodies.length, putsBefore, 'a rename sends no settings PUT');
+    assert.strictEqual(t.fetchState.settings.activeSlotId, 'slot-a', 'the pointer is untouched');
+    assert.strictEqual(JSON.parse(t.localStorage.getItem('sp-appearance')).slots[0].name, 'Red carpet',
+      'the offline cache carries the name');
+
+    // An unchanged (after normalization) value is not re-sent.
+    edit('Red carpet ');
+    leave();
+    await sleep(50);
+    assert.strictEqual(t.fetchState.slotRenames.length, 1, 'no request for an unchanged name');
+
+    // Enter commits by leaving the field.
+    edit('Evening');
+    const enter = key(field, 'Enter');
+    assert.ok(enter.defaultPrevented, 'Enter is consumed');
+    assert.notStrictEqual(t.focus.last, field, 'Enter leaves the field');
+    leave(); // the browser follows up with change + blur
+    await sleep(100);
+    assert.deepStrictEqual(t.fetchState.slotRenames[1], { slotId: 'slot-a', name: 'Evening' });
+    assert.strictEqual(E.bgSlotLabel.textContent, 'Evening');
+
+    // Esc reverts the draft without saving and keeps the panel open.
+    click(E, 'appearanceBtn');
+    edit('Oops');
+    const esc = key(field, 'Escape');
+    assert.ok(esc.propagationStopped, 'the first Esc stays in the field (the panel stays open)');
+    assert.strictEqual(field.value, 'Evening', 'Esc restores the stored name');
+    fire(field, 'blur');
+    await sleep(50);
+    assert.strictEqual(t.fetchState.slotRenames.length, 2, 'Esc saves nothing');
+    assert.ok(!E.appearancePanel.classList.contains('hidden'));
+
+    // A repaint while typing leaves the draft alone…
+    edit('Draft in progress');
+    click(E, 'spPos-tl'); // setAnchor → commitLocal → syncPanel
+    assert.strictEqual(field.value, 'Draft in progress', 'a repaint does not clobber the draft');
+    // …but a slot switch underneath it (e.g. from another tab — a real click
+    // on › would blur and save first) swaps in that slot's name.
+    click(E, 'spNext');
+    await sleep(400);
+    assert.strictEqual(t.fetchState.settings.activeSlotId, 'slot-b');
+    assert.strictEqual(field.value, 'Blues', 'the field follows the active slot');
+    assert.strictEqual(field.placeholder, 'Slot 2');
+    assert.strictEqual(E.bgSlotLabel.textContent, 'Blues');
+    leave();
+    await sleep(50);
+    assert.strictEqual(t.fetchState.slotRenames.length, 2, 'the abandoned draft was not saved anywhere');
+
+    // Clearing a name falls back to "Slot N".
+    edit('   ');
+    leave();
+    await sleep(100);
+    assert.deepStrictEqual(t.fetchState.slotRenames[2], { slotId: 'slot-b', name: '' }, 'a blank name clears it');
+    assert.strictEqual(E.bgSlotLabel.textContent, 'Slot 2', 'the header falls back to "Slot N"');
+    assert.ok(E.bgSlotLabel.classList.contains('unnamed'));
+    assert.strictEqual(field.value, '');
+
+    // A failed save reports and restores the stored name.
+    t.fetchState.failSlotPut = true;
+    edit('Nope');
+    leave();
+    await sleep(100);
+    assert.match(E.spStatus.textContent, /rename failed \(HTTP 500\)/, 'the failure is reported');
+    assert.strictEqual(field.value, '', 'the field falls back to the stored name');
+    assert.strictEqual(t.fetchState.settings.slots[1].name, '', 'nothing was stored');
+    assert.strictEqual(E.bgSlotLabel.textContent, 'Slot 2');
+    t.fetchState.failSlotPut = false;
+
+    // The menu lists the names it was given.
+    click(E, 'bgSlot');
+    assert.deepStrictEqual(E.bgSlotList.children.map((r) => r.children[2].textContent), ['Evening', 'Slot 2']);
+    key(E.bgSlotMenu, 'Escape');
+
+    // No slot: the field is disabled and empty.
+    const t2 = boot(() => makeBitmap(1, 1, () => [128, 128, 128]));
+    await sleep(30);
+    assert.ok(t2.elements.spSlotName.disabled, 'Name disabled with no slot');
+    assert.strictEqual(t2.elements.spSlotName.placeholder, 'No slot');
+    assert.strictEqual(t2.elements.spSlotName.value, '');
+    console.log('  ok 14c. the panel Name field renames the active slot (normalized, Esc reverts, failures revert)');
   }
 
   /* ---------- Scenario 15: position — per wallpaper, per client ---------
@@ -1830,6 +2081,103 @@ function spawnServer(dataDir, port) {
     assert.equal(t.body.style.props['--sp-bg-opacity'], '0.25');
     assert.equal(JSON.parse(t.localStorage.getItem('sp-appearance')).backgroundOpacity, 0.25);
     console.log('  ok 28. delayed save responses preserve newer slider values');
+  }
+
+  /* ---------- Scenario 29: real server — slot names ----------
+     New slots are unnamed; PUT /slots/<id> stores a sanitized name (trim,
+     collapsed whitespace, control/bidi characters dropped, 60 code points
+     without splitting an emoji) that survives a settings PUT, a move, an
+     upload and a restart; bad requests are refused; a hand-edited
+     non-string name reads as unnamed. */
+  {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sp-appearance-names-'));
+    const port = 18935;
+    let proc = spawnServer(dataDir, port);
+    const base = 'http://127.0.0.1:' + port;
+    try {
+      await waitUp(base);
+      const json = async (r) => ({ status: r.status, body: await r.json() });
+      const get = async () => (await (await fetch(base + '/api/appearance')).json()).settings;
+      const postSlot = async () => (await (await fetch(base + '/api/appearance/slots', { method: 'POST' })).json());
+      const rename = (id, body) => fetch(base + '/api/appearance/slots/' + id, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: typeof body === 'string' ? body : JSON.stringify(body)
+      });
+
+      const created = await postSlot();
+      assert.strictEqual(created.slot.name, '', 'a new slot is unnamed');
+      assert.deepStrictEqual(Object.keys(created.slot), ['id', 'name', 'wallpapers'], 'slot shape');
+      const sA = created.slot.id;
+      const sB = (await postSlot()).slot.id; // B is now active
+
+      let r = await json(await rename(sA, { name: '  Night \u0007  sky\u202e\n ' }));
+      assert.strictEqual(r.status, 200);
+      assert.strictEqual(r.body.slot.name, 'Night sky', 'trimmed, collapsed, control + bidi characters dropped');
+      assert.strictEqual(r.body.settings.slots[0].name, 'Night sky');
+      assert.strictEqual(r.body.settings.activeSlotId, sB, 'renaming does not move the pointer');
+      assert.deepStrictEqual(r.body.settings.slots.map((s) => s.id), [sA, sB], 'renaming does not reorder');
+
+      const long = '🌅'.repeat(70);
+      r = await json(await rename(sB, { name: long }));
+      assert.strictEqual(Array.from(r.body.slot.name).length, 60, 'capped at 60 code points');
+      assert.strictEqual(r.body.slot.name, '🌅'.repeat(60), 'no surrogate pair is split');
+      r = await json(await rename(sB, { name: 'Sunsets' }));
+      assert.strictEqual(r.body.slot.name, 'Sunsets');
+
+      // Errors.
+      assert.strictEqual((await rename('00000000-0000-4000-8000-000000000000', { name: 'x' })).status, 404, 'unknown slot');
+      assert.strictEqual((await rename(sA, 'not json')).status, 400, 'bad JSON');
+      assert.strictEqual((await rename(sA, { name: 5 })).status, 400, 'non-string name');
+      assert.strictEqual((await rename(sA, {})).status, 400, 'missing name');
+      assert.strictEqual((await rename(sA, ['x'])).status, 400, 'array body');
+      // The shared body reader cuts the connection on an oversized body, so a
+      // client may see a reset rather than the 413 — refused either way.
+      const oversized = await rename(sA, { name: 'x'.repeat(5000) }).then((res) => res.status, () => 'reset');
+      assert.ok(oversized === 413 || oversized === 'reset', 'oversized body refused (got ' + oversized + ')');
+      assert.strictEqual((await get()).slots[0].name, 'Night sky', 'failed requests changed nothing');
+
+      // The name rides along through the other slot operations.
+      await fetch(base + '/api/appearance', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scrim: 0.2, activeSlotId: sA, slots: [{ id: sA, name: 'hijack', wallpapers: [] }] })
+      });
+      let s = await get();
+      assert.deepStrictEqual(s.slots.map((x) => x.name), ['Night sky', 'Sunsets'], 'a settings PUT cannot rename');
+      await fetch(base + '/api/appearance/slots/' + sA + '/move', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ delta: 1 })
+      });
+      await fetch(base + '/api/appearance/slots/' + sA + '/wallpapers', {
+        method: 'POST', headers: { 'Content-Type': 'image/png' }, body: Buffer.from('img')
+      });
+      s = await get();
+      assert.deepStrictEqual(s.slots.map((x) => [x.id, x.name]), [[sB, 'Sunsets'], [sA, 'Night sky']],
+        'names survive a move and an upload');
+      assert.strictEqual(s.slots[1].wallpapers.length, 1);
+      const flat = await (await fetch(base + '/api/appearance/wallpapers')).json();
+      assert.deepStrictEqual(flat.slots.map((x) => x.name), ['Sunsets', 'Night sky'], 'the flat view carries names');
+
+      // Clearing.
+      r = await json(await rename(sB, { name: '   ' }));
+      assert.strictEqual(r.body.slot.name, '', 'a blank name clears it');
+
+      // Persisted: a restart reads the names back; a hand-edited non-string
+      // name reads as unnamed.
+      proc.kill();
+      await new Promise((resolve) => proc.once('exit', resolve));
+      const file = path.join(dataDir, 'appearance.json');
+      const onDisk = JSON.parse(fs.readFileSync(file, 'utf8'));
+      assert.deepStrictEqual(onDisk.slots.map((x) => x.name), ['', 'Night sky'], 'names are on disk');
+      onDisk.slots[0].name = { evil: true };
+      fs.writeFileSync(file, JSON.stringify(onDisk));
+      proc = spawnServer(dataDir, port);
+      await waitUp(base);
+      s = await get();
+      assert.deepStrictEqual(s.slots.map((x) => x.name), ['', 'Night sky'], 'names survive a restart; junk reads as unnamed');
+      console.log('  ok 29. real server: slot names are sanitized, validated, persisted and survive slot operations');
+    } finally {
+      proc.kill();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
   }
 
   console.log('all appearance tests passed');
