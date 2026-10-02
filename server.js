@@ -117,6 +117,28 @@ const UPDATE_LABELS = {
 const LIFECYCLE_SERVICES_LABEL = 'io.service-portal.lifecycle.services';
 const MAINTENANCE_LABEL = 'io.service-portal.maintenance';
 const HIDDEN_LABEL = 'io.service-portal.hidden';
+// Update checks (see "Update checks" below): opt-in label, the standard OCI
+// label that records which source revision a running image was built from,
+// and the label that marks the portal's own short-lived check runners.
+const UPDATE_CHECK_LABEL = 'io.service-portal.update.check';
+const REVISION_LABEL = 'org.opencontainers.image.revision';
+const CHECK_RUNNER_LABEL = 'io.service-portal.maintenance.check';
+
+function envNumber(name, fallback, min, max) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
+}
+// 0 turns the periodic schedule off; page-open and post-job checks still run.
+const UPDATE_CHECK_INTERVAL_MINUTES = envNumber('UPDATE_CHECK_INTERVAL_MINUTES', 15, 0, 1440);
+const UPDATE_CHECK_INTERVAL_MS = UPDATE_CHECK_INTERVAL_MINUTES > 0
+  ? Math.max(1, UPDATE_CHECK_INTERVAL_MINUTES) * 60000 : 0;
+const UPDATE_CHECK_MIN_GAP_MS = envNumber('UPDATE_CHECK_MIN_GAP_SECONDS', 60, 0, 3600) * 1000;
+const UPDATE_CHECK_TIMEOUT_MS = envNumber('UPDATE_CHECK_TIMEOUT_SECONDS', 120, 1, 900) * 1000;
+const UPDATE_CHECK_FIRST_TICK_MS = 20000;
+const UPDATE_CHECK_TICK_MS = 60000;
 
 const APPEARANCE_DEFAULTS = {
   slots: [], // ordered collection: [{ id, name, wallpapers: [{ id, type, imageDark, accent, accentTouched }] }]
@@ -505,7 +527,19 @@ function updateCapability(c) {
   if (typeof runnerImage !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,254}$/.test(runnerImage)) return null;
   if (runnerUser && !/^\d+:\d+$/.test(runnerUser)) return null;
   if (runnerHostHome === null) return null;
-  return { project, projectDir, script, runnerImage, runnerUser, runnerHostHome, targetId: c.Id };
+  const check = dockerLabels[UPDATE_CHECK_LABEL] === 'true';
+  return {
+    project, projectDir, script, runnerImage, runnerUser, runnerHostHome, check,
+    deployedRevision: deployedRevision(c), targetId: c.Id,
+  };
+}
+
+/* The source revision the running image was built from, when its build
+   recorded one in the standard OCI label. Anything that is not a plain
+   commit hash (e.g. "development" or an empty label) reads as unknown. */
+function deployedRevision(c) {
+  const value = c && c.Labels && c.Labels[REVISION_LABEL];
+  return typeof value === 'string' && /^[0-9a-f]{7,40}$/i.test(value) ? value.toLowerCase() : '';
 }
 
 function updateCapabilities(containers) {
@@ -523,7 +557,8 @@ function updateCapabilities(containers) {
       existing.script === capability.script &&
       existing.runnerImage === capability.runnerImage &&
       existing.runnerUser === capability.runnerUser &&
-      existing.runnerHostHome === capability.runnerHostHome;
+      existing.runnerHostHome === capability.runnerHostHome &&
+      existing.check === capability.check;
     if (!same) {
       out.delete(capability.project);
       conflicts.add(capability.project);
@@ -814,7 +849,12 @@ function monitorMaintenanceJob(job) {
         console.error('could not remove maintenance runner ' + job.containerId + ': ' + err.message);
       }
     }
-  })().finally(() => maintenanceMonitors.delete(job.id));
+  })().finally(() => {
+    maintenanceMonitors.delete(job.id);
+    // Re-check soon after any project action, so the Update control reflects
+    // the freshly deployed revision instead of waiting for the next interval.
+    scheduleUpdateCheckTick(2000);
+  });
   maintenanceMonitors.set(job.id, monitor);
 }
 
@@ -831,10 +871,72 @@ async function startProjectMaintenance(project, action) {
   }
   maintenanceReservations.add(project);
   try {
+    // A running update check may hold the project's checkout lock; it always
+    // settles within its timeout, so wait for it rather than fail the action.
+    const check = updateChecksRunning.get(project);
+    if (check) await check.catch(() => {});
     return await launchProjectMaintenance(project, action, requestedAt);
   } finally {
     maintenanceReservations.delete(project);
   }
+}
+
+/* The detached runner every project action uses: the validated runner image
+   and numeric user, the project checkout at its own absolute path, the Docker
+   socket (plus its group), and the optional user-unit mount. Update, start,
+   stop, and update checks differ only in the argument, name, labels, and a
+   few environment variables. */
+function maintenanceRunnerSpec(capability, target, options) {
+  const { action, id, requestedAt, runnerName } = options;
+  const configuredUser = target && target.Config && target.Config.User || '';
+  const runnerUser = capability.runnerUser || (/^\d+(?::\d+)?$/.test(configuredUser) ? configuredUser : '0:0');
+  const scriptPath = path.posix.join(capability.projectDir, capability.script);
+  const runnerEnv = [
+    'HOME=/tmp',
+    'SERVICE_PORTAL_ACTION_REQUESTED_AT=' + requestedAt,
+    'SERVICE_PORTAL_UPDATE_DELEGATED=1',
+    'SERVICE_PORTAL_UPDATE_JOB_ID=' + id,
+    'DSH_UPDATE_DELEGATED=1',
+    'DSH_UPDATE_CONTAINER_NAME=' + runnerName,
+    ...(options.env || []),
+  ];
+  const runnerMounts = [];
+  if (capability.runnerHostHome) {
+    const hostUserUnitDir = path.posix.join(
+      capability.runnerHostHome, '.config/systemd/user');
+    runnerEnv.push('SERVICE_PORTAL_UPDATE_HOST_HOME=' + capability.runnerHostHome);
+    runnerMounts.push({
+      Type: 'bind',
+      Source: hostUserUnitDir,
+      Target: hostUserUnitDir,
+      ReadOnly: false,
+    });
+  }
+  let socketGid = 0;
+  try { socketGid = fs.statSync(SOCKET).gid; } catch (err) {}
+  return {
+    Image: capability.runnerImage,
+    Entrypoint: [scriptPath],
+    Cmd: action === 'update' ? [] : [action],
+    WorkingDir: capability.projectDir,
+    User: runnerUser,
+    Env: runnerEnv,
+    Labels: {
+      [MAINTENANCE_LABEL]: 'true',
+      ...(options.labels || {}),
+      'io.service-portal.maintenance.project': capability.project,
+    },
+    HostConfig: {
+      AutoRemove: false,
+      Init: true,
+      Binds: [
+        capability.projectDir + ':' + capability.projectDir,
+        SOCKET + ':' + SOCKET,
+      ],
+      Mounts: runnerMounts,
+      GroupAdd: [String(socketGid)],
+    },
+  };
 }
 
 async function launchProjectMaintenance(project, action, requestedAt) {
@@ -861,33 +963,12 @@ async function launchProjectMaintenance(project, action, requestedAt) {
     wrapped.httpStatus = 502;
     throw wrapped;
   }
-  const configuredUser = target.Config && target.Config.User || '';
-  const runnerUser = capability.runnerUser || (/^\d+(?::\d+)?$/.test(configuredUser) ? configuredUser : '0:0');
   const id = crypto.randomUUID();
   const runnerName = ('service-portal-' + action + '-' + project + '-' + id.slice(0, 8)).slice(0, 63);
-  const scriptPath = path.posix.join(capability.projectDir, capability.script);
-  const runnerEnv = [
-    'HOME=/tmp',
-    'SERVICE_PORTAL_ACTION_REQUESTED_AT=' + requestedAt,
-    'SERVICE_PORTAL_UPDATE_DELEGATED=1',
-    'SERVICE_PORTAL_UPDATE_JOB_ID=' + id,
-    'DSH_UPDATE_DELEGATED=1',
-    'DSH_UPDATE_CONTAINER_NAME=' + runnerName,
-  ];
-  const runnerMounts = [];
-  if (capability.runnerHostHome) {
-    const hostUserUnitDir = path.posix.join(
-      capability.runnerHostHome, '.config/systemd/user');
-    runnerEnv.push('SERVICE_PORTAL_UPDATE_HOST_HOME=' + capability.runnerHostHome);
-    runnerMounts.push({
-      Type: 'bind',
-      Source: hostUserUnitDir,
-      Target: hostUserUnitDir,
-      ReadOnly: false,
-    });
-  }
-  let socketGid = 0;
-  try { socketGid = fs.statSync(SOCKET).gid; } catch (err) {}
+  const spec = maintenanceRunnerSpec(capability, target, {
+    action, id, requestedAt, runnerName,
+    labels: { 'io.service-portal.maintenance.job': id },
+  });
   const job = {
     id,
     project,
@@ -908,29 +989,7 @@ async function launchProjectMaintenance(project, action, requestedAt) {
   let createdId = null;
   try {
     const created = await dockerJsonRequest(
-      'POST', '/containers/create?name=' + encodeURIComponent(runnerName), {
-        Image: capability.runnerImage,
-        Entrypoint: [scriptPath],
-        Cmd: action === 'update' ? [] : [action],
-        WorkingDir: capability.projectDir,
-        User: runnerUser,
-        Env: runnerEnv,
-        Labels: {
-          [MAINTENANCE_LABEL]: 'true',
-          'io.service-portal.maintenance.job': id,
-          'io.service-portal.maintenance.project': project,
-        },
-        HostConfig: {
-          AutoRemove: false,
-          Init: true,
-          Binds: [
-            capability.projectDir + ':' + capability.projectDir,
-            SOCKET + ':' + SOCKET,
-          ],
-          Mounts: runnerMounts,
-          GroupAdd: [String(socketGid)],
-        },
-      }, 30000);
+      'POST', '/containers/create?name=' + encodeURIComponent(runnerName), spec, 30000);
     createdId = created.Id;
     if (typeof createdId !== 'string' || !createdId) throw new Error('Docker did not return a runner ID');
     job.containerId = createdId;
@@ -957,6 +1016,391 @@ async function launchProjectMaintenance(project, action, requestedAt) {
     throw wrapped;
   }
 }
+
+/* ---- Update checks -----------------------------------------------------
+   A project whose update labels also carry io.service-portal.update.check
+   "true" is checked periodically for a pending update, so the browser can
+   keep the Update control disabled while nothing would change and say how
+   far behind the deployment is when something would. The portal cannot see
+   project checkouts, and each project script owns its own Git rules, so a
+   check runs the project's update script with the single argument `check`
+   in the same detached runner an update uses (image, user, checkout mount,
+   socket), plus SERVICE_PORTAL_DEPLOYED_REVISION: the running target
+   container's org.opencontainers.image.revision label, empty when unknown.
+   The label is a hard opt-in because a script that ignores its arguments
+   would otherwise run a full update.
+
+   A check must not change the working tree or any service; it may fetch.
+   It reports on stdout (the last summary line wins):
+
+     service-portal-check: status=<current|available> behind=<n|unknown> deployed=<sha|unknown> target=<sha|unknown>
+     service-portal-check-commit: <sha> <ISO-8601 date> <subject>   (newest first, optional)
+     service-portal-check-note: <text>                              (optional)
+
+   A nonzero exit, a missing or malformed summary, or a timeout is an
+   error. Errors never disable the control — only a successful "current"
+   does. Checks are not maintenance jobs (no job record, no Activity entry
+   of their own) but they never overlap one: an action waits for a running
+   check of its project, and no check starts while an action is active.
+   One worker runs checks one at a time; results persist in
+   <DATA_DIR>/update-checks.json. */
+const UPDATE_CHECKS_FILE = path.join(DATA_DIR, 'update-checks.json');
+const CHECK_SUMMARY_RE = /^service-portal-check:[ \t]+(.+)$/;
+const CHECK_COMMIT_RE = /^service-portal-check-commit:[ \t]+([0-9a-f]{7,40})[ \t]+(\S+)(?:[ \t]+(.*))?$/i;
+const CHECK_NOTE_RE = /^service-portal-check-note:[ \t]+(.+)$/;
+const MAX_CHECK_COMMITS = 10;
+const CHECK_STALE_NOTE = 'The deployment changed since the last check.';
+
+const updateChecks = new Map();        // project -> persisted check record
+const updateChecksRunning = new Map(); // project -> promise of its running check
+const updateCheckQueue = [];           // projects waiting for the worker
+const ownCheckRunners = new Set();     // container IDs this process created
+let updateCheckWorker = null;
+let updateCheckTimer = null;
+let updateCheckCleanupDone = false;
+
+function loadUpdateChecks() {
+  let raw;
+  try { raw = JSON.parse(fs.readFileSync(UPDATE_CHECKS_FILE, 'utf8')); } catch (err) { return; }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
+  for (const [project, record] of Object.entries(raw)) {
+    if (safeProjectName(project) && record && typeof record === 'object' && !Array.isArray(record)) {
+      updateChecks.set(project, record);
+    }
+  }
+}
+
+function saveUpdateChecks() {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    atomicWriteFileSync(UPDATE_CHECKS_FILE, JSON.stringify(Object.fromEntries(updateChecks), null, 2) + '\n');
+  } catch (err) {
+    console.error('could not save update checks: ' + err.message);
+  }
+}
+
+/* Script output is untrusted display text: control and bidi-override
+   characters become spaces, whitespace collapses, and length is capped. */
+function checkText(value, max) {
+  const flat = String(value || '')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const chars = Array.from(flat);
+  return chars.length > max ? chars.slice(0, max - 1).join('') + '\u2026' : flat;
+}
+
+function checkRevision(value) {
+  return typeof value === 'string' && /^[0-9a-f]{7,40}$/i.test(value) ? value.toLowerCase() : null;
+}
+
+function parseUpdateCheckOutput(logs) {
+  let summary = null;
+  const commits = [];
+  const notes = [];
+  for (const raw of String(logs || '').split(/\r?\n/)) {
+    const line = raw.trim();
+    let match = line.match(CHECK_SUMMARY_RE);
+    if (match) { summary = match[1]; continue; }
+    match = line.match(CHECK_COMMIT_RE);
+    if (match) {
+      if (commits.length < MAX_CHECK_COMMITS) {
+        const when = new Date(match[2]);
+        commits.push({
+          revision: match[1].toLowerCase(),
+          committedAt: Number.isNaN(when.getTime()) ? null : when.toISOString(),
+          subject: checkText(match[3], 200),
+        });
+      }
+      continue;
+    }
+    match = line.match(CHECK_NOTE_RE);
+    if (match) notes.push(checkText(match[1], 200));
+  }
+  if (!summary) return { error: 'the update check did not report a result' };
+  const fields = {};
+  for (const token of summary.trim().split(/\s+/)) {
+    const eq = token.indexOf('=');
+    if (eq > 0) fields[token.slice(0, eq)] = token.slice(eq + 1);
+  }
+  if (fields.status !== 'current' && fields.status !== 'available') {
+    return { error: 'the update check reported an invalid result' };
+  }
+  const current = fields.status === 'current';
+  return {
+    status: fields.status,
+    behind: current ? 0 : (/^\d{1,9}$/.test(fields.behind || '') ? Number(fields.behind) : null),
+    deployed: checkRevision(fields.deployed),
+    target: checkRevision(fields.target),
+    commits: current ? [] : commits,
+    note: notes.length ? checkText(notes.join(' '), 300) : null,
+  };
+}
+
+/* The client view of a project's check. A result taken against a different
+   deployed revision than the one running now is reported as unknown (and
+   the next scheduler tick re-checks it). */
+function publicUpdateCheck(capability) {
+  if (!capability || !capability.check) return null;
+  const project = capability.project;
+  const out = {
+    status: 'unknown',
+    checking: updateChecksRunning.has(project) || updateCheckQueue.includes(project),
+    checkedAt: null,
+    behind: null,
+    deployed: null,
+    target: null,
+    commits: [],
+    note: null,
+    error: null,
+    intervalMinutes: UPDATE_CHECK_INTERVAL_MINUTES,
+  };
+  const record = updateChecks.get(project);
+  if (!record || !record.checkedAt) return out;
+  out.checkedAt = record.checkedAt;
+  if ((record.deployedInput || '') !== capability.deployedRevision) {
+    out.note = CHECK_STALE_NOTE;
+    return out;
+  }
+  out.status = ['current', 'available', 'error'].includes(record.status) ? record.status : 'unknown';
+  out.behind = Number.isInteger(record.behind) ? record.behind : null;
+  out.deployed = record.deployed || null;
+  out.target = record.target || null;
+  out.commits = Array.isArray(record.commits) ? record.commits.slice(0, MAX_CHECK_COMMITS) : [];
+  out.note = record.note || null;
+  out.error = record.error || null;
+  return out;
+}
+
+function stopContainerQuietly(id) {
+  // A grace period lets a script's TERM trap release its checkout lock.
+  return dockerApiRequest('POST', '/containers/' + encodeURIComponent(id) + '/stop?t=10', 20000)
+    .catch(() => {});
+}
+
+function removeContainerQuietly(id) {
+  return dockerApiRequest('DELETE', '/containers/' + encodeURIComponent(id) + '?force=1&v=1', 10000)
+    .catch((err) => console.error('could not remove update check runner ' + id + ': ' + err.message));
+}
+
+async function executeUpdateCheck(capability, target) {
+  const id = crypto.randomUUID();
+  const runnerName = ('service-portal-check-' + capability.project + '-' + id.slice(0, 8)).slice(0, 63);
+  const spec = maintenanceRunnerSpec(capability, target, {
+    action: 'check', id, requestedAt: new Date().toISOString(), runnerName,
+    labels: { [CHECK_RUNNER_LABEL]: id },
+    env: ['SERVICE_PORTAL_DEPLOYED_REVISION=' + capability.deployedRevision],
+  });
+  let containerId = null;
+  try {
+    const created = await dockerJsonRequest(
+      'POST', '/containers/create?name=' + encodeURIComponent(runnerName), spec, 30000);
+    containerId = created.Id;
+    if (typeof containerId !== 'string' || !containerId) {
+      containerId = null;
+      throw new Error('Docker did not return a runner ID');
+    }
+    ownCheckRunners.add(containerId);
+    await dockerApiRequest('POST', '/containers/' + encodeURIComponent(containerId) + '/start', 30000);
+    const deadline = Date.now() + UPDATE_CHECK_TIMEOUT_MS;
+    let state = {};
+    for (let first = true; ; first = false) {
+      await wait(first ? 300 : 1000);
+      try {
+        const inspection = JSON.parse(await dockerApiRequest(
+          'GET', '/containers/' + encodeURIComponent(containerId) + '/json', 10000));
+        state = inspection.State || {};
+      } catch (err) {
+        if (err.statusCode === 404) throw new Error('the update check runner disappeared before reporting a result');
+        state = { Running: true };
+      }
+      if (!state.Running && state.Status !== 'created') break;
+      if (Date.now() >= deadline) {
+        await stopContainerQuietly(containerId);
+        return { error: 'the update check timed out after ' + Math.round(UPDATE_CHECK_TIMEOUT_MS / 1000) + ' s' };
+      }
+    }
+    let logs = '';
+    try {
+      const response = await dockerRawRequest(
+        'GET', '/containers/' + encodeURIComponent(containerId) + '/logs?stdout=1&stderr=1',
+        { timeoutMs: 10000 });
+      logs = decodeDockerLogs(response.body);
+    } catch (err) {
+      return { error: 'could not read the update check output: ' + err.message };
+    }
+    const exitCode = Number.isInteger(state.ExitCode) ? state.ExitCode : 1;
+    if (exitCode !== 0) return { error: maintenanceFailureMessage(logs, exitCode) };
+    return parseUpdateCheckOutput(logs);
+  } finally {
+    if (containerId) {
+      await removeContainerQuietly(containerId);
+      ownCheckRunners.delete(containerId);
+    }
+  }
+}
+
+function updateCheckActivity(project, record) {
+  const behind = record.behind;
+  logActivityEvent({
+    id: crypto.randomUUID(),
+    at: record.checkedAt,
+    kind: 'update-check',
+    action: 'check',
+    project,
+    service: record.label || project,
+    state: 'available',
+    message: 'Update available for ' + (record.label || project) +
+      (behind > 0 ? ': ' + behind + ' commit' + (behind === 1 ? '' : 's') + ' behind' : ''),
+  });
+}
+
+async function runUpdateCheck(project) {
+  const containers = (await dockerApi('/containers/json?all=1'))
+    .filter((c) => !(c.Labels && c.Labels[MAINTENANCE_LABEL] === 'true'));
+  const capability = updateCapabilities(containers).get(project);
+  if (!capability || !capability.check) return; // no longer opted in
+  const previous = updateChecks.get(project) || {};
+  const anchor = containers.find((c) => c.Id === capability.targetId);
+  const label = anchor ? ((labels[containerName(anchor)] || {}).label || containerName(anchor)) : project;
+  const startedAt = new Date().toISOString();
+  updateChecks.set(project, { ...previous, startedAt });
+  let result;
+  try {
+    let target = {};
+    try {
+      target = JSON.parse(await dockerApiRequest(
+        'GET', '/containers/' + encodeURIComponent(capability.targetId) + '/json', 10000));
+    } catch (err) {
+      throw new Error('could not inspect the update target: ' + err.message);
+    }
+    result = await executeUpdateCheck(capability, target);
+  } catch (err) {
+    result = { error: err.message };
+  }
+  const failed = !!result.error;
+  const record = {
+    status: failed ? 'error' : result.status,
+    startedAt,
+    checkedAt: new Date().toISOString(),
+    deployedInput: capability.deployedRevision,
+    label,
+    behind: failed ? null : result.behind,
+    deployed: failed ? null : result.deployed,
+    target: failed ? null : result.target,
+    commits: failed ? [] : result.commits,
+    note: failed ? null : result.note,
+    error: failed ? checkText(result.error, 300) : null,
+    notifiedTarget: previous.notifiedTarget || null,
+  };
+  if (record.status === 'available') {
+    // Announce each newly available target once; the Activity badge is what
+    // tells someone who is not looking at the list that an update is ready.
+    const key = record.target || 'unknown';
+    if (key !== record.notifiedTarget) {
+      record.notifiedTarget = key;
+      updateCheckActivity(project, record);
+    }
+  } else if (record.status === 'current') {
+    record.notifiedTarget = null;
+  }
+  updateChecks.set(project, record);
+  saveUpdateChecks();
+}
+
+function updateCheckBlocked(project) {
+  return !!(activeMaintenanceJob(project) || maintenanceReservations.has(project));
+}
+
+/* Queue a project's check. Browser-requested checks respect the minimum gap
+   since the last check started; scheduler-detected ones (never checked, a
+   changed deployment, a finished action, the interval) do not. */
+function queueUpdateCheck(project, respectGap) {
+  if (updateChecksRunning.has(project) || updateCheckQueue.includes(project) || updateCheckBlocked(project)) {
+    return false;
+  }
+  if (respectGap) {
+    const record = updateChecks.get(project);
+    const last = record ? Date.parse(record.startedAt) : NaN;
+    if (Number.isFinite(last) && Date.now() - last < UPDATE_CHECK_MIN_GAP_MS) return false;
+  }
+  updateCheckQueue.push(project);
+  startUpdateCheckWorker();
+  return true;
+}
+
+function startUpdateCheckWorker() {
+  if (updateCheckWorker) return;
+  updateCheckWorker = (async () => {
+    while (updateCheckQueue.length) {
+      const project = updateCheckQueue[0];
+      if (updateCheckBlocked(project)) { updateCheckQueue.shift(); continue; }
+      const running = runUpdateCheck(project);
+      updateChecksRunning.set(project, running);
+      updateCheckQueue.shift();
+      try {
+        await running;
+      } catch (err) {
+        console.error('update check for ' + project + ' failed: ' + err.message);
+      } finally {
+        updateChecksRunning.delete(project);
+      }
+    }
+  })().finally(() => {
+    updateCheckWorker = null;
+    if (updateCheckQueue.length) startUpdateCheckWorker();
+  });
+}
+
+function updateCheckDue(capability) {
+  const record = updateChecks.get(capability.project);
+  if (!record || !record.checkedAt) return true;
+  if ((record.deployedInput || '') !== capability.deployedRevision) return true;
+  const started = Date.parse(record.startedAt) || 0;
+  if (UPDATE_CHECK_INTERVAL_MS && Date.now() - started >= UPDATE_CHECK_INTERVAL_MS) return true;
+  const job = latestMaintenanceJob(capability.project);
+  const finished = job && job.finishedAt ? Date.parse(job.finishedAt) : NaN;
+  return Number.isFinite(finished) && finished > started;
+}
+
+/* Runners left behind by a previous portal process (e.g. one replaced by its
+   own update mid-check) are stopped and removed on the first tick. */
+async function removeLeftoverCheckRunners(list) {
+  for (const c of list) {
+    if (!(c.Labels && c.Labels[CHECK_RUNNER_LABEL]) || ownCheckRunners.has(c.Id)) continue;
+    if (c.State === 'running') await stopContainerQuietly(c.Id);
+    await removeContainerQuietly(c.Id);
+  }
+}
+
+function scheduleUpdateCheckTick(delayMs) {
+  if (updateCheckTimer) clearTimeout(updateCheckTimer);
+  updateCheckTimer = setTimeout(runUpdateCheckTick, delayMs);
+  updateCheckTimer.unref();
+}
+
+async function runUpdateCheckTick() {
+  updateCheckTimer = null;
+  try {
+    const list = await dockerApi('/containers/json?all=1');
+    if (!updateCheckCleanupDone) {
+      updateCheckCleanupDone = true;
+      await removeLeftoverCheckRunners(list);
+    }
+    const containers = list.filter((c) => !(c.Labels && c.Labels[MAINTENANCE_LABEL] === 'true'));
+    for (const capability of updateCapabilities(containers).values()) {
+      if (capability.check && updateCheckDue(capability)) queueUpdateCheck(capability.project, false);
+    }
+  } catch (err) {
+    // Docker is unavailable; the next tick tries again.
+  } finally {
+    if (!updateCheckTimer) scheduleUpdateCheckTick(UPDATE_CHECK_TICK_MS);
+  }
+}
+
+loadUpdateChecks();
+// Tests shorten the first tick; deployments use the default.
+scheduleUpdateCheckTick(envNumber('UPDATE_CHECK_FIRST_TICK_MS', UPDATE_CHECK_FIRST_TICK_MS, 0, 600000));
 
 loadMaintenanceJobs();
 for (const job of maintenanceJobs.values()) monitorMaintenanceJob(job);
@@ -1036,6 +1480,7 @@ function toService(c, capability, job, lifecycle) {
       available: true,
       project: capability.project,
       job: publicMaintenanceJob(job, false),
+      check: publicUpdateCheck(capability),
     } : null,
     lifecycle: lifecycle ? {
       available: true,
@@ -1161,6 +1606,26 @@ const server = http.createServer((req, res) => {
         if (err.job) body.job = publicMaintenanceJob(err.job, false);
         sendJson(res, err.httpStatus || 502, body);
       });
+    return;
+  }
+
+  if (pathname === '/api/update-checks') {
+    if (req.method !== 'POST') {
+      sendJson(res, 405, { error: 'method not allowed' });
+      return;
+    }
+    if (req.headers['x-service-portal-action'] !== 'check') {
+      sendJson(res, 403, { error: 'missing or incorrect check action header' });
+      return;
+    }
+    dockerApi('/containers/json?all=1').then((list) => {
+      const containers = list.filter((c) => !(c.Labels && c.Labels[MAINTENANCE_LABEL] === 'true'));
+      const queued = [];
+      for (const capability of updateCapabilities(containers).values()) {
+        if (capability.check && queueUpdateCheck(capability.project, true)) queued.push(capability.project);
+      }
+      sendJson(res, 202, { ok: true, queued });
+    }).catch((err) => sendJson(res, 502, { error: 'docker api error: ' + err.message }));
     return;
   }
 

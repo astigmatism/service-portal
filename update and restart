@@ -1,6 +1,16 @@
 #!/bin/sh
 set -eu
 
+# No argument: update and restart. `check`: report whether an update would
+# change the running portal (Service Portal update checks) without changing
+# the checkout or any container. Anything else is refused before any work.
+mode=update
+case "$#:${1:-}" in
+  0:) ;;
+  1:check) mode=check ;;
+  *) printf '%s\n' 'Error: usage: update and restart [check]' >&2; exit 2 ;;
+esac
+
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$project_dir"
 lock_dir=$project_dir/.git/service-portal-update.lock
@@ -24,14 +34,16 @@ if ! command -v git >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! command -v docker >/dev/null 2>&1; then
-  printf '%s\n' 'Error: Docker is not installed or is not on PATH.' >&2
-  exit 1
-fi
+if [ "$mode" = update ]; then
+  if ! command -v docker >/dev/null 2>&1; then
+    printf '%s\n' 'Error: Docker is not installed or is not on PATH.' >&2
+    exit 1
+  fi
 
-if ! docker compose version >/dev/null 2>&1; then
-  printf '%s\n' 'Error: the Docker Compose plugin is unavailable.' >&2
-  exit 1
+  if ! docker compose version >/dev/null 2>&1; then
+    printf '%s\n' 'Error: the Docker Compose plugin is unavailable.' >&2
+    exit 1
+  fi
 fi
 
 if [ ! -f compose.yaml ]; then
@@ -71,25 +83,67 @@ if [ -n "$dirty" ]; then
 fi
 
 before_commit=$(git_repo rev-parse HEAD)
-printf '%s\n' 'Fetching origin/main while the portal remains available...'
+[ "$mode" = check ] || printf '%s\n' 'Fetching origin/main while the portal remains available...'
 # This repository is public. Rewrite its SSH remote for this fetch only so the
 # detached, non-interactive runner does not need a host SSH agent or key mount.
 git -c "safe.directory=$project_dir" \
   -c 'url.https://github.com/.insteadOf=git@github.com:' \
   -C "$project_dir" fetch --prune origin main
 target_commit=$(git_repo rev-parse FETCH_HEAD)
-deployed_commit=$before_commit
+# The commit an update would deploy: origin/main when it fast-forwards the
+# checkout, or the committed local HEAD when local main is ahead.
+deploy_target=$before_commit
+ahead=
 if [ "$before_commit" = "$target_commit" ]; then
   :
 elif git_repo merge-base --is-ancestor "$before_commit" "$target_commit"; then
-  git_repo merge --ff-only "$target_commit"
-  deployed_commit=$target_commit
+  deploy_target=$target_commit
 elif git_repo merge-base --is-ancestor "$target_commit" "$before_commit"; then
-  printf '%s\n' 'Local main is ahead of origin/main; deploying the committed local HEAD without resetting it.'
+  ahead=1
 else
   printf '%s\n' 'Error: refusing a divergent or rewritten origin/main history.' >&2
   exit 1
 fi
+
+if [ "$mode" = check ]; then
+  # Compare what is running (the image's recorded source revision, supplied
+  # by the portal) with what an update would deploy. Nothing is changed.
+  [ -z "$ahead" ] || printf '%s\n' 'service-portal-check-note: Local main is ahead of origin/main; an update deploys the committed local HEAD.'
+  deployed=${SERVICE_PORTAL_DEPLOYED_REVISION:-}
+  if [ -z "$deployed" ]; then
+    printf '%s\n' 'service-portal-check-note: The running image does not record its source revision; compared with the checkout HEAD.'
+    deployed=$before_commit
+  elif git_repo cat-file -e "$deployed^{commit}" 2>/dev/null; then
+    deployed=$(git_repo rev-parse "$deployed^{commit}")
+  else
+    printf '%s\n' 'service-portal-check-note: The running revision is not in this checkout.'
+    printf 'service-portal-check: status=available behind=unknown deployed=unknown target=%s\n' "$deploy_target"
+    exit 0
+  fi
+  if [ "$deployed" = "$deploy_target" ]; then
+    printf 'service-portal-check: status=current behind=0 deployed=%s target=%s\n' "$deployed" "$deploy_target"
+  elif git_repo merge-base --is-ancestor "$deployed" "$deploy_target"; then
+    behind=$(git_repo rev-list --count "$deployed..$deploy_target")
+    git_repo log -n 10 --format='service-portal-check-commit: %H %cI %s' "$deployed..$deploy_target"
+    printf 'service-portal-check: status=available behind=%s deployed=%s target=%s\n' "$behind" "$deployed" "$deploy_target"
+  else
+    printf '%s\n' 'service-portal-check-note: The running revision is not an ancestor of the update target.'
+    printf 'service-portal-check: status=available behind=unknown deployed=%s target=%s\n' "$deployed" "$deploy_target"
+  fi
+  exit 0
+fi
+
+deployed_commit=$before_commit
+if [ "$deploy_target" != "$before_commit" ]; then
+  git_repo merge --ff-only "$deploy_target"
+  deployed_commit=$deploy_target
+elif [ -n "$ahead" ]; then
+  printf '%s\n' 'Local main is ahead of origin/main; deploying the committed local HEAD without resetting it.'
+fi
+# Recorded in the image (org.opencontainers.image.revision) so update checks
+# compare against what actually runs.
+SERVICE_PORTAL_SOURCE_REVISION=$deployed_commit
+export SERVICE_PORTAL_SOURCE_REVISION
 
 printf '%s\n' 'Validating the updated Compose configuration...'
 docker compose config --quiet

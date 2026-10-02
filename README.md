@@ -29,6 +29,11 @@ on every request. No reconfiguration, no restart for discovery.
   and 20-second auto-refresh.
 - Project update, start, and stop actions run in detached maintenance containers, so an action
   survives replacing a target container or the portal itself. Job status and bounded logs persist in `/data`.
+- **Update checks**: projects that opt in are checked for a pending update every 15 minutes, when the
+  page opens or its tab becomes visible again, and right after any project action. The Update control
+  stays disabled while the deployment is current; when an update is ready it is enabled, badged with
+  the number of commits the deployment is behind, and its tooltip lists the pending commits (see
+  [Update checks](#update-checks)).
 - An **Activity** panel (header toggle, next to Appearance) keeps a durable, newest-first feed of
   portal actions: project jobs (from the persisted maintenance records, with full runner logs
   expandable per event) and container start/stop actions (appended to `/data/activity.jsonl`,
@@ -42,10 +47,11 @@ on every request. No reconfiguration, no restart for discovery.
 | Path | Response |
 |---|---|
 | `/`, `/index.html` | The portal UI (`text/html`, `Cache-Control: no-store`) |
-| `/api/services` | JSON: `{generatedAt, services: [...]}` — one entry per visible container with `name, label, description, id, image, state, health, statusLine, ports[], self, project, update, lifecycle` (`no-store`) |
+| `/api/services` | JSON: `{generatedAt, services: [...]}` — one entry per visible container with `name, label, description, id, image, state, health, statusLine, ports[], self, project, update, lifecycle` (`no-store`). `update.check` is `null` unless the project opted into [update checks](#update-checks); otherwise `{status: "unknown"\|"current"\|"available"\|"error", checking, checkedAt, behind, deployed, target, commits: [{revision, committedAt, subject}], note, error, intervalMinutes}` |
 | `POST /api/services/<id>/start` / `POST /api/services/<id>/stop` | Docker start/stop for an individual container: `200` `{ok, action}` on success, `409` for members of opted-in lifecycle projects, `502` when Docker refuses (`no-store`) |
 | `POST /api/projects/<project>/update` | Starts an opted-in detached update/restart job; requires `X-Service-Portal-Action: update`, returns `202` + job metadata, `409` if already active |
 | `POST /api/projects/<project>/start` / `POST /api/projects/<project>/stop` | Starts an opted-in detached project action; requires the matching `X-Service-Portal-Action: start` or `stop` header; serialized with updates |
+| `POST /api/update-checks` | Queues an update check for every opted-in project whose last check started more than a minute ago and that has no active action; requires `X-Service-Portal-Action: check`; returns `202 {ok, queued: [...]}` (`403` without the header, `405` for other methods) |
 | `GET /api/maintenance/<job-id>` | Persisted action, state, exit code, error, and bounded runner logs (`no-store`) |
 | `GET /api/activity` | JSON: `{generatedAt, events: [...]}` — newest-first feed merging project-job events and container start/stop events, capped at 200 (`no-store`) |
 | `/api/appearance` | `GET` → `{settings: {...}}` including the wallpaper slots (`{id, name, wallpapers}` each) and the active-slot pointer; `PUT` → updates the global styling settings (position, opacity, blur, scrim, glass) and the active-slot pointer (sanitized and clamped server-side; the slots themselves can only change through the slot/wallpaper endpoints) (`no-store`) |
@@ -90,6 +96,11 @@ Git. The available settings are:
 | `PORTAL_FAVICON_PATH` | `./star.svg` | Host path to this deployment's favicon image |
 | `SERVICE_PORT` | `8080` | Host port published by Docker Compose |
 | `PORTAL_UPDATE_USER` | `1000:1000` in `.env.example` | Numeric host UID:GID used by the updater when it writes to this checkout; use the output of `id -u` and `id -g` |
+| `UPDATE_CHECK_INTERVAL_MINUTES` | `15` | Minutes between [update checks](#update-checks) (1–1440); `0` keeps only the checks on page open and after project actions |
+
+Two more environment variables tune update checks when the portal runs outside Compose or with an
+override: `UPDATE_CHECK_MIN_GAP_SECONDS` (default `60`, the throttle for page-triggered checks) and
+`UPDATE_CHECK_TIMEOUT_SECONDS` (default `120`, after which a check runner is stopped).
 
 Use the committed `.env.example` as the template for each machine. Changing
 any of these settings only requires `docker compose up -d` to recreate the container;
@@ -164,9 +175,10 @@ deployment, see [`docs/setup-on-another-ubuntu-server.md`](docs/setup-on-another
   on first request, including for existing uploads, and reused after a restart.
   Replacing or deleting a wallpaper removes its previews. No re-upload or data
   migration is needed; previews never overwrite the stored wallpaper.
-- The `/data` volume also holds `maintenance/<job-id>.json` (update job records)
-  and `activity.jsonl` (container start/stop events for the Activity panel), so
-  the activity history survives container recreation too.
+- The `/data` volume also holds `maintenance/<job-id>.json` (update job records),
+  `activity.jsonl` (container start/stop and update-available events for the Activity
+  panel), and `update-checks.json` (the latest update-check result per project), so
+  the activity history and check results survive container recreation too.
 
 ## Security note
 
@@ -212,6 +224,71 @@ For private repositories, the project-specific runner must provide noninteractiv
 credentials without exposing them to the browser. The portal repository is public, so its
 script rewrites its SSH remote to HTTPS for the fetch only.
 
+### Update checks
+
+A project can additionally opt into periodic update checks by adding one more label to the
+same service that carries its update labels:
+
+```yaml
+labels:
+  io.service-portal.update.check: "true"
+```
+
+The label is a hard opt-in: a check invokes the project's update script with the single argument
+`check`, and a script that ignores its arguments would perform a full update instead. Only add the
+label once the script implements the check contract below.
+
+The portal runs the check in the same kind of detached runner as an update — same validated image,
+numeric user, checkout mount, Docker socket, and optional user-unit mount — with `Cmd: ["check"]`
+and one extra variable, `SERVICE_PORTAL_DEPLOYED_REVISION`. That is the running service's
+`org.opencontainers.image.revision` label (a 7–40 character commit hash), or empty when the image
+does not record one. Comparing what actually runs with what an update would deploy is what makes a
+pushed-but-not-yet-deployed change, or a deployment whose last update failed, show up as pending.
+Record the revision at build time, for example with a Compose build label
+`org.opencontainers.image.revision: "${SOURCE_REVISION:-}"` set by the update script.
+
+A check must not change the working tree, build or pull images, or start, stop, or recreate
+anything. It may fetch upstream refs. It should take the project's update lock without waiting and
+fail with an `Error:` line when the lock is held. It reports on stdout; the last summary line wins:
+
+```text
+service-portal-check: status=<current|available> behind=<n|unknown> deployed=<sha|unknown> target=<sha|unknown>
+service-portal-check-commit: <sha> <ISO-8601 committer date> <subject>   # 0–10 lines, newest first
+service-portal-check-note: <text>                                         # optional
+```
+
+`current` means an update would change nothing; `available` means it would deploy `target` over
+`deployed`, `behind` commits ahead of it. Exit 0 after printing the summary. A nonzero exit, a
+missing or malformed summary, or a run longer than the timeout counts as a failed check, with the
+first `Error`/`Fatal`/`Failed`/`Refusing` line as its message. Commit subjects and notes are
+treated as untrusted display text (control characters stripped, length capped).
+
+In the browser:
+
+- **Current** — the Update control is disabled; its tooltip names the deployed revision and when it
+  was checked.
+- **Available** — the control is enabled with an accent ring and a badge showing how many commits
+  the deployment is behind (`99+` above 99, `!` when the distance is unknown). The tooltip shows the
+  distance, how old the newest pending commit is, up to five commit subjects, and the revision
+  range. The confirmation names the number of commits that will be deployed.
+- **Unknown or failed** (not checked yet, a check in progress, a deployment that changed since the
+  last check, or a check that failed) — the control stays enabled, exactly as without checks, and
+  the tooltip says why. A check that cannot tell never blocks an update.
+
+The first time a project reports a new available target, the portal appends an "Update available
+for …" event to the Activity feed, so the header's unread badge tells you even when you are not
+looking at the list. Checks themselves are not maintenance jobs and have no Activity entries or job
+records of their own, but they never overlap one: an action waits for a running check of its
+project to finish, and no check starts while an action is active. One check runs at a time across
+the portal.
+
+Disabling the control only affects the browser. `POST /api/projects/<project>/update` still accepts
+an update of a current project, so a project-side wrapper or `curl` can force a redeploy.
+
+The portal's own Compose service opts in. Its `update and restart` script accepts `check`, keeps
+its lock, branch, origin, clean-tree, and fast-forward rules, and records the deployed commit in the
+image through `SERVICE_PORTAL_SOURCE_REVISION`.
+
 ### Project start and stop
 
 A project with a valid update capability can opt into project-wide lifecycle actions by adding
@@ -248,7 +325,10 @@ discovery and controls, stopped-container discovery,
 update capability and path validation, runner construction, duplicate-job prevention,
 success/failure monitoring, log capture and persistence, the activity feed (container
 events, persisted update-job events, ordering, log lookup, method guard), sidebar
-confirmation/polling, and the update script's fail-closed command ordering.
+confirmation/polling, the update script's fail-closed command ordering, and update checks
+(runner construction, result parsing and sanitizing, timeouts, throttling, scheduling,
+persistence, leftover-runner cleanup, mutual exclusion with actions, the Activity
+announcement, the script's `check` mode, and the control's disabled/badged states).
 
 ## Customization
 

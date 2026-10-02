@@ -4,6 +4,9 @@ services:
   portal:
     build:
       context: .
+      labels:
+        # Set by "update and restart"; update checks compare it with origin/main.
+        org.opencontainers.image.revision: "${SERVICE_PORTAL_SOURCE_REVISION:-}"
     image: service-portal:latest
     container_name: service-portal
     restart: unless-stopped
@@ -13,11 +16,13 @@ services:
       PORTAL_TITLE: "${PORTAL_TITLE:-Service Portal}"
       PORTAL_FAVICON_FILE: /app/deployment-favicon
       SELF_NAME: service-portal
+      UPDATE_CHECK_INTERVAL_MINUTES: "${UPDATE_CHECK_INTERVAL_MINUTES:-15}"
     labels:
       io.service-portal.update.enabled: "true"
       io.service-portal.update.script: "update and restart"
       io.service-portal.update.image: "service-portal:latest"
       io.service-portal.update.user: "${PORTAL_UPDATE_USER:-0:0}"
+      io.service-portal.update.check: "true"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - portal-data:/data

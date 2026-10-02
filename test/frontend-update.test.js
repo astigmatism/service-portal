@@ -72,6 +72,9 @@ function boot() {
     if (url === '/api/services') {
       return { ok: true, status: 200, json: async () => ({ generatedAt: new Date().toISOString(), services: [] }) };
     }
+    if (url === '/api/update-checks') {
+      return { ok: true, status: 202, json: async () => ({ ok: true, queued: [] }) };
+    }
     if (url.startsWith('/api/projects/')) {
       return {
         ok: true,
@@ -333,4 +336,92 @@ test('project lifecycle controls cover stopped and partial groups in both layout
   buttons = controls.children.filter((child) => child.tagName === 'BUTTON');
   assert.equal(buttons.length, 1);
   assert.equal(buttons[0].title, 'Start unrelated', 'other projects retain container controls');
+});
+
+test('update checks disable a current project and explain a pending update', async (t) => {
+  const app = boot();
+  const base = {
+    id: 'd'.repeat(12), name: 'bench-reports', label: 'Bench', state: 'running', health: 'healthy',
+    ports: [], self: false
+  };
+  const withCheck = (check) => ({ ...base, update: { available: true, project: 'bench', job: null, check } });
+  const button = (service) => vm.runInContext('projectUpdateButton', app.sandbox)(service);
+  const checkedAt = new Date(Date.now() - 60000).toISOString();
+
+  await t.test('opening the page asks the server for checks with the action header', () => {
+    const request = app.calls.find((entry) => entry.url === '/api/update-checks');
+    assert.ok(request, 'boot requests update checks');
+    assert.equal(request.options.method, 'POST');
+    assert.equal(request.options.headers['X-Service-Portal-Action'], 'check');
+  });
+
+  await t.test('a current project keeps Update disabled and says so', () => {
+    const b = button(withCheck({ status: 'current', checking: false, checkedAt, behind: 0,
+      deployed: 'a'.repeat(40), target: 'a'.repeat(40), commits: [], note: null, error: null }));
+    assert.equal(b.disabled, true);
+    assert.match(b.title, /^Bench is up to date \(aaaaaaa\)/);
+    assert.match(b.title, /Checked /);
+    assert.equal(b.children.length, 0, 'no badge');
+    assert.equal((b.listeners.click || []).length, 0, 'nothing to click');
+  });
+
+  await t.test('an available update is enabled, badged, and lists how far behind it is', async () => {
+    const commits = Array.from({ length: 7 }, (_, i) => ({
+      revision: String(i + 1).repeat(40), committedAt: new Date(Date.now() - (i + 2) * 3600000).toISOString(),
+      subject: 'Change ' + (i + 1)
+    }));
+    const service = withCheck({ status: 'available', checking: false, checkedAt, behind: 12,
+      deployed: 'a'.repeat(40), target: 'b'.repeat(40), commits, note: null, error: null });
+    const b = button(service);
+    assert.equal(b.disabled, false);
+    assert.match(b.className, /update-ready/);
+    assert.equal(b.children.length, 1);
+    assert.equal(b.children[0].className, 'ctlbadge');
+    assert.equal(b.children[0].textContent, '12');
+    const lines = b.title.split('\n');
+    assert.equal(lines[0], 'Update and restart Bench \u2014 12 commits behind \u00b7 newest 2 h ago');
+    assert.equal(lines[1], '\u2022 Change 1');
+    assert.equal(lines[5], '\u2022 Change 5');
+    assert.equal(lines[6], '\u2026and 7 more');
+    assert.equal(lines[7], 'aaaaaaa \u2192 bbbbbbb');
+    assert.match(lines[8], /^Checked /);
+
+    app.setConfirmed(false);
+    b.listeners.click[0]({ stopPropagation() {}, preventDefault() {} });
+    assert.match(app.lastConfirm(), /12 new commits will be deployed/);
+    assert.equal(app.calls.filter((entry) => entry.url === '/api/projects/bench/update').length, 0);
+  });
+
+  await t.test('a large or unknown distance stays readable in the badge', () => {
+    const many = button(withCheck({ status: 'available', behind: 250, commits: [], checkedAt }));
+    assert.equal(many.children[0].textContent, '99+');
+    const unknown = button(withCheck({ status: 'available', behind: null, commits: [], checkedAt,
+      note: 'The running revision is not in this checkout.' }));
+    assert.equal(unknown.children[0].textContent, '!');
+    assert.match(unknown.title, /an update is available/);
+    assert.match(unknown.title, /not in this checkout/);
+  });
+
+  await t.test('a failed, pending, or missing check never blocks an update', () => {
+    const failed = button(withCheck({ status: 'error', checking: false, checkedAt,
+      error: 'Error: refusing to update a checkout with uncommitted changes:' }));
+    assert.equal(failed.disabled, false);
+    assert.match(failed.title, /^Update and restart Bench\nCould not check for updates: Error: refusing/);
+    const pending = button(withCheck({ status: 'unknown', checking: true, checkedAt: null }));
+    assert.equal(pending.disabled, false);
+    assert.match(pending.title, /Checking for updates/);
+    const legacy = button({ ...base, update: { available: true, project: 'bench', job: null } });
+    assert.equal(legacy.disabled, false);
+    assert.equal(legacy.title, 'Update and restart Bench');
+  });
+
+  await t.test('an active job still wins over the check result', () => {
+    app.sandbox.fetch = async () => new Promise(() => {});
+    const b = button({ ...base, update: { available: true, project: 'bench',
+      job: { id: '3'.repeat(36), project: 'bench', state: 'running' },
+      check: { status: 'current', checkedAt } } });
+    assert.equal(b.disabled, true);
+    assert.match(b.className, /update-running/);
+    assert.match(b.title, /in progress/);
+  });
 });

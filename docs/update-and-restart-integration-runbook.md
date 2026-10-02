@@ -108,6 +108,31 @@ Also run the repository's existing test suite, a shell syntax check, `docker com
 and a check that the selected runner image contains every required executable. Do not perform a
 real update/restart smoke test unless explicitly authorized, since it changes running services.
 
+Optionally also implement update checks, so Service Portal keeps the control disabled while
+nothing would change and shows how far behind the deployment is when something would:
+
+- Make the script accept exactly one optional argument. No argument performs the update;
+  `check` performs a read-only check; anything else exits nonzero before doing any work.
+  Never add the check label to a script that ignores its arguments, because the portal would
+  then run a full update every time it checks.
+- In check mode, take the same per-checkout lock without waiting (fail with an `Error:` line
+  if it is held), run the same branch, upstream, remote, and clean-tree checks, and fetch the
+  same upstream. Do not merge, reset, build, pull images, or start, stop, or recreate
+  anything.
+- Determine the commit an update would deploy (the fetched upstream after a fast-forward, or
+  whatever the update script would actually deploy). Compare it with the running revision in
+  SERVICE_PORTAL_DEPLOYED_REVISION; fall back to the checkout HEAD when it is empty.
+- Print, then exit 0:
+    service-portal-check: status=<current|available> behind=<n|unknown> deployed=<sha|unknown> target=<sha|unknown>
+  plus up to ten pending commits, newest first, from
+    git log -n 10 --format='service-portal-check-commit: %H %cI %s' <deployed>..<target>
+  and any optional service-portal-check-note: <text> lines.
+- Make the update record the commit it deploys in the image label
+  org.opencontainers.image.revision (for example a Compose build label fed from an
+  environment variable the script exports), so checks compare against what actually runs.
+- Add io.service-portal.update.check: "true" to the labeled service only once all of the
+  above is in place, and test current, behind, dirty, locked, and divergent cases.
+
 Finish by reporting:
 
 - the service and Compose file where the labels were added;
@@ -146,6 +171,14 @@ containers from the service list, captures bounded logs, persists job status, an
 helper after completion. A successful script exit marks the job successful; any nonzero exit
 marks it failed and exposes its most useful error line in the portal.
 
+Update checks additionally require `io.service-portal.update.check` to be exactly `true` on the
+same service (it is one of the effective settings that must match across opted-in containers).
+The portal then runs `<script> check` in the same runner every 15 minutes by default, when a
+browser opens the page, and after each project action, passing the running container's
+`org.opencontainers.image.revision` label as `SERVICE_PORTAL_DEPLOYED_REVISION`. Only a
+successful `status=current` result disables the control; failed, unknown, or stale results leave
+it enabled. See the README's "Update checks" section for the full output contract.
+
 ## Example Compose fragment
 
 ```yaml
@@ -159,6 +192,12 @@ services:
       io.service-portal.update.image: "${PROJECT_RUNNER_IMAGE:-local/example-app:latest}"
       io.service-portal.update.user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
       io.service-portal.update.host-home: "${HOST_HOME:-/home/operator}"
+      # Only once the script implements `check`:
+      io.service-portal.update.check: "true"
+    build:
+      context: .
+      labels:
+        org.opencontainers.image.revision: "${SOURCE_REVISION:-}"
 ```
 
 Example environment documentation:
