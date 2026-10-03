@@ -378,7 +378,7 @@ announcement, the script's `check` mode, and the control's disabled/badged state
   ask first when they would overwrite another wallpaper's own position), **This wallpaper** (remove the wallpaper on screen, reset
   its derived colors), **Slots**
   (a **Name** field, Add / Remove, Move up / Move down, and the prev/next "N of M"
-  stepper beneath them), and **Effects** (the sliders above). The right one is the
+  stepper beneath them), **Rotation** (see below), and **Effects** (the sliders above). The right one is the
   **Wallpapers in this slot** gallery: a count and one large tile per wallpaper of
   the active slot — click a tile to show it, **×** removes it, and the download
   button saves its original stored image (not the preview), named after its slot
@@ -403,7 +403,23 @@ announcement, the script's `check` mode, and the control's disabled/badged state
   last entry, **Name & manage slots…**, opens this panel on the Name field. The
   shuffle button next to it picks a different random
   wallpaper from the current slot, without switching slots; it dims when the
-  slot has fewer than two wallpapers. An upload appends its wallpapers to the
+  slot has fewer than two wallpapers. **Rotation → Rotate** changes the wallpaper on a
+  timer — Off (the default), every 5, 10, 15 or 30 minutes, or every 1, 2, 3 or 6
+  hours. It picks from the active slot (never switching slots) in random order: every
+  wallpaper of the slot comes around once before any repeats, and never the one already
+  on screen. The interval is remembered per browser (localStorage), like the random
+  pick itself, so other machines are unaffected and nothing is saved on the server. It
+  keeps running while the tab sits in the background (a rotation that came due while
+  the tab was throttled or the machine slept happens as soon as the tab is shown
+  again). Any other wallpaper change — shuffle, a gallery click, a slot switch —
+  restarts the countdown, so a wallpaper you picked yourself always gets a full
+  interval. Rotation pauses while the Appearance panel is open, so **Remove
+  wallpaper** and **Position** always act on the wallpaper you are looking at;
+  closing the panel starts a fresh interval. A slot with fewer than two wallpapers
+  does not rotate (the hint under the control says so). The next image is loaded
+  before the swap, so there is no blank frame; if it fails to load, the current
+  wallpaper stays until the next interval. While rotation is active, the header
+  shuffle button is tinted with the accent color and its tooltip names the interval. An upload appends its wallpapers to the
   active slot, multi-file selections in order. A **.zip** picked or dropped there is
   unpacked in the browser (the server never sees the archive): each supported image
   inside it (jpeg/png/webp/gif/avif; folders walked in natural path order, hidden

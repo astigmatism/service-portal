@@ -84,6 +84,8 @@ header{position:relative;z-index:20;display:flex;align-items:center;gap:10px;pad
 .seg-arrow{padding:7px 9px}
 .seg-arrow:disabled{opacity:.45;cursor:default}
 .seg-arrow:disabled:hover{color:var(--muted)}
+/* Timed rotation is on for this slot: the shuffle icon wears the accent. */
+.seg-arrow.rotating{color:var(--accent)}
 /* Header slot picker: a menu button naming the active slot (unnamed slots
    read as an italic "Slot N"), next to the shuffle button in one segmented
    group. The menu lives outside .seg — the group clips to its rounded
@@ -213,6 +215,11 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
 .sp-input:focus{border-color:var(--accent)}
 .sp-input:disabled{opacity:.45;cursor:default}
 .sp-field-hint{font-size:11.5px;color:var(--muted);margin:3px 0 0 50px}
+/* Rotation interval: a native select in the .sp-input look (keeps its
+   chevron; the dark color-scheme keeps the popup list readable). */
+.sp-rotate{appearance:auto;color-scheme:dark;cursor:pointer;padding:5px 8px}
+#spRotateHint{line-height:1.35}
+#spRotateHint:empty{display:none}
 /* Appearance panel: two columns — the controls keep their 300px column on the
    left, the active slot's wallpapers fill a gallery on the right. The panel
    is capped at the viewport height and each column scrolls on its own, so a
@@ -424,6 +431,22 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
     </button>
   </div>
+  <span class="sp-label">Rotation</span>
+  <div class="sp-field">
+    <label class="sp-field-label" for="spRotate">Rotate</label>
+    <select id="spRotate" class="sp-input sp-rotate" title="Show the next wallpaper of this slot on a timer, in random order (each one once before any repeats) — this browser only, keeps running in a background tab, paused while this panel is open">
+      <option value="0">Off</option>
+      <option value="5">Every 5 minutes</option>
+      <option value="10">Every 10 minutes</option>
+      <option value="15">Every 15 minutes</option>
+      <option value="30">Every 30 minutes</option>
+      <option value="60">Every hour</option>
+      <option value="120">Every 2 hours</option>
+      <option value="180">Every 3 hours</option>
+      <option value="360">Every 6 hours</option>
+    </select>
+  </div>
+  <div id="spRotateHint" class="sp-field-hint"></div>
   <span class="sp-label">Effects</span>
   <label class="sp-slider">Opacity <output id="spOpacityOut">100%</output>
     <input type="range" id="spOpacity" min="0" max="100" step="1" value="100">
@@ -448,7 +471,7 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
   <!-- right column: the active slot's wallpapers -->
   <section class="sp-ap-gallery" aria-labelledby="spThumbsLabel">
     <div class="sp-gallery-head">
-      <span id="spThumbsLabel" class="sp-thumbs-label" title="The wallpapers in this slot — this browser shows one at random on every refresh and on every slot switch. Click one to show it now (until the next roll); the download button saves its original image file; &times; removes just that wallpaper.">Wallpapers in this slot</span>
+      <span id="spThumbsLabel" class="sp-thumbs-label" title="The wallpapers in this slot — this browser shows one at random on every refresh, on every slot switch, and on the Rotate timer when it is on. Click one to show it now (until the next roll); the download button saves its original image file; &times; removes just that wallpaper.">Wallpapers in this slot</span>
       <span id="spThumbsCount" class="sp-gallery-count"></span>
     </div>
     <div id="spThumbsEmpty" class="sp-gallery-empty">No wallpapers in this slot yet &mdash; upload images or a .zip to add some.</div>
@@ -1355,7 +1378,10 @@ let refreshActivity = () => {};
    the next roll), × to remove just that wallpaper. Each wallpaper's
    Position origin is per browser; "Apply to all in slot" copies the
    on-screen one to every wallpaper of the active slot and "Reset slot"
-   returns them all to center. This browser keeps a
+   returns them all to center. Rotation → Rotate (per browser, in
+   localStorage 'sp-wallpaper-rotate') shows the next wallpaper of the
+   active slot every 5 min … 6 h, in shuffle-bag random order, without ever
+   touching the shared pointer (see the timed-rotation block). This browser keeps a
    localStorage ('sp-appearance') copy as an offline fallback cache, and on
    first visit with an empty server the wallpaper previously stored in this
    browser's IndexedDB ('service-portal-appearance', store 'images') is
@@ -1568,6 +1594,8 @@ let refreshActivity = () => {};
     prev: $id('spPrev'),
     next: $id('spNext'),
     navCount: $id('spNavCount'),
+    rotate: $id('spRotate'),
+    rotateHint: $id('spRotateHint'),
     status: $id('spStatus')
   };
   /* Header controls stay mounted: the slot menu button names the active slot
@@ -2161,6 +2189,26 @@ let refreshActivity = () => {};
   let slotMenuOpen = false;
   let slotMenuItems = [];
   let slotMenuFocus = -1;
+  /* Timed rotation (per browser, see the rotation block below): the chosen
+     interval in minutes (0 = off), the pending timer and its deadline, a
+     generation counter that invalidates an in-flight preload whenever the
+     schedule restarts, and the shuffle bag of ids still to show this cycle. */
+  const ROTATE_LS_KEY = 'sp-wallpaper-rotate';
+  const ROTATE_CHOICES = [0, 5, 10, 15, 30, 60, 120, 180, 360];
+  const ROTATE_PRELOAD_TIMEOUT_MS = 30000;
+  function readRotateMinutes() {
+    try {
+      const v = Number(localStorage.getItem(ROTATE_LS_KEY));
+      return ROTATE_CHOICES.includes(v) ? v : 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+  let rotateMinutes = readRotateMinutes();
+  let rotateTimer = 0;
+  let rotateDueAt = 0;
+  let rotateGen = 0;
+  let rotateBag = { key: '', queue: [] };
 
   function cancelSliderFrame() {
     if (sliderFrame) cancelAnimationFrame(sliderFrame);
@@ -2252,11 +2300,14 @@ let refreshActivity = () => {};
   function syncWallpaper() {
     const w = displayedWallpaper(settings);
     const token = w ? wallpaperUrl(w.id) : '';
-    if (token !== imageToken) {
+    const changed = token !== imageToken;
+    if (changed) {
       imageToken = token;
       document.body.style.setProperty('--sp-bg-image', token ? 'url("' + token + '")' : 'none');
     }
     setThumb(w ? thumbnailUrl(w.id) : undefined);
+    // Whatever changed the wallpaper on screen, it gets a full interval.
+    syncRotation(changed);
   }
 
   function loadPreview(img, url) {
@@ -2646,6 +2697,7 @@ let refreshActivity = () => {};
     els.prev.disabled = idx <= 0;
     els.next.disabled = idx === -1 || idx >= list.length - 1;
     bgShuffle.disabled = !list[idx] || list[idx].wallpapers.length < 2;
+    syncRotationControls(list[idx] ? list[idx].wallpapers.length : 0);
     els.navCount.textContent = list.length ? (idx + 1) + ' of ' + list.length : 'none';
     els.remove.disabled = idx === -1 || !list[idx] || list[idx].wallpapers.length === 0;
     els.reset.disabled = isDefault();
@@ -2671,6 +2723,8 @@ let refreshActivity = () => {};
   const openPanel = (open) => {
     els.panel.classList.toggle('hidden', !open);
     if (open) { syncWallpaper(); renderSlotThumbs(); }
+    // Rotation holds while the panel is open; closing it starts a fresh interval.
+    syncRotation(!open);
   };
   els.thumb.addEventListener('error', () => previewFailed(els.thumb));
 
@@ -2717,6 +2771,151 @@ let refreshActivity = () => {};
   els.prev.addEventListener('click', () => stepSlot(-1));
   els.next.addEventListener('click', () => stepSlot(1));
   bgShuffle.addEventListener('click', shuffleWallpaper);
+
+  /* ---- timed rotation: every N minutes (Rotation → Rotate in the panel;
+         0 = off) this browser shows the next wallpaper of the active slot.
+         Per browser like the random pick itself — the interval lives in
+         localStorage, nothing rides the settings PUT, and the shared
+         active-slot pointer is never touched. The order is a shuffle bag:
+         each wallpaper of the slot once, in random order, before a new
+         cycle starts, and never the one already on screen. The countdown
+         restarts whenever the wallpaper on screen changes for any reason
+         (syncWallpaper reports it), so a deliberate pick always gets a full
+         interval. It keeps running in a hidden tab (browsers clamp
+         background timers to about a minute, which is immaterial at ≥ 5
+         min); an overdue rotation also fires as soon as the tab is shown
+         again. It holds while the Appearance panel is open — so Remove
+         wallpaper or Position never act on a wallpaper that just swapped
+         underneath — and closing the panel starts a fresh interval. The
+         next original is preloaded before the swap (no blank frame); if it
+         fails to load, the current wallpaper stays and the next attempt is
+         one interval later. ---- */
+  const ROTATE_SHUFFLE_TITLE = 'Show another random wallpaper in this slot';
+  const rotateLabel = (m) => (m < 60 ? m + ' min' : m === 60 ? '1 hour' : (m / 60) + ' hours');
+  function canRotate() {
+    const slot = activeSlot(settings);
+    return rotateMinutes > 0 && !!slot && Array.isArray(slot.wallpapers) && slot.wallpapers.length >= 2;
+  }
+  function stopRotation() {
+    clearTimeout(rotateTimer);
+    rotateTimer = 0;
+    rotateDueAt = 0;
+    rotateGen++; // any preload still in flight is now stale
+  }
+  function armRotation() {
+    clearTimeout(rotateTimer);
+    rotateTimer = setTimeout(rotationDue, Math.max(0, rotateDueAt - Date.now()));
+  }
+  /* (Re)arm or stop the schedule. `restart` starts a full interval from
+     now; otherwise a running countdown (or a rotation in flight) is kept. */
+  function syncRotation(restart) {
+    if (!canRotate() || panelOpen()) {
+      if (rotateTimer || rotateDueAt) stopRotation();
+      return;
+    }
+    if (restart || !rotateDueAt) {
+      stopRotation();
+      rotateDueAt = Date.now() + rotateMinutes * 60000;
+      armRotation();
+    }
+  }
+  function rotationDue() {
+    rotateTimer = 0;
+    if (Date.now() < rotateDueAt - 1000) { armRotation(); return; } // woke early
+    rotateWallpaper();
+  }
+  /* Next id from the shuffle bag. The bag belongs to one slot *and* its
+     exact membership — a different slot, an upload or a removal starts a
+     new cycle. Ids already gone, and the wallpaper on screen (a manual pick
+     counts as shown), are skipped. */
+  function nextRotationId(slot, currentId) {
+    const ids = slot.wallpapers.map((w) => w.id);
+    const key = slot.id + '|' + ids.join(',');
+    if (rotateBag.key !== key) rotateBag = { key, queue: [] };
+    let queue = rotateBag.queue.filter((id) => id !== currentId && ids.includes(id));
+    if (!queue.length) {
+      queue = ids.filter((id) => id !== currentId);
+      for (let i = queue.length - 1; i > 0; i--) { // Fisher–Yates
+        const j = Math.floor(Math.random() * (i + 1));
+        const tmp = queue[i]; queue[i] = queue[j]; queue[j] = tmp;
+      }
+    }
+    const next = queue.shift();
+    rotateBag.queue = queue;
+    return next;
+  }
+  /* Resolves true once the image is fetched, false on error / timeout.
+     Without an Image constructor there is nothing to warm up. */
+  function preloadWallpaper(url) {
+    if (typeof Image !== 'function') return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const img = new Image();
+      let settled = false;
+      const finish = (ok) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        img.onload = img.onerror = null;
+        resolve(ok);
+      };
+      const timer = setTimeout(() => finish(false), ROTATE_PRELOAD_TIMEOUT_MS);
+      img.onload = () => finish(true);
+      img.onerror = () => finish(false);
+      img.decoding = 'async';
+      img.src = url;
+    });
+  }
+  function rotateWallpaper() {
+    const slot = activeSlot(settings);
+    const current = displayedWallpaper(settings);
+    if (!canRotate() || panelOpen() || !slot || !current) { syncRotation(true); return; }
+    const id = nextRotationId(slot, current.id);
+    if (!id) { syncRotation(true); return; }
+    const gen = rotateGen;
+    preloadWallpaper(wallpaperUrl(id)).then((ok) => {
+      if (gen !== rotateGen) return; // superseded: manual pick, slot switch, panel opened, interval changed
+      const s = activeSlot(settings);
+      if (!ok || !s || s.id !== slot.id || !s.wallpapers.some((w) => w.id === id) || panelOpen()) {
+        syncRotation(true); // keep what is on screen; try again one interval later
+        return;
+      }
+      displayedId = id;
+      commitLocal(); // → syncWallpaper sees the new wallpaper → the next interval starts
+    });
+  }
+  /* Panel select + hint, and the header shuffle's "rotating" tint. */
+  function syncRotationControls(slotSize) {
+    els.rotate.value = String(rotateMinutes);
+    const active = rotateMinutes > 0 && slotSize >= 2;
+    let hint = '';
+    if (rotateMinutes > 0 && slotSize < 2) hint = 'Rotation starts once this slot has two or more wallpapers.';
+    else if (active) hint = 'Every ' + rotateLabel(rotateMinutes) + ', in random order, this browser only. Paused while this panel is open.';
+    if (els.rotateHint.textContent !== hint) els.rotateHint.textContent = hint;
+    bgShuffle.classList.toggle('rotating', active);
+    bgShuffle.title = active
+      ? ROTATE_SHUFFLE_TITLE + ' \u2014 auto-rotating every ' + rotateLabel(rotateMinutes) + ' (set in Appearance)'
+      : ROTATE_SHUFFLE_TITLE;
+  }
+  function setRotateMinutes(minutes) {
+    rotateMinutes = ROTATE_CHOICES.includes(minutes) ? minutes : 0;
+    syncRotation(true);
+    syncPanel();
+  }
+  els.rotate.addEventListener('change', () => {
+    const v = Number(els.rotate.value);
+    const minutes = ROTATE_CHOICES.includes(v) ? v : 0;
+    try {
+      if (minutes) localStorage.setItem(ROTATE_LS_KEY, String(minutes));
+      else localStorage.removeItem(ROTATE_LS_KEY);
+    } catch (e) {}
+    setRotateMinutes(minutes);
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && rotateTimer && rotateDueAt && Date.now() >= rotateDueAt) {
+      clearTimeout(rotateTimer);
+      rotationDue();
+    }
+  });
 
   /* ---- header slot picker: a menu button naming the active slot, and a
          menu listing every slot (thumbnail, name or "Slot N", wallpaper
@@ -3093,6 +3292,7 @@ let refreshActivity = () => {};
   /* Cross-tab sync: change the wallpaper in one tab, every other tab follows
      (each tab's debounced PUT is what updates the shared server state). */
   window.addEventListener('storage', (e) => {
+    if (e.key === ROTATE_LS_KEY) { setRotateMinutes(readRotateMinutes()); return; } // interval set in another tab
     if (e.key !== LS_KEY) return;
     settings = readSettings();
     applyAppearance(settings);

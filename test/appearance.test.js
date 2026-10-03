@@ -414,6 +414,7 @@ function boot(bitmapFactory, serverSettings, preLS, seed, options = {}) {
   FOCUS.last = null;
   const documentStub = {
     body,
+    visibilityState: 'visible',
     getElementById: getEl,
     createElement: (tag) => (tag === 'canvas' ? mkCanvas() : mkEl('anon')),
     addEventListener: (type, fn) => { (docListeners[type] = docListeners[type] || []).push(fn); }
@@ -479,12 +480,47 @@ function boot(bitmapFactory, serverSettings, preLS, seed, options = {}) {
   };
   sandbox.window = sandbox;
   sandbox.addEventListener = () => {};
+  /* Opt-in fake clock for the timed wallpaper rotation (intervals are ≥ 5
+     min): timers of a minute or more go to a manual scheduler driven by
+     clock.advance(), shorter ones (debounces, frames, preload timeouts)
+     stay real, and the sandbox's Date.now() reads the fake time. */
+  const clock = { now: Date.now(), timers: new Map(), nextId: 1 };
+  clock.advance = (ms) => {
+    const target = clock.now + ms;
+    for (;;) {
+      let due = null;
+      for (const [id, t] of clock.timers) if (t.at <= target && (!due || t.at < due[1].at)) due = [id, t];
+      if (!due) break;
+      clock.timers.delete(due[0]);
+      clock.now = due[1].at;
+      due[1].fn();
+    }
+    clock.now = target;
+  };
+  clock.skip = (ms) => { clock.now += ms; }; // time passes, nothing fires (throttled tab / sleep)
+  clock.pending = () => [...clock.timers.values()].map((t) => t.ms);
+  if (options.fakeClock) {
+    const LONG_MS = 60000;
+    sandbox.setTimeout = (fn, ms, ...args) => {
+      if (!(ms >= LONG_MS)) return setTimeout(fn, ms, ...args);
+      const id = 'long-' + clock.nextId++;
+      clock.timers.set(id, { fn: () => fn(...args), at: clock.now + ms, ms });
+      return id;
+    };
+    sandbox.clearTimeout = (id) => {
+      if (clock.timers.has(id)) clock.timers.delete(id);
+      else clearTimeout(id);
+    };
+    sandbox.Date = class extends Date { static now() { return clock.now; } };
+  }
+  if (options.Image) sandbox.Image = options.Image;
   getEl('appearancePanel').classList.add('hidden');
   getEl('bgSlotMenu').classList.add('hidden'); // as in the markup: the menu starts closed
   if (preLS) for (const [k, v] of Object.entries(preLS)) sandbox.localStorage.setItem(k, v);
   vm.createContext(sandbox);
   vm.runInContext(code, sandbox);
-  return { elements, body, fetchState, localStorage: sandbox.localStorage, flushFrames, frames, docListeners, focus: FOCUS };
+  return { elements, body, fetchState, localStorage: sandbox.localStorage, flushFrames, frames, docListeners, focus: FOCUS,
+    clock, document: documentStub };
 }
 
 /* Fire every listener of `type` on a stub element with a minimal event. */
@@ -646,6 +682,23 @@ for (const needle of [
 }
 for (const gone of ['id="bgPrev"', 'id="bgNext"']) {
   assert.ok(!html.includes(gone), 'the header slot arrows are replaced by the slot menu: ' + gone);
+}
+/* Timed rotation: the panel's Rotate select offers exactly the supported
+   intervals (minutes, 0 = off) and the Rotation group sits between Slots
+   and Effects. */
+for (const needle of ['id="spRotate"', 'id="spRotateHint"', '<label class="sp-field-label" for="spRotate">Rotate</label>',
+  "const ROTATE_LS_KEY = 'sp-wallpaper-rotate'", 'const ROTATE_CHOICES = [0, 5, 10, 15, 30, 60, 120, 180, 360]',
+  '.seg-arrow.rotating{', '.sp-rotate{', '#spRotateHint:empty{display:none}']) {
+  assert.ok(html.includes(needle), 'index.html missing: ' + needle);
+}
+{
+  const sel = html.slice(html.indexOf('<select id="spRotate"'), html.indexOf('</select>', html.indexOf('<select id="spRotate"')));
+  assert.deepStrictEqual([...sel.matchAll(/<option value="(\d+)">/g)].map((m) => m[1]),
+    ['0', '5', '10', '15', '30', '60', '120', '180', '360'], 'rotate intervals: off, 5 min … 6 h');
+  const rotation = html.indexOf('<span class="sp-label">Rotation</span>');
+  assert.ok(html.indexOf('id="spNav"') < rotation && rotation < html.indexOf('id="spRotate"') &&
+    html.indexOf('id="spRotateHint"') < html.indexOf('<span class="sp-label">Effects</span>'),
+    'the Rotation group sits between Slots and Effects');
 }
 assert.ok(html.indexOf('id="bgSlot"') < html.indexOf('id="bgShuffle"') &&
   html.indexOf('id="bgShuffle"') < html.indexOf('id="bgSlotMenu"'),
@@ -2349,6 +2402,209 @@ function spawnServer(dataDir, port) {
     assert.deepStrictEqual(counts().slice(1), before.slice(1), 'only the slot switch talked to the server');
     assert.ok(t.fetchState.putBodies.every((p) => !('backgroundPosition' in p)), 'no position rides a PUT');
     console.log('  ok 30. position: apply to all in slot / reset slot (client-local, confirmed overwrites)');
+  }
+
+  /* ---------- Scenario 31: timed rotation ----------
+     Rotation → Rotate shows the next wallpaper of the active slot every N
+     minutes: per browser (localStorage, no PUT), shuffle-bag order (each
+     wallpaper once per cycle, never the one on screen), restarted by any
+     manual change, held while the panel is open, inert in a one-wallpaper
+     slot, caught up when an overdue tab is shown again, and off again
+     without a trace. */
+  {
+    const mkWp = (id, accent) => ({ id, type: 'image/png', imageDark: true, accent, accentTouched: true });
+    const slotA = { id: 'rot-a', name: 'Rotating', wallpapers: [
+      mkWp('ra-1', '#b03b3b'), mkWp('ra-2', '#3b3bb0'), mkWp('ra-3', '#3bb05e'), mkWp('ra-4', '#b0b03b')
+    ] };
+    const slotB = { id: 'rot-b', name: 'Single', wallpapers: [mkWp('rb-1', '#8a3bb0')] };
+    const t = boot(() => makeBitmap(1, 1, () => [128, 128, 128]),
+      { slots: [slotA, slotB], activeSlotId: slotA.id }, undefined, undefined, { fakeClock: true });
+    await sleep(30);
+    const E = t.elements;
+    const shown = () => {
+      const m = /\/api\/appearance\/wallpapers\/([^"/]+)"\)$/.exec(t.body.style.props['--sp-bg-image'] || '');
+      return m ? decodeURIComponent(m[1]) : null;
+    };
+    const accentOf = (id) => slotA.wallpapers.concat(slotB.wallpapers).find((w) => w.id === id).accent;
+    const choose = (minutes) => { E.spRotate.value = String(minutes); fire(E.spRotate, 'change'); };
+    const tick = async (ms) => { t.clock.advance(ms); await sleep(0); };
+    const cssWrites = () => t.localStorage.writes.filter((k) => k === 'sp-appearance').length;
+
+    // Off by default: nothing scheduled, the shuffle is not tinted.
+    assert.strictEqual(E.spRotate.value, '0', 'rotation is off by default');
+    assert.deepStrictEqual(t.clock.pending(), [], 'nothing scheduled while off');
+    assert.ok(!E.bgShuffle.classList.contains('rotating'));
+    assert.strictEqual(E.bgShuffle.title, 'Show another random wallpaper in this slot');
+    assert.strictEqual(E.spRotateHint.textContent, '', 'no hint while off');
+
+    // Pick 5 minutes in the panel: held while it is open, armed on close.
+    click(E, 'appearanceBtn');
+    choose(5);
+    assert.strictEqual(t.localStorage.getItem('sp-wallpaper-rotate'), '5', 'the interval is stored per browser');
+    assert.deepStrictEqual(t.clock.pending(), [], 'held while the panel is open');
+    assert.strictEqual(E.spRotateHint.textContent,
+      'Every 5 min, in random order, this browser only. Paused while this panel is open.');
+    click(E, 'appearanceClose');
+    assert.deepStrictEqual(t.clock.pending(), [300000], 'closing the panel starts a full interval');
+    assert.ok(E.bgShuffle.classList.contains('rotating'), 'the header shuffle shows rotation is on');
+    assert.strictEqual(E.bgShuffle.title,
+      'Show another random wallpaper in this slot \u2014 auto-rotating every 5 min (set in Appearance)');
+
+    // The interval elapses: a different wallpaper, its theme, no server write.
+    const putsBefore = t.fetchState.putBodies.length;
+    const cacheBefore = cssWrites();
+    const start = shown();
+    await tick(299999);
+    assert.strictEqual(shown(), start, 'nothing changes before the interval is up');
+    await tick(1);
+    const rotated = [shown()];
+    assert.notStrictEqual(rotated[0], start, 'the interval shows another wallpaper');
+    assert.strictEqual(t.body.style.props['--accent'], accentOf(rotated[0]), 'the theme follows the rotation');
+    assert.strictEqual(E.spThumbs.children.filter((item) => item.className.includes('current')).length, 1,
+      'the gallery marks the new current wallpaper');
+    assert.deepStrictEqual(t.clock.pending(), [300000], 'the next interval is armed');
+    assert.strictEqual(t.fetchState.settings.activeSlotId, slotA.id, 'rotation stays in the active slot');
+
+    // Shuffle-bag order: every cycle shows each of the other three once.
+    for (let i = 1; i < 9; i++) { await tick(300000); rotated.push(shown()); }
+    const before = [start].concat(rotated);
+    for (let c = 0; c < 3; c++) {
+      const cycle = rotated.slice(c * 3, c * 3 + 3);
+      assert.strictEqual(new Set(cycle).size, 3, 'cycle ' + c + ' shows three different wallpapers');
+      assert.ok(!cycle.includes(before[c * 3]), 'cycle ' + c + ' skips the wallpaper it started on');
+    }
+    for (let i = 1; i < before.length; i++) assert.notStrictEqual(before[i], before[i - 1], 'never the same twice in a row');
+    assert.strictEqual(new Set(before).size, 4, 'all four wallpapers come around');
+    assert.strictEqual(t.fetchState.putBodies.length, putsBefore, 'rotation never saves a shared setting');
+    assert.strictEqual(cssWrites(), cacheBefore, 'rotation never rewrites the shared-settings cache');
+
+    // A manual shuffle restarts the countdown.
+    await tick(240000);
+    const preShuffle = shown();
+    click(E, 'bgShuffle');
+    const manual = shown();
+    assert.notStrictEqual(manual, preShuffle);
+    assert.deepStrictEqual(t.clock.pending(), [300000], 'a manual pick gets a full interval');
+    await tick(240000);
+    assert.strictEqual(shown(), manual, 'the old deadline no longer applies');
+    await tick(60000);
+    assert.notStrictEqual(shown(), manual, 'rotation resumes a full interval after the manual pick');
+
+    // The open panel holds rotation for as long as it stays open.
+    click(E, 'appearanceBtn');
+    const held = shown();
+    assert.deepStrictEqual(t.clock.pending(), [], 'opening the panel holds rotation');
+    await tick(3600000);
+    assert.strictEqual(shown(), held, 'no rotation while the panel is open');
+    // A new interval while there: stored, armed in full on close.
+    choose(360);
+    assert.strictEqual(t.localStorage.getItem('sp-wallpaper-rotate'), '360');
+    click(E, 'appearanceClose');
+    assert.deepStrictEqual(t.clock.pending(), [21600000], 'the new interval runs from now');
+    assert.strictEqual(E.bgShuffle.title,
+      'Show another random wallpaper in this slot \u2014 auto-rotating every 6 hours (set in Appearance)');
+
+    // A one-wallpaper slot has nothing to rotate; coming back resumes.
+    click(E, 'spNext');
+    await sleep(50);
+    assert.strictEqual(t.fetchState.settings.activeSlotId, slotB.id);
+    assert.deepStrictEqual(t.clock.pending(), [], 'inert in a one-wallpaper slot');
+    assert.ok(!E.bgShuffle.classList.contains('rotating'), 'no tint without anything to rotate');
+    assert.strictEqual(E.bgShuffle.title, 'Show another random wallpaper in this slot');
+    assert.strictEqual(E.spRotateHint.textContent, 'Rotation starts once this slot has two or more wallpapers.');
+    assert.strictEqual(E.spRotate.value, '360', 'the interval is kept for later');
+    click(E, 'spPrev');
+    await sleep(50);
+    assert.strictEqual(t.fetchState.settings.activeSlotId, slotA.id);
+    assert.deepStrictEqual(t.clock.pending(), [21600000], 'back in a rotating slot, the timer is armed again');
+    assert.ok(E.bgShuffle.classList.contains('rotating'));
+
+    // An overdue rotation (throttled timer / sleeping machine) fires as soon
+    // as the tab is shown again — but not while it stays hidden.
+    const beforeSleep = shown();
+    t.clock.skip(21600000 + 5000);
+    t.document.visibilityState = 'hidden';
+    for (const fn of t.docListeners.visibilitychange) fn({});
+    await sleep(0);
+    assert.strictEqual(shown(), beforeSleep, 'a hidden tab waits for its timer');
+    t.document.visibilityState = 'visible';
+    for (const fn of t.docListeners.visibilitychange) fn({});
+    await sleep(0);
+    assert.notStrictEqual(shown(), beforeSleep, 'showing the tab catches up an overdue rotation');
+    assert.deepStrictEqual(t.clock.pending(), [21600000], 'and arms exactly one fresh interval');
+
+    // Off: the key is removed, the timer and tint are gone for good.
+    click(E, 'appearanceBtn');
+    choose(0);
+    click(E, 'appearanceClose');
+    assert.strictEqual(t.localStorage.getItem('sp-wallpaper-rotate'), null, 'off forgets the interval');
+    assert.deepStrictEqual(t.clock.pending(), [], 'nothing scheduled once off');
+    assert.ok(!E.bgShuffle.classList.contains('rotating'));
+    assert.strictEqual(E.spRotateHint.textContent, '');
+    const offShown = shown();
+    await tick(86400000);
+    assert.strictEqual(shown(), offShown, 'a day later, still the same wallpaper');
+    console.log('  ok 31. timed rotation: shuffle-bag order, manual picks restart it, panel holds it, per browser');
+  }
+
+  /* ---------- Scenario 32: rotation persistence + preload ----------
+     The interval survives a reload (an unknown stored value means off); the
+     next original is fetched before the swap, a manual pick made meanwhile
+     wins, and a failed load keeps the wallpaper on screen. */
+  {
+    const mkWp = (id) => ({ id, type: 'image/png', imageDark: true, accent: '', accentTouched: true });
+    const slot = { id: 'rot-p', name: '', wallpapers: [mkWp('rp-1'), mkWp('rp-2'), mkWp('rp-3')] };
+    const server = { slots: [slot], activeSlotId: slot.id };
+    const grey = () => makeBitmap(1, 1, () => [128, 128, 128]);
+
+    const kept = boot(grey, server, { 'sp-wallpaper-rotate': '30' }, undefined, { fakeClock: true });
+    await sleep(30);
+    assert.strictEqual(kept.elements.spRotate.value, '30', 'the stored interval comes back after a reload');
+    assert.deepStrictEqual(kept.clock.pending(), [1800000], 'and is armed from page load');
+    assert.ok(kept.elements.bgShuffle.classList.contains('rotating'));
+
+    const junk = boot(grey, server, { 'sp-wallpaper-rotate': '7' }, undefined, { fakeClock: true });
+    await sleep(30);
+    assert.strictEqual(junk.elements.spRotate.value, '0', 'an unsupported stored interval reads as off');
+    assert.deepStrictEqual(junk.clock.pending(), []);
+
+    const images = [];
+    class FakeImage { constructor() { images.push(this); } }
+    const t = boot(grey, server, { 'sp-wallpaper-rotate': '5' }, undefined, { fakeClock: true, Image: FakeImage });
+    await sleep(30);
+    const bg = () => t.body.style.props['--sp-bg-image'];
+    const first = bg();
+    t.clock.advance(300000);
+    await sleep(0);
+    assert.strictEqual(images.length, 1, 'the next wallpaper is preloaded');
+    assert.ok(/^\/api\/appearance\/wallpapers\/rp-[123]$/.test(images[0].src), 'from its original');
+    assert.notStrictEqual('url("' + images[0].src + '")', first, 'and it is not the one on screen');
+    assert.strictEqual(bg(), first, 'the swap waits for the image');
+    images[0].onload();
+    await sleep(0);
+    assert.strictEqual(bg(), 'url("' + images[0].src + '")', 'swapped once loaded');
+    assert.deepStrictEqual(t.clock.pending(), [300000]);
+
+    // A manual pick while the next image is still loading wins.
+    t.clock.advance(300000);
+    await sleep(0);
+    assert.strictEqual(images.length, 2);
+    click(t.elements, 'bgShuffle');
+    const manual = bg();
+    images[1].onload();
+    await sleep(0);
+    assert.strictEqual(bg(), manual, 'a stale preload does not override the manual pick');
+    assert.deepStrictEqual(t.clock.pending(), [300000], 'the manual pick armed the only interval');
+
+    // A failed load keeps the wallpaper on screen and tries again later.
+    t.clock.advance(300000);
+    await sleep(0);
+    assert.strictEqual(images.length, 3);
+    images[2].onerror();
+    await sleep(0);
+    assert.strictEqual(bg(), manual, 'a wallpaper that fails to load is not swapped in');
+    assert.deepStrictEqual(t.clock.pending(), [300000], 'the next attempt is one interval later');
+    console.log('  ok 32. rotation interval persists per browser; preloaded swaps, stale and failed loads ignored');
   }
 
   console.log('all appearance tests passed');
