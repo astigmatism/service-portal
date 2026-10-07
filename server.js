@@ -1562,6 +1562,8 @@ const powerMonitor = createPowerMonitor({
   // POWER_GPU_PROBE=off skips the nvidia-smi probe container entirely.
   gpuProbe: !/^(0|off|false|no)$/i.test(process.env.POWER_GPU_PROBE || ''),
   dockerJson: dockerJsonRequest,
+  dockerLogs: (pathname) => dockerRawRequest('GET', pathname, { timeoutMs: 5000 })
+    .then((response) => decodeDockerLogs(response.body)),
   log: (msg) => console.error(msg),
 });
 powerMonitor.setBaseline(readPowerConfig().baseline_w);

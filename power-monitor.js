@@ -120,6 +120,8 @@ function loadState(stateFile) {
 function createPowerMonitor(options) {
   const stateFile = options.stateFile;
   const dockerJson = options.dockerJson;
+  // (pathname) -> Promise<string>: demultiplexed container log text.
+  const dockerLogs = options.dockerLogs;
   const log = options.log || (() => {});
   const selfName = options.selfName || '';
   const gpuImageOverride = options.gpuImage || '';
@@ -218,8 +220,11 @@ function createPowerMonitor(options) {
       if (info.State.ExitCode !== 0) {
         throw new Error('nvidia-smi exited with code ' + info.State.ExitCode);
       }
-      const logs = await dockerJson('GET', '/containers/' + id + '/logs?stdout=1&stderr=1', null, 5000);
-      const devices = parseGpuProbeOutput((logs && logs.stdout) || '');
+      // The logs endpoint returns docker's multiplexed stream (8-byte frame
+      // headers), not JSON, so it goes through the text reader. stdout only:
+      // the CSV is all we parse.
+      const text = await dockerLogs('/containers/' + id + '/logs?stdout=1&stderr=0');
+      const devices = parseGpuProbeOutput(text || '');
       if (!devices.length) throw new Error('nvidia-smi returned no GPU data');
       return devices;
     } finally {
