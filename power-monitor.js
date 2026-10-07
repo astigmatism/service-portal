@@ -252,12 +252,17 @@ function createPowerMonitor(options) {
     }
     try {
       const devices = await runGpuProbe();
+      const wasAvailable = gpu.available;
       gpu.devices = devices;
       gpu.lastWatts = devices.reduce((sum, d) => sum + d.watts, 0);
       gpu.available = true;
       gpu.strikes = 0;
       gpu.probeError = null;
-      log('power monitor: GPU probe ok (' + devices.map((d) => d.name + ' ' + d.watts.toFixed(0) + ' W').join(', ') + ')' + (reason ? ' [' + reason + ']' : ''));
+      gpu.failureLogged = false;
+      // Log on (re)detection only; the probe runs every tick while available.
+      if (!wasAvailable) {
+        log('power monitor: GPU detected (' + devices.map((d) => d.name + ' ' + d.watts.toFixed(0) + ' W').join(', ') + ')' + (reason ? ' [' + reason + ']' : ''));
+      }
       return true;
     } catch (err) {
       gpu.strikes += 1;
