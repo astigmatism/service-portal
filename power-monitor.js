@@ -24,8 +24,6 @@
 // 5 s and exits after ~15 min; the portal reads its log and starts a fresh
 // one, which is also when GPU detection is retried. A host that exposes
 // neither source gets a re-check every 15 min instead of a running sampler.
-// If the sampler cannot run at all, counters the portal can read directly
-// (/host/sys bind, root deployments) are used as a fallback.
 //
 // Energy is integrated between 5 s ticks and persisted to a JSON file so
 // lifetime totals survive portal restarts (the RAPL counter keeps counting
@@ -44,7 +42,6 @@ const RECHECK_MS = 15 * 60 * 1000;       // re-detect a host that exposed nothin
 const FAILURE_BACKOFF_MS = 60 * 1000;    // retry after the sampler could not be started
 const STALE_S = 30;                      // a reading older than this no longer counts as current
 const DT_CLAMP_S = [0.4, 300];           // sane window for instantaneous W
-const RAPL_ROOTS = ['/host/sys/class/powercap', '/sys/class/powercap'];
 const SAMPLER_LABEL = 'io.service-portal.power-sampler';
 const MAINTENANCE_LABEL = 'io.service-portal.maintenance';
 const GPU_NONE_NOTE = 'none detected on this host';
@@ -93,35 +90,6 @@ function readUptimeSeconds() {
   } catch {
     return 0;
   }
-}
-
-// Package zones the portal can read itself (fallback path).
-function discoverDirectRaplZones() {
-  const zones = [];
-  for (const root of RAPL_ROOTS) {
-    let entries;
-    try {
-      entries = fs.readdirSync(root);
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      if (!/^intel-rapl:\d+$/.test(entry)) continue;
-      const dir = path.join(root, entry);
-      try {
-        fs.readFileSync(path.join(dir, 'energy_uj'), 'utf8');
-        const range = Number(fs.readFileSync(path.join(dir, 'max_energy_range_uj'), 'utf8').trim());
-        if (!Number.isFinite(range) || range <= 0) continue;
-        let name = entry;
-        try { name = fs.readFileSync(path.join(dir, 'name'), 'utf8').trim() || entry; } catch { /* keep id */ }
-        zones.push({ id: entry, name, range, energyPath: path.join(dir, 'energy_uj') });
-      } catch {
-        // unreadable zone: skip
-      }
-    }
-    if (zones.length) break; // /host/sys wins when present
-  }
-  return zones;
 }
 
 function parseGpuLine(text) {
@@ -199,7 +167,6 @@ function createPowerMonitor(options) {
   const log = options.log || (() => {});
   const selfName = options.selfName || '';
   const owner = selfName || 'service-portal';
-  const imageOverride = options.image || '';
   const samplerEnabled = options.sampler !== false;
   const tickMs = options.tickMs || TICK_MS;
   const uptime = options.uptime || readUptimeSeconds;
@@ -207,13 +174,12 @@ function createPowerMonitor(options) {
 
   let baselineW = options.baselineW;
   let state = loadState(stateFile);
-  const directZones = discoverDirectRaplZones();
 
   // zone id -> { id, name, range, t, w, energyJSinceBoot }
   const cpu = { zones: new Map(), none: false, unreadable: false };
   const gpu = { devices: [], t: null, none: false, error: null };
   const sampler = {
-    id: null, withGpu: false, image: imageOverride, startedMs: 0,
+    id: null, withGpu: false, image: '', startedMs: 0,
     nextAttemptMs: 0, lastError: null, reaped: false,
   };
   const announced = new Map(); // topic -> last logged message (state-change logging)
@@ -280,18 +246,6 @@ function createPowerMonitor(options) {
     }
     zone.t = r.t;
     zone.energyJSinceBoot = r.uj / 1e6;
-  }
-
-  function readDirect() {
-    for (const zone of directZones) {
-      let uj;
-      try {
-        uj = Number(fs.readFileSync(zone.energyPath, 'utf8').trim());
-      } catch {
-        continue;
-      }
-      if (Number.isFinite(uj)) applyRaplReading({ id: zone.id, name: zone.name, uj, range: zone.range, t: uptime() });
-    }
   }
 
   async function resolveImage() {
@@ -454,27 +408,14 @@ function createPowerMonitor(options) {
   }
 
   async function collect() {
-    if (!samplerEnabled) {
-      readDirect();
-      cpu.none = directZones.length === 0;
-      return;
-    }
+    if (!samplerEnabled) return;
     if (!sampler.id) {
-      if (Date.now() < sampler.nextAttemptMs) {
-        readDirect();
-        return;
-      }
-      if (!(await startSampler())) {
-        readDirect();
-        return;
-      }
+      if (Date.now() < sampler.nextAttemptMs) return;
+      if (!(await startSampler())) return;
       await sleep(Math.min(1500, tickMs)); // let it print its first block
     }
     const block = await latestBlock();
-    if (!block) {
-      readDirect();
-      return;
-    }
+    if (!block) return;
     applyBlock(block);
     const measuresSomething = block.rapl.length > 0 || block.unreadable.length > 0 || (sampler.withGpu && !gpu.none);
     if (!measuresSomething) {
@@ -545,6 +486,7 @@ function createPowerMonitor(options) {
   }
 
   function cpuNote() {
+    if (!samplerEnabled) return 'measurement is turned off';
     if (cpu.unreadable) return 'power counter not readable';
     if (cpu.none) return CPU_NONE_NOTE;
     if (sampler.lastError) return 'unavailable: ' + sampler.lastError;
@@ -552,7 +494,7 @@ function createPowerMonitor(options) {
   }
 
   function gpuNote() {
-    if (!samplerEnabled) return 'GPU measurement is turned off';
+    if (!samplerEnabled) return 'measurement is turned off';
     if (gpu.error) return gpu.error;
     if (gpu.none) return GPU_NONE_NOTE;
     if (sampler.lastError) return 'unavailable: ' + sampler.lastError;

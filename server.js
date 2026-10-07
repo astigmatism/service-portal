@@ -1501,11 +1501,10 @@ function toService(c, capability, job, lifecycle) {
 
 // ---- Power metering (local host) ------------------------------------------
 // The portal measures the machine it is deployed on. power-monitor.js
-// detects the power sources this host actually exposes — Intel RAPL via the
-// host powercap sysfs (the deployment binds /sys read-only at /host/sys),
-// NVIDIA GPUs via a short-lived `nvidia-smi` container over the docker
-// socket, and always a configurable baseline for the unmeasured hardware —
-// and integrates energy between 5 s ticks with persistent state. The
+// reports CPU (Intel RAPL) and NVIDIA GPU power through a host sampler
+// container it runs over the docker socket, plus a configurable baseline for
+// the unmeasured hardware, and integrates energy between 5 s ticks with
+// persistent state. The
 // electricity rate and baseline wattage live in <DATA_DIR>/power.json so
 // they survive recreation; missing or invalid fields fall back to the
 // defaults (the local SnoPUD residential rate from the 2026 rate book).
@@ -1558,9 +1557,7 @@ const powerMonitor = createPowerMonitor({
   stateFile: POWER_STATE_FILE,
   baselineW: POWER_BASELINE_DEFAULT,
   selfName: process.env.SELF_NAME || '',
-  // Image for the host sampler container; defaults to the portal's own image.
-  image: process.env.POWER_SAMPLER_IMAGE || '',
-  // POWER_SAMPLER=off: no sampler container (only directly readable counters).
+  // POWER_SAMPLER=off: no sampler container (CPU/GPU are not measured).
   sampler: !/^(0|off|false|no)$/i.test(process.env.POWER_SAMPLER || ''),
   dockerJson: dockerJsonRequest,
   dockerLogs: (pathname) => dockerRawRequest('GET', pathname, { timeoutMs: 5000 })
