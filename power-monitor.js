@@ -335,6 +335,9 @@ function createPowerMonitor(options) {
       Env: ['GPU=' + (withGpu ? 1 : 0), 'PERIOD=' + samplerPeriodS, 'ITER=' + SAMPLER_ITERATIONS],
       // Maintenance-labelled so the portal's service list never shows it.
       Labels: { [MAINTENANCE_LABEL]: 'true', [SAMPLER_LABEL]: owner },
+      // The image's healthcheck probes the portal's HTTP server, which does
+      // not run here; without this the sampler would show as unhealthy.
+      Healthcheck: { Test: ['NONE'] },
       NetworkDisabled: true,
       HostConfig: {
         AutoRemove: true,
@@ -350,7 +353,10 @@ function createPowerMonitor(options) {
   }
 
   async function createAndStart(withGpu) {
-    const created = await dockerJson('POST', '/containers/create', samplerSpec(withGpu), 15000);
+    // A recognisable name in docker ps / Portainer (unique per start, since
+    // an AutoRemove'd predecessor may still be going away).
+    const name = (owner + '-power-sampler-' + Date.now().toString(36)).replace(/[^A-Za-z0-9_.-]/g, '-').slice(0, 63);
+    const created = await dockerJson('POST', '/containers/create?name=' + encodeURIComponent(name), samplerSpec(withGpu), 15000);
     const id = created && created.Id;
     if (!id) throw new Error('docker did not return a container id');
     try {

@@ -30,7 +30,8 @@ function fakeDocker({ gpuRefused, blocks }) {
     calls.push({ method, pathname });
     if (method === 'GET' && pathname === '/containers/portal/json') return { Config: { Image: 'portal:test' } };
     if (method === 'GET' && pathname.startsWith('/containers/json?all=1&filters=')) return [];
-    if (method === 'POST' && pathname === '/containers/create') {
+    if (method === 'POST' && pathname.startsWith('/containers/create?name=')) {
+      body = { ...body, name: decodeURIComponent(pathname.split('=')[1]) };
       specs.push(body);
       if (gpuRefused && body.HostConfig.DeviceRequests.length) {
         const err = new Error('could not select device driver "nvidia" with capabilities: [[gpu]]');
@@ -111,6 +112,8 @@ async function waitFor(fn, what) {
     assert.strictEqual(spec.Labels['io.service-portal.maintenance'], 'true', 'hidden from the service list');
     assert.strictEqual(spec.Labels['io.service-portal.power-sampler'], 'portal');
     assert.strictEqual(spec.NetworkDisabled, true);
+    assert.deepStrictEqual(spec.Healthcheck, { Test: ['NONE'] }, 'the portal healthcheck is not inherited');
+    assert.match(spec.name, /^portal-power-sampler-[a-z0-9]+$/, 'recognisable container name');
     const hc = spec.HostConfig;
     assert.deepStrictEqual(hc.Binds, ['/sys:/host/sys:ro'], 'only the host /sys, read-only');
     assert.strictEqual(hc.NetworkMode, 'none');
