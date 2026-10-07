@@ -24,8 +24,22 @@ on every request. No reconfiguration, no restart for discovery.
 - The controls stay in the left half only at viewport widths of at least **1440 CSS
   pixels** and aspect ratios of at least **4:3**. Portrait and narrower windows use
   the available width, capped at **880px**, with wallpaper visible beside and below.
-  Content scrolls without shrinking typography. Appearance and Activity open within
-  the same controls-page bounds; wallpaper positions remain adjustable per browser.
+  Content scrolls without shrinking typography. Appearance and Activity open as centered,
+  draggable modal dialogs over the full viewport; the controls page remains visible
+  behind a transparent modal backdrop so wallpaper and transparency edits can be judged live.
+  Drag either title bar, or focus it and use arrow keys (Shift for small steps, Home
+  to recenter). Escape closes and restores focus. Reopening centers the dialog, and
+  resizing keeps it within reach without resetting edits. Wallpaper positions remain
+  adjustable per browser.
+- The corner button switches between regular and **compact view**. Compact keeps
+  current power, hourly cost and estimated cost to date above an alphabetical list
+  of linked services, including unhealthy or stopped services with explicit states.
+  Drag the right, bottom or bottom-right grip to resize; the service list scrolls
+  while metrics stay visible. Grips support arrow keys (10px, Shift 1px) and Home
+  restores the 360px-wide, content-height default. Minimum size is 280 × 250px,
+  constrained by the viewport. Mode and size are saved per browser (`sp-compact-view`,
+  `sp-compact-size`); temporary viewport clamps do not discard your preferred size.
+  Return to regular view for service actions, full readings and appearance controls.
 - Services show state labels, name links, Start/Stop and opted-in Update & restart
   controls, with a 20-second auto-refresh. **Show services without links** is unchecked
   by default; checking it includes internal services. The preference is remembered

@@ -448,3 +448,26 @@ test('default filtering includes proxy links, updates counts, and explains empty
   vm.runInContext("services = []; lastError = 'Connection lost'; renderList();", app.sandbox);
   assert.match(app.elements.get('empty').textContent, /Could not load services/);
 });
+
+test('compact list keeps proxy links and explicit health regardless of full-view filter', async () => {
+  const app=boot();await new Promise(resolve=>setImmediate(resolve));
+  vm.runInContext(`services = [
+    {name:'Zeta',state:'running',health:'healthy',ports:[],url:'https://proxy.test/zeta'},
+    {name:'Beta',state:'running',health:'unhealthy',ports:[],url:'https://proxy.test/beta'},
+    {name:'Alpha',state:'exited',health:'healthy',ports:[],url:'https://proxy.test/alpha'},
+    {name:'Internal',state:'running',ports:[]}
+  ]; showNoLink=true; renderList();`,app.sandbox);
+  const rows=app.elements.get('compactRows').children;
+  assert.equal(app.elements.get('compactCount').textContent,'3 linked');
+  assert.deepEqual(rows.map(row=>row.children[1].textContent),['Alpha','Beta','Zeta']);
+  assert.deepEqual(rows.map(row=>row.children[2].textContent),['Exited','Unhealthy','Healthy']);
+  assert.equal(rows[0].children[1].href,'https://proxy.test/alpha');
+  assert.equal(rows[0].children[0].className,'dot bad');
+  vm.runInContext('renderCompactServices()',app.sandbox);
+  assert.equal(app.elements.get('compactRows').children[0],rows[0],'unchanged polling keeps link nodes mounted');
+  vm.runInContext("lastError='offline'; renderCompactServices();",app.sandbox);
+  assert.match(app.elements.get('compactServiceStatus').textContent,/stale/);
+  vm.runInContext('services=services.slice(3);lastError=null;renderCompactServices();',app.sandbox);
+  assert.equal(app.elements.get('compactEmpty').textContent,'No services with links.');
+  assert.equal(app.elements.get('compactEmpty').classList.contains('hidden'),false);
+});

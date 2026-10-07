@@ -109,3 +109,16 @@ test('invalid rate input sends no request and preserves the edit', async()=>{
   }
   assert.equal(app.calls.length,before);assert.equal(app.el('powerRateForm').classList.contains('hidden'),false);
 });
+
+test('compact power shares live cost calculations and communicates stale or missing readings',async()=>{
+  const app=boot();await flush();
+  assert.equal(app.el('compactWatts').textContent,'800 W');
+  assert.equal(app.el('compactCost').textContent,'$1.20');
+  app.click('powerRateEdit');app.el('powerRateInput').value='0.2';await app.submit();
+  assert.equal(app.el('compactCost').textContent,'$2.40');
+  app.failGet(true);await app.poll();assert.match(app.el('compactPowerStatus').textContent,/stale/);
+  assert.equal(app.el('compactCost').textContent,'$2.40');
+  const missing=boot({initial:{...fixture(),totalW:null}});await flush();
+  assert.equal(missing.el('compactWatts').textContent,'—');
+  assert.match(missing.el('compactPowerStatus').textContent,/unavailable/);
+});

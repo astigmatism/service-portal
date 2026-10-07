@@ -118,7 +118,6 @@ a.sname:hover{color:var(--accent);text-decoration:underline}
 .toast-x:hover{color:var(--text);background:rgb(var(--panel-2-rgb))}
 #activityBtn{position:relative}
 .badge{position:absolute;top:-6px;right:-6px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:var(--bad);color:#fff;font-size:10.5px;font-weight:700;line-height:17px;text-align:center;font-variant-numeric:tabular-nums;pointer-events:none}
-.sp-panel.activity-panel{width:min(840px,70vw);max-height:calc(100vh - 96px);display:flex;flex-direction:column}
 .act-list{overflow-y:auto;min-height:60px;margin:0 -14px -14px;padding:2px 0 8px}
 .act-row{padding:9px 14px;border-bottom:1px solid var(--line)}
 .act-list .act-row:last-child{border-bottom:0}
@@ -209,7 +208,7 @@ body[data-sp-glass] #app{backdrop-filter:blur(var(--sp-glass-blur,0px))}
 .sp-status{font-size:12.5px;color:var(--bad);min-height:16px;margin-top:8px;overflow-wrap:anywhere}
 
 /* ===== Responsive Glass page =========================================== */
-:root{--page-margin:24px;--page-width:min(880px,calc(100vw - 48px));--panel-top:100px;--power-gpu:#38d39f;--power-cpu:#5aa7ff;--power-base:#8797ad}
+:root{--page-margin:24px;--page-width:min(880px,calc(100vw - 48px));--power-gpu:#38d39f;--power-cpu:#5aa7ff;--power-base:#8797ad}
 body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(90deg,rgba(8,14,22,.5),transparent)}
 #app{position:relative;width:var(--page-width);height:auto;max-height:calc(100dvh - 2 * var(--page-margin));margin:var(--page-margin);border:1px solid var(--line);border-radius:16px;background:rgba(var(--panel-rgb),var(--sp-list-alpha,1));box-shadow:0 12px 40px rgba(0,0,0,.14);isolation:isolate}
 header{flex:none;gap:10px;padding:16px 24px;min-height:64px;border-radius:16px 16px 0 0;background:rgba(var(--panel-rgb),.8)}
@@ -232,15 +231,17 @@ h2{font-size:18px;line-height:1.35;font-weight:600;margin:0}
 .selftag{font-size:12px}
 #toasts{left:var(--page-margin);bottom:var(--page-margin);width:var(--page-width);max-width:var(--page-width);padding:0 12px;pointer-events:none}
 .toast{max-width:420px;pointer-events:auto;overflow-wrap:anywhere}
-.sp-panel,.sp-panel.appearance-panel,.sp-panel.activity-panel{left:var(--page-margin);right:auto;top:var(--panel-top);width:var(--page-width);max-width:var(--page-width);max-height:calc(100dvh - var(--panel-top) - var(--page-margin));overflow:auto;padding:18px 24px;container-type:inline-size;container-name:overlay;box-shadow:0 14px 28px rgba(0,0,0,.3)}
-.sp-panel-head{position:sticky;top:-18px;z-index:3;background:var(--panel);padding:8px 0}
+.sp-panel,.sp-panel.appearance-panel,.sp-panel.activity-panel{position:fixed;inset:auto;margin:0;width:min(880px,calc(100vw - 32px));max-width:calc(100vw - 32px);max-height:calc(100dvh - 32px);color:var(--text);overflow:auto;padding:0 18px 18px;container-type:inline-size;container-name:overlay;box-shadow:0 24px 80px rgba(0,0,0,.5),0 2px 8px rgba(0,0,0,.25);scrollbar-width:thin;scrollbar-color:var(--muted) transparent}
+.sp-panel::backdrop{background:transparent}
+.sp-panel-head{position:sticky;top:0;z-index:3;background:var(--panel);display:flex;align-items:center;justify-content:space-between;margin:0 -18px 14px;padding:10px 18px;border-bottom:1px solid var(--line);cursor:grab;touch-action:none;user-select:none}
+.sp-panel-head:focus-visible{outline-offset:-3px}
+.sp-panel.is-dragging,.sp-panel.is-dragging .sp-panel-head{cursor:grabbing}
+.sp-panel-title{font-size:22px;font-weight:550}
+.sp-panel-head button{cursor:pointer;border-color:transparent;background:transparent;font-size:24px;line-height:1;padding:3px 7px;min-width:36px;min-height:36px}
 .act-list{overflow:visible}
 /* Appearance follows the reference: one toolbar, a gallery with an upload
    tile, then compact Position and Effects cards. Only the panel scrolls. */
 .sp-panel.appearance-panel{padding:0 18px 18px;scrollbar-width:thin;scrollbar-color:var(--muted) transparent;border-radius:12px}
-.appearance-panel .sp-panel-head{top:0;margin:0 -18px 14px;padding:10px 18px;border-bottom:1px solid var(--line)}
-.appearance-panel .sp-panel-title{font-size:22px;font-weight:550}
-#appearanceClose{border-color:transparent;background:transparent;font-size:24px;line-height:1;padding:3px 7px}
 header .seg{border:0;background:none;gap:8px;overflow:visible}
 header .seg-btn{border:1px solid var(--line);border-radius:8px;background:rgba(var(--panel-2-rgb),.55);min-height:34px}
 header .seg-btn + .seg-btn{border-left:1px solid var(--line)}
@@ -359,9 +360,48 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,[t
 @container overlay (max-width:349px){.sp-slot-toolbar{grid-template-columns:1fr}.sp-slot-name{grid-column:1}.appearance-slots .sp-nav{grid-column:1;justify-self:start}.sp-position-controls{gap:12px}.sp-effects-card .sp-slider{grid-template-columns:104px minmax(30px,1fr) 30px;gap:5px}.sp-card-head span{font-size:10px}}
 
 @media (min-width:1440px) and (min-aspect-ratio:4/3){:root{--page-width:min(880px,calc(50vw - 48px))}body::before{background:linear-gradient(90deg,rgba(8,14,22,.4) 0%,rgba(8,14,22,.2) 44%,transparent 52%)}}
-@media (max-width:599px){:root{--page-margin:12px;--page-width:calc(100vw - 24px)}header{padding:14px 16px}#pageContent{padding:16px}.sp-panel,.sp-panel.activity-panel{padding:16px}.sp-panel.appearance-panel{padding:0 14px 14px}.appearance-panel .sp-panel-head{margin-left:-14px;margin-right:-14px;padding-left:14px;padding-right:14px}.title{font-size:18px}.slot-btn{max-width:200px}.slot-menu{max-width:calc(var(--page-width) - 32px)}}
+@media (max-width:599px){:root{--page-margin:12px;--page-width:calc(100vw - 24px)}header{padding:14px 16px}#pageContent{padding:16px}.sp-panel,.sp-panel.appearance-panel,.sp-panel.activity-panel{width:calc(100vw - 24px);max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);padding:0 14px 14px}.sp-panel-head{margin-left:-14px;margin-right:-14px;padding-left:14px;padding-right:14px}.title{font-size:18px}.slot-btn{max-width:200px}.slot-menu{max-width:calc(var(--page-width) - 32px)}}
 @media (pointer:coarse){button,.ctlbtn,.btn,.seg-btn{min-height:44px;min-width:44px}.sp-posgrid{grid-template-columns:repeat(3,44px)}.sp-pos{width:44px;height:44px}input,select{font-size:16px!important}.sp-thumb-del,.sp-thumb-dl{width:auto;height:44px}.sp-position-controls{gap:12px}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+/* Compact mode keeps metrics fixed and lets only the linked services scroll. */
+#viewModeToggle{flex:none;width:34px;height:34px;padding:7px}
+#viewModeToggle .expand-icon{display:none}
+#compactContent,.compact-resize,#compactResizeHint{display:none}
+#app.is-compact #compactResizeHint{display:block}
+#app.is-compact{width:min(var(--compact-width,360px),var(--page-width));height:var(--compact-height,auto)}
+#app.is-compact #pageHeader{padding:12px 16px;min-height:58px;flex-wrap:nowrap;gap:8px}
+#app.is-compact .title{font-size:18px;min-width:0;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
+#app.is-compact .logo{width:24px;height:28px;flex:none}
+#app.is-compact #bgSlotPick,#app.is-compact #appearanceBtn,#app.is-compact #activityBtn,#app.is-compact #pageContent{display:none}
+#app.is-compact #viewModeToggle .compact-icon{display:none}
+#app.is-compact #viewModeToggle .expand-icon{display:block}
+#app.is-compact #compactContent{display:flex;flex-direction:column;min-height:0;flex:1;padding:0 20px 18px}
+.compact-metrics{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:16px 0 12px;flex:none}
+.compact-label{font-size:13px;color:var(--muted);margin-bottom:5px}
+.compact-value{display:block;font-size:22px;line-height:1.25;font-weight:650;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.compact-caption{font-size:12px;color:var(--muted);margin-top:4px;overflow-wrap:anywhere}
+#compactPowerStatus:empty,#compactServiceStatus:empty{display:none}
+#compactPowerStatus,#compactServiceStatus{font-size:12px;color:var(--muted);margin:0 0 8px;overflow-wrap:anywhere}
+.compact-services-head{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);padding:12px 0 5px;flex:none}
+.compact-services-head h2{font-size:13px;margin:0}
+#compactCount{font-size:12px;color:var(--muted)}
+.compact-services-scroll{overflow:auto;min-height:0;scrollbar-width:thin;scrollbar-color:var(--line) transparent;flex:1}
+#compactRows{list-style:none;padding:0;margin:0}
+.compact-service{display:flex;align-items:center;gap:9px;padding:9px 0;min-width:0}
+.compact-service a{flex:1;min-width:0;font-size:13px;color:var(--text);text-decoration:none;overflow-wrap:anywhere}
+.compact-service a:hover{text-decoration:underline;color:var(--accent)}
+.compact-service .service-status{font-size:12px;flex:none;max-width:40%;overflow-wrap:anywhere}
+#compactEmpty{font-size:13px;color:var(--muted);padding:10px 0}
+#app.is-compact .compact-resize{display:block;position:absolute;padding:0;border:0;background:transparent;color:var(--muted);min-width:0;min-height:0;touch-action:none;z-index:2;border-radius:4px}
+.compact-resize:hover,.compact-resize:focus-visible{color:var(--accent)!important;background:rgba(var(--panel-rgb),.5)!important}
+.compact-resize::after{content:'';position:absolute;border-radius:2px;background:currentColor;opacity:.7}
+#compactResizeRight{right:-5px;top:calc(50% - 28px);width:18px;height:56px;cursor:ew-resize}
+#compactResizeRight::after{width:3px;height:26px;left:7px;top:15px}
+#compactResizeBottom{bottom:-5px;left:calc(50% - 28px);height:18px;width:56px;cursor:ns-resize}
+#compactResizeBottom::after{height:3px;width:26px;top:7px;left:15px}
+#compactResizeCorner{right:0;bottom:0;width:26px;height:26px;cursor:nwse-resize}
+#compactResizeCorner::after{width:10px;height:10px;right:6px;bottom:6px;background:none;border-right:2px solid currentColor;border-bottom:2px solid currentColor;border-radius:0 0 3px 0}
+#app.is-resizing{user-select:none}
 </style>
 </head>
 <body>
@@ -402,7 +442,27 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,[t
       <span>Activity</span>
       <span id="activityBadge" class="badge hidden">0</span>
     </button>
+    <button id="viewModeToggle" class="btn iconbtn" type="button" aria-label="Switch to compact view" title="Switch to compact view" aria-pressed="false">
+      <svg class="compact-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 9h6V3m12 12h-6v6M9 9 3 3m12 12 6 6"/></svg>
+      <svg class="expand-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M9 3H3v6m12 12h6v-6M3 3l6 6m12 12-6-6"/></svg>
+    </button>
   </header>
+  <main id="compactContent" aria-label="Compact overview">
+    <div class="compact-metrics">
+      <div><div class="compact-label">Power now</div><strong id="compactWatts" class="compact-value">—</strong><div id="compactHourly" class="compact-caption"></div></div>
+      <div><div class="compact-label">Est. cost to date</div><strong id="compactCost" class="compact-value">—</strong><div id="compactSince" class="compact-caption">Since monitoring began</div></div>
+    </div>
+    <p id="compactPowerStatus" role="status">Loading power readings…</p>
+    <div class="compact-services-head"><h2>Services</h2><span id="compactCount"></span></div>
+    <div class="compact-services-scroll">
+      <p id="compactServiceStatus" role="status">Loading services…</p>
+      <ul id="compactRows"></ul><div id="compactEmpty" class="hidden"></div>
+    </div>
+  </main>
+  <button id="compactResizeRight" class="compact-resize" type="button" aria-label="Resize compact view width" aria-describedby="compactResizeHint" title="Drag to resize width"></button>
+  <button id="compactResizeBottom" class="compact-resize" type="button" aria-label="Resize compact view height" aria-describedby="compactResizeHint" title="Drag to resize height"></button>
+  <button id="compactResizeCorner" class="compact-resize" type="button" aria-label="Resize compact view" aria-describedby="compactResizeHint" title="Drag to resize width and height"></button>
+  <span id="compactResizeHint" class="sr-only">Drag to resize. Arrow keys resize by 10 pixels; Shift by 1 pixel. Home restores the default size.</span>
   <main id="pageContent">
     <section id="powerPanel" aria-label="Power and cost">
       <p id="powerStatus" role="status">Loading power readings…</p>
@@ -437,10 +497,11 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,[t
     </section>
   </main>
 </div>
-<div id="appearancePanel" class="sp-panel appearance-panel hidden" role="dialog" aria-label="Appearance">
-  <div class="sp-panel-head">
+<p id="dialogMoveHint" class="sr-only">Drag the title bar to move this dialog. With the title bar focused, use arrow keys to move, Shift for smaller steps, or Home to center. Escape closes the dialog.</p>
+<dialog id="appearancePanel" class="sp-panel appearance-panel hidden" role="dialog" aria-label="Appearance">
+  <div class="sp-panel-head" tabindex="0" aria-label="Move Appearance dialog" aria-describedby="dialogMoveHint">
     <span class="sp-panel-title">Appearance</span>
-    <button id="appearanceClose" class="btn iconbtn" type="button" title="Close">&times;</button>
+    <button id="appearanceClose" class="btn iconbtn" type="button" title="Close" aria-label="Close Appearance">&times;</button>
   </div>
   <div class="sp-ap-body">
   <section class="appearance-slots" aria-label="Wallpaper slots">
@@ -569,14 +630,14 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,[t
   </div>
   <div id="spStatus" class="sp-status" role="status"></div>
   </div><!-- /.sp-ap-body -->
-</div>
-<div id="activityPanel" class="sp-panel activity-panel hidden" role="dialog" aria-label="Activity">
-  <div class="sp-panel-head">
+</dialog>
+<dialog id="activityPanel" class="sp-panel activity-panel hidden" role="dialog" aria-label="Activity">
+  <div class="sp-panel-head" tabindex="0" aria-label="Move Activity dialog" aria-describedby="dialogMoveHint">
     <span class="sp-panel-title">Activity</span>
-    <button id="activityClose" class="btn iconbtn" type="button" title="Close">&times;</button>
+    <button id="activityClose" class="btn iconbtn" type="button" title="Close" aria-label="Close Activity">&times;</button>
   </div>
   <div id="activityList" class="act-list" role="log"></div>
-</div>
+</dialog>
 <div id="toasts"></div>
 <script>
 'use strict';
@@ -970,6 +1031,36 @@ function renderList(){
   empty.textContent = !services.length ? (lastError ? 'Could not load services. Use Refresh to try again.' : 'No services found.') :
     'No services with links. Check “Show services without links” to see all services.';
   renderServices(rows);
+  renderCompactServices();
+}
+
+// Reuse link and lifecycle rules, independent of the full view's internal-service filter.
+// Keep unchanged rows mounted so background polling cannot steal link focus.
+let compactServiceSignature = '';
+function renderCompactServices(){
+  const rows = services.filter(hasLink).sort((a,b) => displayName(a).localeCompare(displayName(b)) || a.name.localeCompare(b.name));
+  $('#compactCount').textContent = rows.length + ' linked';
+  $('#compactServiceStatus').textContent = lastError ? (rows.length ? 'Service status is stale. Retrying…' : 'Services unavailable. Retrying…') : '';
+  $('#compactEmpty').classList.toggle('hidden', rows.length > 0 || !!lastError);
+  $('#compactEmpty').textContent = services.length ? 'No services with links.' : 'No services found.';
+  const values = rows.map(s => {
+    const state = serviceState(s) || 'unknown';
+    const status = state === 'running' && s.health ? s.health : state;
+    return {name:displayName(s),url:primaryUrl(s),status:status.charAt(0).toUpperCase()+status.slice(1),
+      dot:state === 'running' ? serviceDotClass(s) : state === 'partial' ? 'warn' : 'bad',
+      detail:s.lifecycle ? lifecycleStatus(s) : s.statusLine || status};
+  });
+  const signature = JSON.stringify(values);
+  if (signature === compactServiceSignature) return;
+  compactServiceSignature = signature;
+  const list = $('#compactRows'); list.innerHTML = '';
+  for (const s of values){
+    const li = document.createElement('li'); li.className = 'compact-service';
+    const dot = document.createElement('span'); dot.className = 'dot ' + s.dot; dot.setAttribute('aria-hidden','true');
+    const link = document.createElement('a'); link.textContent = s.name; link.href = s.url; link.target = '_blank'; link.rel = 'noopener'; link.title = s.url;
+    const status = document.createElement('span'); status.className = 'service-status'; status.textContent = s.status; status.title = s.detail;
+    li.appendChild(dot); li.appendChild(link); li.appendChild(status); list.appendChild(li);
+  }
 }
 
 function renderServices(rows){
@@ -1028,15 +1119,40 @@ window.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') requestUpdateChecks();
 });
 
-/* Panels share the controls-page geometry; neither can cover the wallpaper half. */
+/* Centered modal windows leave the live controls and wallpaper visible.
+   Placement lasts only while open; reopening always starts centered. */
 window.portalPanels = (() => {
-  let current = null, opener = null, onClose = null;
+  let current = null, opener = null, onClose = null, moved = false, drag = null;
   const main = $('#pageContent'), header = $('#pageHeader');
+  const panels = Array.from(document.querySelectorAll('.sp-panel'));
+  function bounds(panel) {
+    const margin = window.innerWidth < 600 ? 12 : 16;
+    const rect = panel.getBoundingClientRect();
+    return {rect, margin, maxX: Math.max(margin, window.innerWidth - rect.width - margin),
+      maxY: Math.max(margin, window.innerHeight - rect.height - margin)};
+  }
+  function place(x, y) {
+    if (!current) return;
+    const b = bounds(current);
+    current.style.left = Math.round(Math.max(b.margin, Math.min(b.maxX, x))) + 'px';
+    current.style.top = Math.round(Math.max(b.margin, Math.min(b.maxY, y))) + 'px';
+  }
   function position() {
-    document.body.style.setProperty('--panel-top', Math.round(header.getBoundingClientRect().bottom + 8) + 'px');
+    if (!current) return;
+    const rect = current.getBoundingClientRect();
+    place(moved ? rect.left : (window.innerWidth - rect.width) / 2,
+      moved ? rect.top : (window.innerHeight - rect.height) / 2);
+  }
+  function endDrag() {
+    if (!drag) return;
+    const previous = drag; drag = null;
+    previous.panel.classList.remove('is-dragging');
+    if (previous.handle.hasPointerCapture(previous.id)) previous.handle.releasePointerCapture(previous.id);
   }
   function close(restore = true) {
     if (!current) return;
+    endDrag();
+    if (current.open) current.close();
     current.classList.add('hidden'); current.removeAttribute('aria-modal');
     main.inert = false; header.inert = false;
     const previous = opener, callback = onClose;
@@ -1046,11 +1162,44 @@ window.portalPanels = (() => {
     if (restore && previous) previous.focus();
   }
   function open(panel, button, callback) {
-    close(false); position(); current = panel; opener = button; onClose = callback;
+    close(false); current = panel; opener = button; onClose = callback; moved = false;
     panel.classList.remove('hidden'); panel.setAttribute('aria-modal','true');
     button.setAttribute('aria-expanded', 'true');
     main.inert = true; header.inert = true;
+    panel.showModal();
+    panel.scrollTop = 0;
+    position();
     panel.querySelector('button').focus();
+  }
+  for (const panel of panels) {
+    const handle = panel.querySelector('.sp-panel-head');
+    panel.addEventListener('cancel', e => { e.preventDefault(); close(); });
+    handle.addEventListener('pointerdown', e => {
+      if (current !== panel || e.button !== 0 || e.isPrimary === false ||
+          e.target.closest('button,input,select,a')) return;
+      e.preventDefault(); // Dragging must not blur and commit an unfinished name edit.
+      const rect = panel.getBoundingClientRect();
+      drag = {panel, handle, id:e.pointerId, x:e.clientX, y:e.clientY, left:rect.left, top:rect.top};
+      handle.setPointerCapture(e.pointerId);
+      panel.classList.add('is-dragging');
+    });
+    handle.addEventListener('pointermove', e => {
+      if (!drag || e.pointerId !== drag.id) return;
+      moved = true;
+      place(drag.left + e.clientX - drag.x, drag.top + e.clientY - drag.y);
+    });
+    for (const name of ['pointerup', 'pointercancel', 'lostpointercapture'])
+      handle.addEventListener(name, e => { if (drag && e.pointerId === drag.id) endDrag(); });
+    handle.addEventListener('keydown', e => {
+      if (e.target !== handle || current !== panel) return;
+      const delta = {ArrowLeft:[-1,0], ArrowRight:[1,0], ArrowUp:[0,-1], ArrowDown:[0,1]}[e.key];
+      if (e.key === 'Home') { e.preventDefault(); moved = false; position(); }
+      else if (delta) {
+        e.preventDefault(); moved = true;
+        const rect = panel.getBoundingClientRect(), step = e.shiftKey ? 5 : 24;
+        place(rect.left + delta[0] * step, rect.top + delta[1] * step);
+      }
+    });
   }
   document.addEventListener('keydown', e => {
     if (!current) return;
@@ -1063,9 +1212,12 @@ window.portalPanels = (() => {
     if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   });
-  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(position).observe(header);
-  window.addEventListener('resize', position);
-  position();
+  if (typeof ResizeObserver !== 'undefined') {
+    const observer = new ResizeObserver(position);
+    panels.forEach(panel => observer.observe(panel));
+  }
+  window.addEventListener('resize', () => { endDrag(); position(); });
+  window.addEventListener('blur', endDrag);
   return {open, close};
 })();
 
@@ -3337,6 +3489,86 @@ let refreshActivity = () => {};
   });
 })();
 
+/* ---- Compact view sizing --------------------------------------------- */
+(() => {
+  const app = document.getElementById('app'), toggle = document.getElementById('viewModeToggle');
+  const modeKey = 'sp-compact-view', sizeKey = 'sp-compact-size';
+  let compact = false, preferred = {width:360,height:null}, drag = null;
+  try {
+    compact = localStorage.getItem(modeKey) === '1';
+    const saved = JSON.parse(localStorage.getItem(sizeKey));
+    if (saved && Number.isFinite(saved.width) && saved.width >= 280 &&
+        (saved.height === null || Number.isFinite(saved.height) && saved.height >= 250)) {
+      preferred = {width:saved.width,height:saved.height};
+    }
+  } catch (_) {}
+  function bounds(){
+    const w = window.innerWidth, h = window.innerHeight, margin = w < 600 ? 12 : 24;
+    const maxW = Math.max(1,Math.min(880,(w >= 1440 && w / h >= 4/3 ? w/2 : w) - 2*margin));
+    const maxH = Math.max(1,h - 2*margin);
+    return {maxW,maxH,minW:Math.min(280,maxW),minH:Math.min(250,maxH)};
+  }
+  function clamp(size){
+    const b = bounds();
+    return {width:Math.max(b.minW,Math.min(b.maxW,size.width)),
+      height:size.height === null ? null : Math.max(b.minH,Math.min(b.maxH,size.height))};
+  }
+  function apply(){
+    app.classList.toggle('is-compact',compact);
+    const size = clamp(preferred);
+    app.style.setProperty('--compact-width',size.width+'px');
+    app.style.setProperty('--compact-height',size.height === null ? 'auto' : size.height+'px');
+    toggle.setAttribute('aria-pressed',String(compact));
+    toggle.setAttribute('aria-label',compact ? 'Switch to regular view' : 'Switch to compact view');
+    toggle.title = compact ? 'Switch to regular view' : 'Switch to compact view';
+  }
+  function save(){try {localStorage.setItem(sizeKey,JSON.stringify(preferred));} catch (_) {}}
+  function endDrag(){
+    if (!drag) return;
+    const previous = drag; drag = null;
+    if (previous.handle.hasPointerCapture(previous.id)) previous.handle.releasePointerCapture(previous.id);
+    app.classList.remove('is-resizing'); save();
+  }
+  toggle.addEventListener('click',() => {
+    endDrag(); compact = !compact; apply();
+    try {localStorage.setItem(modeKey,compact ? '1' : '0');} catch (_) {}
+  });
+  for (const [id,x,y] of [['compactResizeRight',true,false],['compactResizeBottom',false,true],['compactResizeCorner',true,true]]){
+    const handle = document.getElementById(id);
+    handle.addEventListener('pointerdown',e => {
+      if (!compact || drag || e.button !== 0) return;
+      e.preventDefault();
+      const rect = app.getBoundingClientRect();
+      drag = {handle,id:e.pointerId,x:e.clientX,y:e.clientY,width:rect.width,height:rect.height};
+      handle.setPointerCapture(e.pointerId); app.classList.add('is-resizing');
+    });
+    handle.addEventListener('pointermove',e => {
+      if (!drag || drag.handle !== handle || drag.id !== e.pointerId) return;
+      const next = clamp({width:x ? drag.width+e.clientX-drag.x : preferred.width,
+        height:y ? drag.height+e.clientY-drag.y : preferred.height});
+      // A width-only drag keeps automatic height; a height-only drag keeps preferred width.
+      preferred = {width:x ? next.width : preferred.width,height:y ? next.height : preferred.height}; apply();
+    });
+    for (const event of ['pointerup','pointercancel','lostpointercapture']) handle.addEventListener(event,e => {
+      if (drag && drag.id === e.pointerId) endDrag();
+    });
+    handle.addEventListener('keydown',e => {
+      if (!compact) return;
+      if (e.key === 'Home') {e.preventDefault();preferred={width:360,height:null};apply();save();return;}
+      const dx = x ? ({ArrowLeft:-1,ArrowRight:1}[e.key] || 0) : 0;
+      const dy = y ? ({ArrowUp:-1,ArrowDown:1}[e.key] || 0) : 0;
+      if (!dx && !dy) return;
+      e.preventDefault(); const rect = app.getBoundingClientRect(), step = e.shiftKey ? 1 : 10;
+      const next = clamp({width:rect.width+dx*step,height:rect.height+dy*step});
+      preferred = {width:dx ? next.width : preferred.width,height:dy ? next.height : preferred.height};
+      apply();save();
+    });
+  }
+  // Clamp for rotation and zoom without overwriting the user's larger preferred size.
+  window.addEventListener('resize',() => {endDrag();apply();});
+  apply();
+})();
+
 /* ---- Power / efficiency panel -----------------------------------------
    Permanent cost-first summary. Values update in place, so polling never
    recreates the rate form or steals its focus. Projections use the measured
@@ -3416,6 +3648,12 @@ function powerViewModel(data) {
     const v = powerViewModel(data), lt = data && data.lifetime || {}, rate = data && data.rate || {};
     el('powerStatus').textContent = failed ? (data ? 'Power readings are stale · last received ' + new Date(lastSuccess).toLocaleTimeString() + '. Retrying…' : 'Power readings unavailable. Retrying…') : data ? '' : 'Loading power readings…';
     el('powerCost').textContent = money(v.cost);
+    el('compactCost').textContent = money(v.cost);
+    el('compactWatts').textContent = watts(v.watts);
+    el('compactHourly').textContent = money(v.hourly) + '/h at this draw';
+    el('compactSince').textContent = Number.isFinite(lt.sinceMs) ? 'Since ' + new Date(lt.sinceMs).toLocaleDateString([], {month:'short',day:'numeric'}) : 'Since monitoring began';
+    el('compactSince').title = Number.isFinite(lt.sinceMs) ? new Date(lt.sinceMs).toLocaleString() : '';
+    el('compactPowerStatus').textContent = failed ? (data ? 'Power readings stale · retrying…' : 'Power readings unavailable · retrying…') : data ? (v.watts === null || v.cost === null ? 'Some power readings unavailable' : '') : 'Loading power readings…';
     const since = Number.isFinite(lt.sinceMs) ? new Date(lt.sinceMs).toLocaleString([], { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }) : null;
     el('powerSince').textContent = (since ? 'Since ' + since : 'Since monitoring began') + (Number.isFinite(lt.kwh) ? ' · ' + lt.kwh.toFixed(3) + ' kWh' : '');
     el('powerProjection').textContent = money(v.monthly);
