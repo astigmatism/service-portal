@@ -95,7 +95,7 @@ const json = (r) => JSON.parse(r.body);
       PORT: String(port),
       DATA_DIR: dataDir,
       DOCKER_SOCKET: sockPath,
-      SELF_NAME: 'test',
+      SELF_NAME: 'test', POWER_GPU_PROBE: 'off',
       PORTAL_TITLE: 'Test & Portal',
       PORTAL_FAVICON_FILE: faviconPath
     },

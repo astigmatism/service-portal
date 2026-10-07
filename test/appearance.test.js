@@ -64,7 +64,9 @@ const marker = '/* ===== Appearance (wallpaper slots + glass)';
 const start = html.indexOf(marker);
 assert.ok(start !== -1, 'appearance block marker not found in index.html');
 const fnStart = html.indexOf('(function () {', start);
-const fnEnd = html.lastIndexOf('})();');
+// The appearance IIFE ends right before the power-panel block that follows it.
+const powerMarker = html.indexOf('/* ---- Power / efficiency panel');
+const fnEnd = html.lastIndexOf('})();', powerMarker === -1 ? html.length : powerMarker);
 assert.ok(fnStart !== -1 && fnEnd > fnStart, 'appearance IIFE bounds not found');
 const code = html.slice(fnStart, fnEnd + '})();'.length);
 
@@ -740,7 +742,7 @@ async function waitUp(base) {
 }
 function spawnServer(dataDir, port) {
   const proc = child.spawn(process.execPath, [path.join(ROOT, 'server.js')], {
-    env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, SELF_NAME: 'test' },
+    env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, SELF_NAME: 'test', POWER_GPU_PROBE: 'off' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   let out = '';

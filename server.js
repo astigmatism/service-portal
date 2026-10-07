@@ -1559,6 +1559,8 @@ const powerMonitor = createPowerMonitor({
   baselineW: POWER_BASELINE_DEFAULT,
   selfName: process.env.SELF_NAME || '',
   gpuImage: process.env.POWER_GPU_IMAGE || '',
+  // POWER_GPU_PROBE=off skips the nvidia-smi probe container entirely.
+  gpuProbe: !/^(0|off|false|no)$/i.test(process.env.POWER_GPU_PROBE || ''),
   dockerJson: dockerJsonRequest,
   log: (msg) => console.error(msg),
 });

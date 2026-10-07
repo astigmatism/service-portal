@@ -11,8 +11,10 @@
 //     where the kernel registers RAPL zones; absent in VMs and AMD boxes.
 //   NVIDIA GPUs       - a short-lived `nvidia-smi` container run over the
 //     docker socket with --gpus (the NVIDIA container toolkit injects the
-//     host driver into any image). Present on hosts with an NVIDIA driver
-//     and container toolkit.
+//     host driver into the container). The probe runs in the portal's own
+//     image, which must be glibc-based because the host nvidia-smi is a
+//     glibc binary (a musl/alpine base cannot execute it). Present on
+//     hosts with an NVIDIA driver and container toolkit.
 //   Baseline          - a flat wattage standing in for the unmeasured
 //     board/RAM/fans. Always on (configurable, default 50 W).
 //
@@ -121,11 +123,12 @@ function createPowerMonitor(options) {
   const log = options.log || (() => {});
   const selfName = options.selfName || '';
   const gpuImageOverride = options.gpuImage || '';
+  const gpuProbeEnabled = options.gpuProbe !== false;
 
   let baselineW = options.baselineW;
   let state = loadState(stateFile);
   let zones = discoverRaplZones();
-  const gpu = { available: false, devices: [], lastWatts: 0, probeError: null, strikes: 0, timer: null, image: gpuImageOverride };
+  const gpu = { available: false, devices: [], lastWatts: 0, probeError: null, strikes: 0, timer: null, image: gpuImageOverride, failureLogged: false };
   const samples = []; // { t, total, cpu, gpu, base }
   let tickTimer = null;
   let started = false;
@@ -192,6 +195,9 @@ function createPowerMonitor(options) {
       Image: image,
       Entrypoint: ['nvidia-smi'],
       Cmd: GPU_PROBE_CMD,
+      // Maintenance-labelled so the portal's own service list never shows
+      // the probe during the second or so that it exists.
+      Labels: { 'io.service-portal.maintenance': 'true', 'io.service-portal.power-probe': 'true' },
       HostConfig: { DeviceRequests: [{ Driver: 'nvidia', Count: 0, Capabilities: [['gpu']] }] },
     }, 15000);
     const id = created && created.Id;
@@ -256,6 +262,12 @@ function createPowerMonitor(options) {
       }
       if (gpu.available) {
         log('power monitor: GPU no longer available: ' + err.message);
+      } else if (!gpu.failureLogged) {
+        // The first failure is worth a log line too: a host without a GPU
+        // (or without the NVIDIA container toolkit) would otherwise fail
+        // silently until the next manual investigation.
+        log('power monitor: GPU probe unavailable, will retry later: ' + err.message);
+        gpu.failureLogged = true;
       }
       gpu.available = false;
       gpu.devices = [];
@@ -365,7 +377,9 @@ function createPowerMonitor(options) {
       tickTimer = setInterval(() => {
         tick().catch((err) => log('power monitor: tick failed: ' + err.message));
       }, TICK_MS);
-      probeGpu('startup').catch((err) => log('power monitor: GPU probe failed: ' + err.message));
+      if (gpuProbeEnabled) {
+        probeGpu('startup').catch((err) => log('power monitor: GPU probe failed: ' + err.message));
+      }
     },
     stop() {
       stopping = true;

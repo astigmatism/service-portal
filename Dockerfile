@@ -1,5 +1,23 @@
-FROM node:20-alpine
-RUN apk add --no-cache docker-cli docker-cli-compose git openssh-client
+FROM node:20-trixie-slim
+# The portal image doubles as the default runner environment for project
+# update scripts (git, docker CLI + compose) and as the image for the power
+# monitor's GPU probe. The probe runs the GPU host's nvidia-smi inside a
+# container of this image, and nvidia-smi is a glibc binary, so the base
+# must be glibc-based — alpine (musl) cannot execute it. wget stays
+# available because deployment update scripts that run in this image use it
+# (busybox provided it on the old alpine base).
+RUN set -eux; \
+    echo 'exit 101' > /usr/sbin/policy-rc.d; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        docker-cli \
+        docker-compose \
+        git \
+        openssh-client \
+        wget; \
+    rm -f /usr/sbin/policy-rc.d; \
+    rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && chmod -R a+rX node_modules
