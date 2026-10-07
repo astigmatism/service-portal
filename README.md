@@ -1,9 +1,9 @@
 # Service Portal
 
 A lightweight Docker container that acts as a **gateway/portal to every container
-on the host**. Open the portal in a browser (plain port 80) to see a live table of all
-containers; click a service row or one of its port chips to open that service in a new browser
-tab via its published port.
+on the host**. Open the portal in a browser (plain port 80) for estimated running costs,
+live power readings, and an alphabetical service list. Click a service name to open
+its configured URL or preferred published port in a new tab.
 
 New containers appear automatically unless explicitly hidden — the portal re-queries Docker
 on every request. No reconfiguration, no restart for discovery.
@@ -15,18 +15,23 @@ on every request. No reconfiguration, no restart for discovery.
 - The container mounts the **host Docker socket** read-write and calls the Docker Engine REST
   API (`GET /containers/json?all=1`) over the Unix socket on every `/api/services` request,
   so the UI is always a live view of the host.
-- Single-page UI (vanilla HTML/CSS/JS, dark theme): sortable table (Service / Image / Ports /
-  Status), status dots from Docker state + health, clickable port chips (https is auto-used
-  for host ports 443/8443/3443/9443), a "Hide services without links" filter persisted in
-  localStorage, a Table/Sidebar layout switch also persisted in localStorage (the Sidebar
-  layout is a narrow single-column list on the left third of the screen — status dot, name
-  link, a per-row start/stop toggle, and an opt-in update/restart control — leaving the rest of the viewport for the
-  wallpaper — whose right edge carries a drag handle for pulling the list wider toward the
-  centre or back to the left. The handle stays invisible until the pointer comes within ~36px
-  of that edge, so the list reads clean by default (clamped between 280px and the row minus a
-  240px wallpaper strip, the finalized width remembered per browser in localStorage so a
-  return visit lands where you left it, double-click or Enter for the default third),
-  and 20-second auto-refresh.
+- Single-page UI (vanilla HTML/CSS/JS, dark theme): a compact Glass page with
+  estimated cost to date, a 30-day projection at the monitored average, live watts,
+  five-minute GPU/CPU/baseline history, and every available hardware reading. Costs
+  use recorded energy and the **current** electricity rate; they are estimates, not
+  bills paid, and changing the rate recalculates the total. Monitoring does not cover
+  time before installation. Power refreshes every five seconds while the page is visible.
+- The controls stay in the left half only at viewport widths of at least **1440 CSS
+  pixels** and aspect ratios of at least **4:3**. Portrait and narrower windows use
+  the available width, capped at **880px**, with wallpaper visible beside and below.
+  Content scrolls without shrinking typography. Appearance and Activity open within
+  the same controls-page bounds; wallpaper positions remain adjustable per browser.
+- Services show state labels, name links, Start/Stop and opted-in Update & restart
+  controls, with a 20-second auto-refresh. **Show services without links** is unchecked
+  by default; checking it includes internal services. The preference is remembered
+  per browser; explicit legacy Hide choices are migrated inversely. Proxy URLs count
+  as links. The former table view, layout switch, sidebar resizing, and floating power
+  badge have been removed; their old preferences are ignored.
 - Project update, start, and stop actions run in detached maintenance containers, so an action
   survives replacing a target container or the portal itself. Job status and bounded logs persist in `/data`.
 - **Update checks**: projects that opt in are checked for a pending update every 15 minutes, when the
@@ -159,8 +164,8 @@ deployment, see [`docs/setup-on-another-ubuntu-server.md`](docs/setup-on-another
 
 - `--restart unless-stopped` — survives reboots, honors explicit `docker stop`.
 - The socket mount lets the container talk to the Docker Engine. The app issues read-only
-  `GET /containers/json?all=1` plus `POST /containers/<id>/start|stop` for the sidebar layout's
-  per-row start/stop toggles, but the mount itself is a powerful capability —
+  `GET /containers/json?all=1` plus `POST /containers/<id>/start|stop` for the service list's
+  per-row start/stop controls, but the mount itself is a powerful capability —
   that is the inherent trade-off of live container discovery.
 - If port 80 is unavailable, publish a different **host** port but keep the internal port 80:
   `-p <newport>:80` (do not renumber the internal port).
@@ -324,7 +329,7 @@ The suite covers appearance behavior, container start/stop forwarding, project l
 discovery and controls, stopped-container discovery,
 update capability and path validation, runner construction, duplicate-job prevention,
 success/failure monitoring, log capture and persistence, the activity feed (container
-events, persisted update-job events, ordering, log lookup, method guard), sidebar
+events, persisted update-job events, ordering, log lookup, method guard), service-list
 confirmation/polling, the update script's fail-closed command ordering, and update checks
 (runner construction, result parsing and sanitizing, timeouts, throttling, scheduling,
 persistence, leftover-runner cleanup, mutual exclusion with actions, the Activity
@@ -359,32 +364,32 @@ announcement, the script's `check` mode, and the control's disabled/badged state
   read on each discovery request. Either JSON boolean `hidden: true` or Docker label
   `io.service-portal.hidden: "true"` hides the service, even if the other setting is false.
   Missing or false settings keep normal discovery. This applies to running and stopped
-  containers regardless of ports. The browser's "Hide services without links" checkbox
+  containers regardless of ports. The browser's "Show services without links" checkbox
   cannot reveal explicitly hidden services.
 
   Hiding is a listing preference, not access control: it does not alter ports, networks,
   inference traffic, Docker management, activity history, or project update capabilities.
 - **Wallpapers & appearance**: the gear button opens the Appearance panel — upload
-  background images and tune wallpaper opacity, wallpaper blur, scrim, list-background
-  opacity (for both table and sidebar layouts), and glass blur. Wallpapers live in
+  background images and tune wallpaper opacity, wallpaper blur, scrim, controls-background
+  opacity, and glass blur. Wallpapers live in
   **slots** on the server in the `/data` volume, shared by every machine on the
   network. A slot can hold several wallpapers, and each browser rolls its *own* random
   wallpaper from the active slot — re-rolled on every refresh and on every slot switch —
-  while the slot membership itself stays shared. The panel has two columns. The
-  left one holds the controls, grouped by scope, top to bottom: **Position** (how the wallpaper on screen is framed — a 3×3
+  while the slot membership itself stays shared. The panel puts slot management and
+  the wallpaper gallery/upload area first. Position and effects sit side by side when
+  its content is at least 640px wide and stack in narrower windows. **Position** (how the wallpaper on screen is framed — a 3×3
   anchor grid plus Horizontal / Vertical sliders, remembered per wallpaper in this
   browser only; **Apply to all in slot** copies the current position to every
   wallpaper in the active slot, **Reset slot** returns them all to center, and both
   ask first when they would overwrite another wallpaper's own position), **This wallpaper** (remove the wallpaper on screen, reset
   its derived colors), **Slots**
   (a **Name** field, Add / Remove, Move up / Move down, and the prev/next "N of M"
-  stepper beneath them), **Rotation** (see below), and **Effects** (the sliders above). The right one is the
-  **Wallpapers in this slot** gallery: a count and one large tile per wallpaper of
+  stepper beneath them), **Rotation** (see below), and **Effects** (the sliders above).
+  The **Wallpapers in this slot** gallery provides: a count and one large tile per wallpaper of
   the active slot — click a tile to show it, **×** removes it, and the download
   button saves its original stored image (not the preview), named after its slot
-  (e.g. `Nature 07.jpg`, or `Slot 1 07.jpg` when unnamed). The two columns scroll
-  independently, so a full slot never pushes the controls out of reach; on narrow
-  windows the panel falls back to one column with the gallery last. **Name** gives the
+  (e.g. `Nature 07.jpg`, or `Slot 1 07.jpg` when unnamed). The gallery has a bounded
+  scrolling area so large collections stay manageable. **Name** gives the
   active slot a name, shared by every machine — it saves when you press Enter or
   leave the field, Esc reverts, and an empty name falls back to "Slot N" (its
   position). **Add** appends an empty
@@ -447,7 +452,7 @@ announcement, the script's `check` mode, and the control's disabled/badged state
 - **Auto color scheme**: when a wallpaper is uploaded, the browser samples its dominant
   hue (32×32 grid, 12 hue buckets, saturation-weighted; the accent is re-normalized to a
   fixed lightness/saturation so it always reads as an accent) and derives a coordinated
-  dark palette around it — background, panels, inputs, borders, header, table head, hover
+  dark palette around it — background, panels, inputs, borders, header, hover
   rows and pills all take on the wallpaper's hue. The sampled accent is stored per
   wallpaper, so each wallpaper keeps its own theme (and its own deliberate "reset
   colors") and switching wallpaper switches the palette. Hueless (gray) images leave
@@ -479,9 +484,8 @@ announcement, the script's `check` mode, and the control's disabled/badged state
   The Docker label takes precedence over the JSON default, so a deployment's
   hostname or port changes travel with the application. Only absolute HTTP(S)
   URLs without embedded credentials are accepted; invalid values are ignored.
-  Both layouts open this address by default, including apps without published ports.
-  The table also shows an explicit **Open HTTPS** button; numbered port buttons
-  still open their individual endpoints for tooling. Without an explicit address,
+  The service name opens this address by default, including apps without published ports.
+  Without an explicit address,
   the portal prefers a published HTTPS port (443, 3443, 8443, or 9443 on either side
   of the mapping), then the first published port.
 

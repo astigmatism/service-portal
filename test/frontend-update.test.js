@@ -51,7 +51,7 @@ function element(tag) {
   };
 }
 
-function boot() {
+function boot(stored = {}) {
   const elements = new Map();
   const get = (id) => {
     if (!elements.has(id)) elements.set(id, element(id));
@@ -59,10 +59,12 @@ function boot() {
   };
   const body = get('body');
   const calls = [];
+  const store = new Map(Object.entries(stored));
   let confirmed = true;
   let confirmPrompt = '';
   const document = {
     body,
+    addEventListener() {},
     querySelector(selector) { return selector.startsWith('#') ? get(selector.slice(1)) : null; },
     querySelectorAll() { return []; },
     createElement: (tag) => element(tag)
@@ -99,7 +101,7 @@ function boot() {
     document,
     fetch,
     location: { hostname: 'localhost' },
-    localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    localStorage: { getItem: k => store.has(k) ? store.get(k) : null, setItem: (k,v) => store.set(k,v), removeItem: k => store.delete(k) },
     innerWidth: 1200,
     addEventListener() {},
     setTimeout,
@@ -119,12 +121,13 @@ function boot() {
     sandbox,
     elements,
     calls,
+    store,
     setConfirmed(value) { confirmed = value; },
     lastConfirm() { return confirmPrompt; }
   };
 }
 
-test('sidebar update control is adjacent, confirmed, protected, and restart-aware', async (t) => {
+test('service update control is adjacent, confirmed, protected, and restart-aware', async (t) => {
   const app = boot();
   const service = {
     id: 'a'.repeat(12),
@@ -138,7 +141,7 @@ test('sidebar update control is adjacent, confirmed, protected, and restart-awar
   };
 
   await t.test('the update button is rendered immediately before start/stop', () => {
-    vm.runInContext('renderSidebar', app.sandbox)([service]);
+    vm.runInContext('renderServices', app.sandbox)([service]);
     const row = app.elements.get('sideRows').children[0];
     const controls = row.children[row.children.length - 1];
     const buttons = controls.children.filter((child) => child.tagName === 'BUTTON');
@@ -215,16 +218,12 @@ test('HTTPS is inferred from either side of a port mapping and preferred for ser
   );
   assert.equal(primaryPort(service).hostPort, 8444, 'HTTPS wins over an earlier HTTP mapping');
 
-  vm.runInContext('renderTable', app.sandbox)([service]);
-  const tableRow = app.elements.get('rows').children[0];
-  assert.equal(tableRow.title, 'https://localhost:8444/');
-
-  vm.runInContext('renderSidebar', app.sandbox)([service]);
+  vm.runInContext('renderServices', app.sandbox)([service]);
   const sidebarRow = app.elements.get('sideRows').children[0];
   assert.equal(sidebarRow.children[1].href, 'https://localhost:8444/');
 });
 
-test('a proxy URL is the default in both layouts, even without published app ports', () => {
+test('a proxy URL is the default in the service list, even without published app ports', () => {
   for (const ports of [[], [{ containerPort: 8000, hostPort: 8000, hostIp: '192.168.1.5' }]]) {
     const app = boot();
     const service = {
@@ -232,22 +231,14 @@ test('a proxy URL is the default in both layouts, even without published app por
       state: 'running', ports, url: 'https://image-studio.lan:8443/'
     };
     assert.equal(vm.runInContext('hasLink', app.sandbox)(service), true);
-    vm.runInContext('renderTable', app.sandbox)([service]);
-    const row = app.elements.get('rows').children[0];
-    assert.equal(row.title, service.url);
-    assert.equal(row.className, 'linkable');
-    const buttons = row.children[2].children[0].children;
-    assert.equal(buttons[0].textContent, 'Open HTTPS');
-    assert.equal(buttons[0].title, service.url);
-    if (ports.length) assert.equal(buttons[1].title, 'http://192.168.1.5:8000/');
-    vm.runInContext('renderSidebar', app.sandbox)([service]);
+    vm.runInContext('renderServices', app.sandbox)([service]);
     const link = app.elements.get('sideRows').children[0].children[1];
     assert.equal(link.tagName, 'A');
     assert.equal(link.href, service.url);
   }
 });
 
-test('project lifecycle controls cover stopped and partial groups in both layouts', async () => {
+test('project lifecycle controls cover stopped and partial groups in the service list', async () => {
   const app = boot();
   const base = {
     id: 'a'.repeat(12), name: 'betterbench-reports', label: 'Bench Studio',
@@ -263,7 +254,7 @@ test('project lifecycle controls cover stopped and partial groups in both layout
     }
   };
 
-  vm.runInContext('renderSidebar', app.sandbox)([base]);
+  vm.runInContext('renderServices', app.sandbox)([base]);
   let sidebarRow = app.elements.get('sideRows').children[0];
   let controls = sidebarRow.children.at(-1);
   let buttons = controls.children.filter((child) => child.tagName === 'BUTTON');
@@ -285,7 +276,7 @@ test('project lifecycle controls cover stopped and partial groups in both layout
       members: [{ service: 'reports', state: 'running', health: 'healthy' },
         { service: 'runner', state: 'exited', health: null }] }
   };
-  vm.runInContext('renderSidebar', app.sandbox)([partial]);
+  vm.runInContext('renderServices', app.sandbox)([partial]);
   sidebarRow = app.elements.get('sideRows').children.at(-1);
   controls = sidebarRow.children.at(-1);
   buttons = controls.children.filter((child) => child.tagName === 'BUTTON');
@@ -304,15 +295,10 @@ test('project lifecycle controls cover stopped and partial groups in both layout
   assert.ok(request, 'Stop targets the project route');
   assert.equal(request.options.headers['X-Service-Portal-Action'], 'stop');
 
-  vm.runInContext('renderTable', app.sandbox)([partial]);
-  const tableStatus = app.elements.get('rows').children[0].children[3];
-  assert.match(tableStatus.children[0].textContent, /Partial \(1\/2\).*runner: exited/);
-  assert.equal(tableStatus.children[1].children.length, 3, 'table also offers both recovery actions');
-
   const running = { ...base, state: 'running', health: 'healthy',
     lifecycle: { ...base.lifecycle, state: 'running',
       members: base.lifecycle.members.map((member) => ({ ...member, state: 'running', health: 'healthy' })) } };
-  vm.runInContext('renderSidebar', app.sandbox)([running]);
+  vm.runInContext('renderServices', app.sandbox)([running]);
   sidebarRow = app.elements.get('sideRows').children.at(-1);
   assert.equal(sidebarRow.children[0].className, 'dot ok');
   assert.match(sidebarRow.children[0].title, /Running \(2\/2\)/);
@@ -323,7 +309,7 @@ test('project lifecycle controls cover stopped and partial groups in both layout
     update: { ...partial.update, job: activeJob },
     lifecycle: { ...partial.lifecycle, job: activeJob } };
   app.sandbox.fetch = async () => new Promise(() => {});
-  vm.runInContext('renderSidebar', app.sandbox)([busy]);
+  vm.runInContext('renderServices', app.sandbox)([busy]);
   controls = app.elements.get('sideRows').children.at(-1).children.at(-1);
   buttons = controls.children.filter((child) => child.tagName === 'BUTTON');
   assert.ok(buttons.every((button) => button.disabled),
@@ -331,7 +317,7 @@ test('project lifecycle controls cover stopped and partial groups in both layout
 
   const unrelated = { ...base, id: 'c'.repeat(12), name: 'unrelated', label: 'Unrelated',
     update: null, lifecycle: null };
-  vm.runInContext('renderSidebar', app.sandbox)([unrelated]);
+  vm.runInContext('renderServices', app.sandbox)([unrelated]);
   controls = app.elements.get('sideRows').children.at(-1).children.at(-1);
   buttons = controls.children.filter((child) => child.tagName === 'BUTTON');
   assert.equal(buttons.length, 1);
@@ -424,4 +410,41 @@ test('update checks disable a current project and explain a pending update', asy
     assert.match(b.className, /update-running/);
     assert.match(b.title, /in progress/);
   });
+});
+
+test('link visibility defaults, migration and explicit choices survive reloads', () => {
+  for (const [stored, expected] of [
+    [{}, false], [{'sp-hide-no-link':'1'}, false], [{'sp-hide-no-link':'0'}, true],
+    [{'sp-show-no-link':'0','sp-hide-no-link':'0'}, false],
+    [{'sp-show-no-link':'1','sp-hide-no-link':'1'}, true]
+  ]) {
+    const app = boot(stored);
+    assert.equal(vm.runInContext('showNoLink', app.sandbox), expected);
+    assert.equal(app.elements.get('showNoLink').checked, expected);
+    const checkbox = app.elements.get('showNoLink');
+    checkbox.checked = !expected;
+    checkbox.listeners.change[0]();
+    assert.equal(app.store.get('sp-show-no-link'), expected ? '0' : '1');
+    assert.equal(vm.runInContext('showNoLink', boot(Object.fromEntries(app.store)).sandbox), !expected);
+  }
+});
+
+test('default filtering includes proxy links, updates counts, and explains empty results', () => {
+  const app = boot();
+  vm.runInContext(`services = [
+    {id:'a',name:'Zulu',ports:[],url:'https://z.lan',state:'running'},
+    {id:'b',name:'Alpha',ports:[{hostPort:8080,containerPort:80}],state:'running'},
+    {id:'c',name:'Internal',ports:[],state:'running'}
+  ]; renderList();`, app.sandbox);
+  assert.match(app.elements.get('meta').textContent, /^2 of 3 services/);
+  assert.equal(app.elements.get('sideRows').children[0].children[1].textContent, 'Alpha');
+  assert.equal(app.elements.get('sideRows').children[1].children[1].href, 'https://z.lan');
+  vm.runInContext('services = services.slice(2); renderList();', app.sandbox);
+  assert.match(app.elements.get('empty').textContent, /Check “Show services without links”/);
+  assert.equal(app.elements.get('empty').classList.contains('hidden'), false);
+  vm.runInContext('showNoLink = true; renderList();', app.sandbox);
+  assert.match(app.elements.get('meta').textContent, /^1 services/);
+  assert.equal(app.elements.get('empty').classList.contains('hidden'), true);
+  vm.runInContext("services = []; lastError = 'Connection lost'; renderList();", app.sandbox);
+  assert.match(app.elements.get('empty').textContent, /Could not load services/);
 });

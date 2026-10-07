@@ -654,10 +654,8 @@ for (const needle of [
   '--panel-rgb:21,28,46', '--panel-2-rgb:28,39,64',
   '--header-a-rgb:20,27,45', '--header-b-rgb:16,22,38',
   '--head-rgb:24,34,58', '--hover-rgb:27,39,69', '--selftag-line:#2e4a75',
-  '.tablewrap{', 'background:rgba(var(--panel-rgb),var(--sp-list-alpha,1))',
-  'background:rgba(var(--head-rgb),var(--sp-list-alpha,1))',
-  '#sidebar{', 'align-self:flex-start', 'max-height:100%',
-  'List background <output id="spListOpacityOut">100%</output>',
+  '#app{', 'background:rgba(var(--panel-rgb),var(--sp-list-alpha,1))',
+  'Controls background <output id="spListOpacityOut">100%</output>',
   'rgb(var(--header-a-rgb))', 'rgb(var(--panel-2-rgb))', 'rgb(var(--hover-rgb))',
   'border:1px solid var(--selftag-line)',
   'id="spNav"', 'id="spPrev"', 'id="spNext"', 'id="spNavCount"',
@@ -674,7 +672,7 @@ for (const needle of [
   "const POS_LS_KEY = 'sp-wallpaper-positions'",
   'id="spAddSlot"', 'id="spRemoveSlot"', 'id="spThumbsWrap"', 'id="spThumbs"',
   '.sp-thumb-item{', '.sp-thumb-item.current{', '.sp-thumb-del{',
-  'class="sp-panel appearance-panel', '.sp-ap-body{', '.sp-ap-controls{', '.sp-ap-gallery{',
+  'class="sp-panel appearance-panel', '.sp-ap-body{', '.appearance-editor{', '.sp-ap-gallery{',
   'id="spThumbsLabel"', 'id="spThumbsCount"', 'id="spThumbsEmpty"', '.sp-thumb-dl{', '@media (max-width:760px)',
   "const downloadUrl = (id) => wallpaperUrl(id) + '?download=1'",
   'const SLOTS_URL = \'/api/appearance/slots\'',
@@ -713,16 +711,18 @@ assert.ok(html.indexOf('id="spPosY"') < html.indexOf('id="spPosApplySlot"') &&
   html.indexOf('id="spPosResetSlot"') < html.indexOf('<span class="sp-label">This wallpaper</span>'),
   'the slot-wide position actions sit under the sliders, inside Position');
 {
-  const controls = html.indexOf('class="sp-ap-controls"');
+  const slots = html.indexOf('class="appearance-slots"');
   const gallery = html.indexOf('class="sp-ap-gallery"');
-  assert.ok(controls !== -1 && gallery > controls, 'the gallery column follows the controls column');
-  for (const needle of ['id="spDropZone"', '<span class="sp-label">This wallpaper</span>', 'id="spSlotName"',
-    '<span class="sp-label">Effects</span>', 'id="spReset"', 'id="spStatus"']) {
+  const editor = html.indexOf('class="appearance-editor"');
+  assert.ok(slots !== -1 && gallery > slots && editor > gallery,
+    'slot management and gallery precede position/effects');
+  assert.ok(html.indexOf('id="spSlotName"') > slots && html.indexOf('id="spSlotName"') < gallery);
+  for (const needle of ['id="spThumbs"', 'id="spDropZone"']) {
     const at = html.indexOf(needle);
-    assert.ok(at > controls && at < gallery, 'controls column holds ' + needle);
+    assert.ok(at > gallery && at < editor, 'the gallery contains selection and upload: ' + needle);
   }
-  for (const needle of ['id="spThumbsLabel"', 'id="spThumbsCount"', 'id="spThumbsEmpty"', 'id="spThumbsWrap"', 'id="spThumbs"']) {
-    assert.ok(html.indexOf(needle) > gallery, 'gallery column holds ' + needle);
+  for (const needle of ['id="spPosX"', 'id="spRotate"', 'id="spOpacity"', 'id="spReset"']) {
+    assert.ok(html.indexOf(needle) > editor, 'all editing controls are retained: ' + needle);
   }
 }
 

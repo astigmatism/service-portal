@@ -36,25 +36,6 @@ header{position:relative;z-index:20;display:flex;align-items:center;gap:10px;pad
 .check input{accent-color:var(--accent);margin:0;cursor:pointer}
 .hidden{display:none!important}
 #listView{flex:1;overflow:auto;padding:18px}
-.tablewrap{max-width:1200px;margin:0 auto;overflow-x:auto;background:rgba(var(--panel-rgb),var(--sp-list-alpha,1));border:1px solid var(--line);border-radius:12px}
-.table{width:100%;min-width:880px;border-collapse:collapse;table-layout:fixed}
-.table th{padding:10px 14px;border-bottom:1px solid var(--line);background:rgba(var(--head-rgb),var(--sp-list-alpha,1));text-align:left}
-.table th:nth-child(1){width:34%}
-.table th:nth-child(2){width:27%}
-.table th:nth-child(3){width:19%}
-.table th:nth-child(4){width:20%}
-.th{appearance:none;background:none;border:0;padding:0;color:var(--muted);font:inherit;font-size:11.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;cursor:pointer;display:inline-flex;align-items:center;gap:6px;text-align:left}
-.th:hover{color:var(--text)}
-.th .arr{font-size:10px;opacity:.5;line-height:1}
-.th.active{color:var(--accent)}
-.th.active .arr{opacity:1}
-.table td{padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:middle;min-width:0}
-.table tbody tr:last-child td{border-bottom:0}
-.table tbody tr.linkable{cursor:pointer}
-.table tbody tr.linkable:hover td{background:rgb(var(--hover-rgb))}
-.table tbody tr.internal td{opacity:.62}
-.table tbody tr.internal:hover td{opacity:.92}
-.nameline{display:flex;align-items:center;gap:8px;min-width:0}
 .name{font-weight:650;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .selftag{margin-left:auto;font-size:11px;color:var(--accent);border:1px solid var(--selftag-line);border-radius:999px;padding:1px 8px;white-space:nowrap;flex:none}
 .dot{width:9px;height:9px;border-radius:50%;flex:none}
@@ -62,17 +43,9 @@ header{position:relative;z-index:20;display:flex;align-items:center;gap:10px;pad
 .dot.run{background:var(--accent)}
 .dot.warn{background:var(--warn)}
 .dot.bad{background:var(--bad);box-shadow:0 0 6px var(--bad)}
-.desc{font-size:12.5px;color:var(--muted);line-height:1.35;margin-top:3px}
-.cellimage{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ports{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.chip{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:rgb(var(--panel-2-rgb));border:1px solid var(--line);color:var(--text);border-radius:7px;padding:3px 10px;cursor:pointer}
-.chip:hover{border-color:var(--accent);color:#fff}
-.noports{font-size:12.5px;color:var(--muted)}
 .status{font-size:12.5px;color:var(--muted);line-height:1.35}
-.tablectl{display:inline-flex;align-items:center;gap:6px;margin-left:10px;vertical-align:middle}
 .empty{color:var(--muted);text-align:center;margin-top:60px}
-/* ===== layout switch (header) + secondary "sidebar" layout: one narrow
-   single-column list on the left third, wallpaper out front on the right ===== */
+/* Wallpaper picker */
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:rgb(var(--panel-2-rgb))}
 .seg-btn{appearance:none;border:0;background:transparent;color:var(--muted);font-size:12.5px;line-height:1;padding:7px 11px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .seg-btn + .seg-btn{border-left:1px solid var(--line)}
@@ -102,7 +75,7 @@ header{position:relative;z-index:20;display:flex;align-items:center;gap:10px;pad
 .slot-btn:disabled{cursor:default;opacity:.6}
 .slot-btn:disabled:hover{color:var(--text)}
 .slot-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:55;width:270px;max-width:calc(100vw - 24px);max-height:min(60vh,420px);overflow-y:auto;margin:0;padding:6px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,.55);font-size:13px}
-.slot-menu.align-right{left:auto;right:0}
+.slot-menu{transform:translateX(var(--slot-menu-shift,0px))}
 .slot-menu-head{font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);padding:4px 8px 6px}
 .slot-opt{display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:7px;cursor:pointer;color:var(--text);outline:none}
 .slot-opt:focus{background:rgb(var(--hover-rgb))}
@@ -117,26 +90,7 @@ header{position:relative;z-index:20;display:flex;align-items:center;gap:10px;pad
 .slot-menu-sep{height:1px;background:var(--line);margin:6px 2px}
 .slot-opt-manage{color:var(--muted)}
 .slot-opt-manage svg{flex:none;margin:0 12px 0 34px}
-body[data-layout="sidebar"] #listView{display:flex;gap:18px;overflow:hidden}
-body[data-layout="sidebar"] #empty{flex:1}
-#sidebar{position:relative;display:flex;flex-direction:column;align-self:flex-start;flex:0 1 calc(100%/3);min-width:280px;max-width:720px;min-height:0;max-height:100%;background:rgba(var(--panel-rgb),var(--sp-list-alpha,1));border:1px solid var(--line);border-radius:12px;overflow:hidden}
-/* Right-edge drag handle. It lives inside the panel (the panel clips to its
-   rounded corners) over the rows' right padding, so it never covers a control.
-   The list reads clean by default: the grip is invisible until the pointer
-   comes within ~36px of the panel's right edge (see SIDE_NEAR), where it fades
-   in; it stays up while dragging and while keyboard-focused. Drag it toward
-   the centre to widen the list, back to the left to narrow it; double-click or
-   Enter snaps back to the default third. */
-.side-grip{position:absolute;z-index:3;right:0;top:0;bottom:0;width:10px;padding:0;border:0;background:transparent;cursor:col-resize;touch-action:none;opacity:0;transition:opacity .16s ease}
-.side-grip.near,.side-grip.dragging,.side-grip:focus-visible{opacity:1}
-.side-grip::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:3px;height:36px;border-radius:3px;background:rgba(139,152,184,.55);transition:background .12s}
-.side-grip:hover::after,.side-grip.dragging::after{background:var(--accent)}
-.side-grip:focus-visible{outline:none}
-.side-grip:focus-visible::after{background:var(--accent);box-shadow:0 0 0 3px rgba(90,167,255,.3)}
-@media (prefers-reduced-motion:reduce){.side-grip{transition:none}}
-body.sp-side-resizing{cursor:col-resize;user-select:none}
-body.sp-side-resizing *{cursor:col-resize}
-.side-rows{list-style:none;margin:0;padding:0;flex:1;min-height:0;overflow-y:auto}
+.side-rows{list-style:none;margin:0;padding:0}
 .srow{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line);min-width:0}
 .side-rows .srow:last-child{border-bottom:0}
 .srow:hover{background:rgb(var(--hover-rgb))}
@@ -154,7 +108,6 @@ a.sname:hover{color:var(--accent);text-decoration:underline}
 .ctlbadge{position:absolute;top:-5px;right:-5px;box-sizing:border-box;min-width:15px;height:15px;padding:0 3px;border-radius:8px;background:var(--accent);color:#fff;font-size:9.5px;font-weight:700;line-height:15px;text-align:center;font-variant-numeric:tabular-nums;pointer-events:none}
 .ctlbtn.update-running svg{animation:ctlspin 1.1s linear infinite}
 @keyframes ctlspin{to{transform:rotate(360deg)}}
-.side-empty{padding:40px 14px;text-align:center;color:var(--muted);font-size:13px}
 /* Toasts are transient pings; the durable record lives in the Activity panel.
    They stack bottom-left so a burst of events replaces nothing. Failures
    (level 'error') stay until dismissed; everything else fades after 6 s. */
@@ -183,63 +136,21 @@ a.sname:hover{color:var(--accent);text-decoration:underline}
 .act-logs{margin:8px 0 2px;padding:9px 11px;max-height:220px;overflow:auto;background:rgb(var(--panel-2-rgb));border:1px solid var(--line);border-radius:8px;font:11.5px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted)}
 .act-empty{padding:26px 14px;text-align:center;color:var(--muted);font-size:12.5px}
 /* ===== appearance: background layer + glass surfaces (docs/appearance-background-handoff.md §6) ===== */
-/* Wallpaper layer: fixed, pushed to z-index -1 (paints above body background, below all
+/* Wallpaper layer: fixed, pushed to z-index -2 (paints above body background, below the readability scrim and all
    content), oversized so the blur filter never bleeds transparent at the viewport edges.
    The scrim is a second background-image layer — a flat veil whose alpha is --sp-scrim —
    so the slider re-rasterizes live with zero extra JS. Blur = wallpaper blur + glass blur,
    summed into one variable; no backdrop-filter on the app (the layer itself is blurred). */
-#sp-bg-layer{position:fixed;inset:-48px;z-index:-1;pointer-events:none;background-repeat:no-repeat;background-position:var(--sp-bg-position,50% 50%);background-size:cover;background-image:linear-gradient(rgba(8,10,18,var(--sp-scrim,0)) 0%,rgba(8,10,18,var(--sp-scrim,0)) 100%),var(--sp-bg-image,none);opacity:var(--sp-bg-opacity,1);filter:blur(var(--sp-bg-blur,0px))}
-/* "This portal" / "internal" pills sit on the translucent table: give them a
+#sp-bg-layer{position:fixed;inset:-48px;z-index:-2;pointer-events:none;background-repeat:no-repeat;background-position:var(--sp-bg-position,50% 50%);background-size:cover;background-image:linear-gradient(rgba(8,10,18,var(--sp-scrim,0)) 0%,rgba(8,10,18,var(--sp-scrim,0)) 100%),var(--sp-bg-image,none);opacity:var(--sp-bg-opacity,1);filter:blur(var(--sp-bg-blur,0px))}
+/* "This portal" / "internal" pills sit on the translucent controls page: give them a
    translucent base too, but only while a wallpaper is active (default stays
    pixel-identical to the stock look). */
 body[data-sp-bg] .selftag{background:rgba(var(--panel-rgb),calc(var(--sp-list-alpha,1)*.55))}
 /* Optional true-glass pass: per-surface backdrop blur, applied only while
    glassBlur > 0 (the whole-layer blur above already carries the depth). */
-body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #sidebar{backdrop-filter:blur(var(--sp-glass-blur,0px))}
+body[data-sp-glass] #app{backdrop-filter:blur(var(--sp-glass-blur,0px))}
 .btn:disabled{opacity:.45;cursor:default}
 .iconbtn{display:inline-flex;align-items:center;justify-content:center}
-/* Power / efficiency panel: a slim chip pinned to the bottom-left of the
-   viewport (above toasts when they share the corner) that expands into a
-   card with a 5-minute power histogram, per-source wattage and the lifetime
-   energy + cost. Data comes from /api/power (the local power monitor in
-   server.js, which measures the machine the portal is deployed on). The
-   collapsed chip is the default; expansion is remembered. */
-#powerPanel{position:fixed;left:18px;bottom:18px;z-index:55;display:flex;flex-direction:column;align-items:flex-start;gap:8px;max-width:min(380px,calc(100vw - 36px))}
-#powerChip{display:inline-flex;align-items:center;gap:7px;padding:6px 13px;background:rgb(var(--panel-rgb) / .82);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:999px;color:var(--text);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1;cursor:pointer;transition:border-color .15s ease}
-#powerChip:hover,#powerChip:focus-visible{border-color:var(--accent);outline:none}
-#powerChip .bolt{width:13px;height:13px;flex:none;stroke:var(--ok)}
-#powerChip .money{color:var(--muted)}
-.sp-power-card{width:min(380px,calc(100vw - 36px));max-height:calc(100vh - 96px);overflow-y:auto;background:rgb(var(--panel-rgb) / .9);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:12px;box-shadow:0 16px 48px rgba(0,0,0,.55);padding:12px 14px 10px}
-.sp-power-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
-.sp-power-title{font-weight:650;font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
-.sp-power-machine{padding:4px 0 10px}
-.sp-power-mname{display:flex;align-items:baseline;gap:8px;margin-bottom:2px}
-.sp-power-mname .nm{font-weight:600;font-size:13px}
-.sp-power-mname .up{font-size:11px;color:var(--muted)}
-.sp-power-totals{display:flex;align-items:baseline;gap:8px}
-.sp-power-watts{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:26px;font-weight:650;line-height:1.15;font-variant-numeric:tabular-nums}
-.sp-power-perhour{font-size:11.5px;color:var(--muted)}
-.sp-power-hist{width:100%;height:84px;display:block;margin:6px 0 2px}
-.sp-power-legend{display:flex;gap:12px;margin:0 0 6px;font-size:11px;color:var(--muted)}
-.sp-power-legend .dot{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px}
-.sp-power-rows{margin:0}
-.sp-power-row{display:flex;justify-content:space-between;gap:10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;padding:1px 0}
-.sp-power-row .k{color:var(--muted)}
-.sp-power-row.na span:last-child{color:var(--muted);font-style:italic;text-align:right}
-.sp-power-lifetime{border-top:1px dashed var(--line);margin-top:8px;padding-top:7px;font-size:12px;color:var(--text)}
-.sp-power-lifetime .big{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:15px;font-weight:650}
-.sp-power-lifetime .cap{color:var(--muted);font-size:11px}
-.sp-power-rate{display:flex;align-items:center;gap:8px;border-top:1px solid var(--line);margin-top:4px;padding-top:8px;font-size:11.5px;color:var(--muted)}
-.sp-power-rate .val{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text)}
-.sp-power-rate a{color:var(--accent);text-decoration:none}
-.sp-power-rate a:hover{text-decoration:underline}
-.sp-power-rate .edit{margin-left:auto;font-size:11.5px;color:var(--muted);cursor:pointer;background:none;border:none;padding:2px 4px;border-radius:5px}
-.sp-power-rate .edit:hover{color:var(--text);background:rgb(var(--panel-2-rgb))}
-.sp-power-rate .rate-edit{display:flex;gap:6px;flex:1;justify-content:flex-end}
-.sp-power-rate .rate-edit input{width:92px;appearance:none;border:1px solid var(--line);background:rgb(var(--panel-2-rgb));color:var(--text);border-radius:7px;padding:3px 7px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;outline:none}
-.sp-power-rate .rate-edit input:focus{border-color:var(--accent)}
-.sp-power-rate .rate-edit button{font-size:11.5px;padding:3px 9px;border-radius:7px;border:1px solid var(--line);background:rgb(var(--panel-2-rgb));color:var(--text);cursor:pointer}
-.sp-power-rate .rate-edit button:hover{border-color:var(--accent)}
 .sp-panel{position:fixed;top:64px;right:16px;z-index:50;width:300px;max-width:calc(100vw - 32px);max-height:calc(100vh - 80px);overflow-y:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;box-shadow:0 16px 48px rgba(0,0,0,.55)}
 .sp-panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
 .sp-panel-title{font-weight:650;font-size:14px}
@@ -269,7 +180,6 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
    back to one scrolling column (see the media query below). */
 .sp-panel.appearance-panel{width:min(880px,calc(100vw - 32px));display:flex;flex-direction:column;overflow:hidden;padding-bottom:0}
 .sp-ap-body{flex:1 1 auto;min-height:0;display:flex;gap:18px}
-.sp-ap-controls{flex:0 0 300px;min-width:0;overflow-y:auto;padding:0 8px 14px 0}
 .sp-ap-gallery{flex:1 1 auto;min-width:0;overflow-y:auto;padding:0 4px 14px 18px;border-left:1px solid var(--line)}
 .sp-gallery-head{position:sticky;top:0;z-index:2;display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0;padding:0 0 8px;background:var(--panel)}
 .sp-gallery-count{flex:none;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
@@ -293,7 +203,7 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
 @media (max-width:760px){
   .sp-panel.appearance-panel{display:block;overflow-y:auto;padding-bottom:14px}
   .sp-ap-body{display:block}
-  .sp-ap-controls,.sp-ap-gallery{overflow:visible;padding:0}
+  .sp-ap-gallery{overflow:visible;padding:0}
   .sp-ap-gallery{border-left:0;border-top:1px solid var(--line);margin-top:14px;padding-top:12px}
   .sp-thumbs{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}
 }
@@ -331,20 +241,98 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
 .sp-pos-slot-hint{font-size:11.5px;color:var(--muted);margin:5px 0 0;line-height:1.35}
 .sp-pos-slot-hint:empty{display:none}
 .sp-status{font-size:12.5px;color:var(--bad);min-height:16px;margin-top:8px;overflow-wrap:anywhere}
+
+/* ===== Responsive Glass page =========================================== */
+:root{--page-margin:24px;--page-width:min(880px,calc(100vw - 48px));--panel-top:100px;--power-gpu:#38d39f;--power-cpu:#5aa7ff;--power-base:#8797ad}
+body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(90deg,rgba(8,14,22,.5),transparent)}
+#app{position:relative;width:var(--page-width);height:auto;max-height:calc(100dvh - 2 * var(--page-margin));margin:var(--page-margin);border:1px solid var(--line);border-radius:16px;background:rgba(var(--panel-rgb),var(--sp-list-alpha,1));box-shadow:0 12px 40px rgba(0,0,0,.14);isolation:isolate}
+header{flex:none;gap:10px;padding:16px 24px;min-height:64px;border-radius:16px 16px 0 0;background:rgba(var(--panel-rgb),.8)}
+.title{font-size:20px;max-width:100%;white-space:normal;overflow-wrap:anywhere}
+header .iconbtn{gap:7px}
+header .spacer{min-width:0}
+#pageContent{overflow-y:auto;overflow-x:hidden;min-height:0;padding:18px 24px 8px;scrollbar-gutter:stable;container-type:inline-size;container-name:page}
+h2{font-size:18px;line-height:1.35;font-weight:600;margin:0}
+#listView{padding:0;overflow:visible;margin-top:22px;border-top:1px solid var(--line)}
+.services-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:18px 0 12px}
+.services-head .check{white-space:normal;color:var(--text)}
+#meta{flex-basis:100%;white-space:normal;overflow-wrap:anywhere;font-size:13px}
+#empty{margin:0;padding:18px 0;text-align:left}
+.srow{display:flex;flex-wrap:wrap;padding:12px 0;gap:10px}
+.sname{flex:1 1 150px;white-space:normal;overflow-wrap:anywhere;font-size:14px;font-weight:500}
+.service-status{font-size:13px;color:var(--muted);max-width:100%;overflow-wrap:anywhere}
+.sidectl{flex-wrap:wrap;justify-content:flex-end;max-width:100%}
+.ctlbtn{width:auto;min-height:32px;padding:6px 10px;gap:6px;color:var(--text);font:inherit;font-size:13px;background:rgba(var(--panel-2-rgb),.55)}
+.ctlbtn svg{flex:none}
+.selftag{font-size:12px}
+#toasts{left:var(--page-margin);bottom:var(--page-margin);width:var(--page-width);max-width:var(--page-width);padding:0 12px;pointer-events:none}
+.toast{max-width:420px;pointer-events:auto;overflow-wrap:anywhere}
+.sp-panel,.sp-panel.appearance-panel,.sp-panel.activity-panel{left:var(--page-margin);right:auto;top:var(--panel-top);width:var(--page-width);max-width:var(--page-width);max-height:calc(100dvh - var(--panel-top) - var(--page-margin));overflow:auto;padding:18px 24px;container-type:inline-size;container-name:overlay;box-shadow:0 14px 28px rgba(0,0,0,.3)}
+.sp-panel-head{position:sticky;top:-18px;z-index:3;background:var(--panel);padding:8px 0}
+.sp-ap-body{display:block;overflow:visible}
+.sp-ap-gallery{overflow:visible;min-width:0;padding:0;border:0}
+.sp-ap-gallery{border-top:1px solid var(--line);margin-top:18px;padding-top:18px}
+.act-list{overflow:visible}
+.sp-gallery-head{position:static}
+.appearance-editor{display:grid;grid-template-columns:1fr;gap:24px;border-top:1px solid var(--line);padding-top:18px;margin-top:18px}
+.appearance-editor section{min-width:0}
+.appearance-slots .sp-row{display:inline-flex;margin:4px 8px 4px 0}
+.appearance-slots .sp-nav{display:inline-flex;margin:4px 0}
+.appearance-slots .sp-field{max-width:440px}
+.sp-ap-gallery .sp-drop{display:flex;flex-direction:row;align-items:center;justify-content:center;flex-wrap:wrap;gap:12px;margin-top:14px;padding:12px}
+.sp-ap-gallery .sp-thumb{width:80px;height:50px;margin:0}
+.sp-ap-gallery .sp-thumbs-wrap{max-height:240px;overflow-y:auto}
+.sp-reset-row::after{content:"Deletes all wallpaper slots and images";display:block;color:var(--muted);font-size:12px;margin-top:6px}
+.sp-field,.sp-row,.sp-pos-slot{flex-wrap:wrap}
+.sp-field input,.sp-field select{min-width:0;max-width:100%}
+.slot-menu{max-width:min(270px,calc(var(--page-width) - 48px))}
+#powerPanel{font-size:14px}
+.power-summary{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.power-summary > div{min-width:0}
+.power-label{font-size:14px;margin:0 0 4px;font-weight:500}
+.power-cost{display:block;font-size:28px;line-height:1.25;font-weight:600;font-variant-numeric:tabular-nums}
+.power-projection{font-size:22px}
+.power-caption{color:var(--muted);font-size:13px;margin-top:4px;overflow-wrap:anywhere}
+.power-rate{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:12px 0;margin:12px 0 18px;border-block:1px solid var(--line);font-size:13px}
+#powerRateEdit{margin-left:auto}
+#powerRateForm{display:flex;flex-wrap:wrap;gap:8px;align-items:center;width:100%}
+#powerRateInput{width:120px;max-width:100%;border:1px solid var(--line);background:var(--panel-2);color:var(--text);padding:6px 8px;border-radius:7px;font:inherit}
+#powerRateError{width:100%;color:var(--bad)}
+#powerStatus{color:var(--muted);font-size:13px;margin:0 0 12px}
+#powerStatus:empty{display:none}
+.power-live{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:8px 0 12px}
+#powerWatts{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}
+.power-live span{color:var(--muted);font-size:13px}
+#powerHist{display:block;width:100%;height:130px}
+.power-legend{display:flex;flex-wrap:wrap;gap:16px;color:var(--muted);font-size:13px;margin:6px 0 12px}
+.power-legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px}
+.power-sources{display:grid;grid-template-columns:1fr;gap:0 24px}
+.power-source{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}
+.power-source .source-name{min-width:0;overflow-wrap:anywhere}
+.power-source .source-value{flex-shrink:0;font-variant-numeric:tabular-nums}
+.power-source.unavailable .source-value{flex-shrink:1;text-align:right;color:var(--muted)}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+@container page (min-width:640px){.power-sources{grid-template-columns:1fr 1fr}}
+@container page (max-width:479px){.power-summary{grid-template-columns:1fr;gap:14px}.sidectl{flex-basis:100%;justify-content:flex-start;margin-left:19px}.service-status{margin-left:auto}}
+@container overlay (min-width:640px){.appearance-editor{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+@media (min-width:1440px) and (min-aspect-ratio:4/3){:root{--page-width:min(880px,calc(50vw - 48px))}body::before{background:linear-gradient(90deg,rgba(8,14,22,.4) 0%,rgba(8,14,22,.2) 44%,transparent 52%)}}
+@media (max-width:599px){:root{--page-margin:12px;--page-width:calc(100vw - 24px)}header{padding:14px 16px}#pageContent{padding:16px}.sp-panel,.sp-panel.appearance-panel,.sp-panel.activity-panel{padding:16px}.title{font-size:18px}.slot-btn{max-width:200px}.slot-menu{max-width:calc(var(--page-width) - 32px)}}
+@media (pointer:coarse){button,.ctlbtn,.btn,.seg-btn{min-height:44px;min-width:44px}.sp-posgrid{grid-template-columns:repeat(3,44px)}.sp-pos{width:44px;height:44px}input,select{font-size:16px!important}.sp-thumb-del,.sp-thumb-dl{width:44px;height:44px}}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
 <div id="sp-bg-layer" aria-hidden="true"></div>
 <div id="app">
-  <header>
+  <header id="pageHeader">
     <img class="logo" src="/favicon.ico?v={{FAVICON_VERSION}}" alt="" aria-hidden="true">
     <div class="title" id="title">{{PORTAL_TITLE}}</div>
-    <div class="sub" id="meta">loading&hellip;</div>
     <div class="spacer"></div>
     <div class="slot-pick" id="bgSlotPick">
       <div class="seg" role="group" aria-label="Background image">
         <button id="bgSlot" class="seg-btn slot-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="bgSlotMenu" title="Wallpaper slot — pick one to jump straight to it (re-rolls a random wallpaper of it)">
           <svg class="slot-btn-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="9" cy="10" r="1.6"></circle><polyline points="21 16 15.5 11 6 20"></polyline></svg>
+          <span>Wallpaper:</span>
           <span id="bgSlotLabel" class="slot-btn-name unnamed">No slots</span>
           <svg class="slot-btn-chev" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
         </button>
@@ -362,57 +350,49 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
         </div>
       </div>
     </div>
-    <div class="seg" role="group" aria-label="List layout">
-      <button id="layoutTable" class="seg-btn" type="button" aria-pressed="true" title="Full table — service, image, ports, status">
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="3" y1="9.5" x2="21" y2="9.5"></line><line x1="3" y1="14.5" x2="21" y2="14.5"></line></svg>
-        <span>Table</span>
-      </button>
-      <button id="layoutSidebar" class="seg-btn" type="button" aria-pressed="false" title="Narrow list — the wallpaper fills the rest of the screen">
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><line x1="9.5" y1="4" x2="9.5" y2="20"></line></svg>
-        <span>Sidebar</span>
-      </button>
-    </div>
-    <label class="check" title="Hide services with no published ports (nothing to open) — your choice is remembered">
-      <input type="checkbox" id="hideNoLink">
-      <span>Hide services without links</span>
-    </label>
-    <button id="refreshBtn" class="btn" type="button">Refresh</button>
     <button id="activityBtn" class="btn iconbtn" type="button" title="Activity &mdash; updates, starts &amp; stops" aria-haspopup="dialog">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+      <span>Activity</span>
       <span id="activityBadge" class="badge hidden">0</span>
     </button>
     <button id="appearanceBtn" class="btn iconbtn" type="button" title="Appearance &mdash; wallpaper &amp; effects" aria-haspopup="dialog">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
+    <span>Appearance</span>
     </button>
   </header>
-  <main id="listView">
-    <div class="tablewrap hidden" id="tablewrap">
-      <table class="table">
-        <thead>
-          <tr>
-            <th scope="col"><button class="th" type="button" data-key="name">Service <span class="arr">&#8597;</span></button></th>
-            <th scope="col"><button class="th" type="button" data-key="image">Image <span class="arr">&#8597;</span></button></th>
-            <th scope="col"><button class="th" type="button" data-key="ports">Ports <span class="arr">&#8597;</span></button></th>
-            <th scope="col"><button class="th" type="button" data-key="status">Status <span class="arr">&#8597;</span></button></th>
-          </tr>
-        </thead>
-        <tbody id="rows"></tbody>
-      </table>
-    </div>
-    <div class="hidden" id="sidebar">
+  <main id="pageContent">
+    <section id="powerPanel" aria-label="Power and cost">
+      <p id="powerStatus" role="status">Loading power readings…</p>
+      <div class="power-summary">
+        <div><h2 class="power-label">Estimated cost to date</h2><strong id="powerCost" class="power-cost">—</strong><div id="powerSince" class="power-caption">Since monitoring began</div></div>
+        <div><h2 class="power-label">Estimated next 30 days</h2><strong id="powerProjection" class="power-cost power-projection">—</strong><div id="powerDaily" class="power-caption">At the monitored average</div></div>
+      </div>
+      <div class="power-rate">
+        <span>At current rate:</span><span id="powerRateValue">—</span><a id="powerRateSource" class="hidden" target="_blank" rel="noopener">Rate source</a>
+        <button id="powerRateEdit" class="btn" type="button" disabled>Edit rate</button>
+        <form id="powerRateForm" class="hidden">
+          <label for="powerRateInput">USD/kWh</label><input id="powerRateInput" type="number" min="0.0001" max="10" step="any" required>
+          <button id="powerRateSave" class="btn" type="submit">Save</button><button id="powerRateCancel" class="btn" type="button">Cancel</button>
+          <span id="powerRateError" role="alert"></span>
+        </form>
+      </div>
+      <h2>Live power</h2>
+      <div class="power-live"><strong id="powerWatts">—</strong><span id="powerHourly">—/h at this draw</span><span id="powerUptime"></span></div>
+      <canvas id="powerHist" role="img" aria-label="Power over the last five minutes" aria-describedby="powerChartSummary"></canvas>
+      <span id="powerChartSummary" class="sr-only">Waiting for readings.</span>
+      <div class="power-legend"><span><i style="background:var(--power-gpu)"></i>GPU</span><span><i style="background:var(--power-cpu)"></i>CPU</span><span><i style="background:var(--power-base)"></i>Baseline (estimate)</span></div>
+      <div id="powerSources" class="power-sources"></div>
+    </section>
+    <section id="listView" aria-labelledby="servicesHeading">
+      <div class="services-head"><h2 id="servicesHeading">Services</h2><div class="spacer"></div>
+        <button id="refreshBtn" class="btn" type="button">Refresh</button>
+        <label class="check"><input type="checkbox" id="showNoLink"><span>Show services without links</span></label>
+        <div class="sub" id="meta" role="status">Loading services…</div>
+      </div>
       <ul class="side-rows" id="sideRows"></ul>
-      <div class="side-grip" id="sideGrip" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Sidebar width" title="Drag to resize the sidebar &#183; double-click or press Enter for the default width"></div>
-    </div>
-    <div class="empty hidden" id="empty"></div>
+      <div class="empty hidden" id="empty"></div>
+    </section>
   </main>
-</div>
-<div id="powerPanel" class="hidden" aria-label="Power usage">
-  <div id="powerCard" class="sp-power-card hidden"></div>
-  <button id="powerChip" type="button" title="Power &mdash; expand the efficiency panel" aria-expanded="false">
-    <svg class="bolt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-    <span id="powerChipText">power&hellip;</span>
-    <span id="powerChipMoney" class="money"></span>
-  </button>
 </div>
 <div id="appearancePanel" class="sp-panel appearance-panel hidden" role="dialog" aria-label="Appearance">
   <div class="sp-panel-head">
@@ -420,14 +400,49 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
     <button id="appearanceClose" class="btn iconbtn" type="button" title="Close">&times;</button>
   </div>
   <div class="sp-ap-body">
-  <!-- left column: every control, in scope order -->
-  <div class="sp-ap-controls">
+  <section class="appearance-slots" aria-label="Wallpaper slots">
+  <span class="sp-label">Slots</span>
+  <div class="sp-field">
+    <label class="sp-field-label" for="spSlotName">Name</label>
+    <input type="text" id="spSlotName" class="sp-input" maxlength="60" placeholder="No slot" spellcheck="false" autocomplete="off" title="This slot's name, shown in the header slot menu — saved when you press Enter or leave the field; Esc reverts. Leave it empty for the default &ldquo;Slot N&rdquo;." disabled>
+  </div>
+  <div class="sp-field-hint">Enter saves &middot; Esc reverts</div>
+  <div class="sp-row">
+    <button id="spAddSlot" class="btn" type="button" title="Append an empty wallpaper slot and switch to it (fill it with an upload)">Add</button>
+    <button id="spRemoveSlot" class="btn" type="button" title="Delete this slot and every wallpaper in it (the pointer moves to the previous slot)">Remove</button>
+  </div>
+  <div class="sp-row">
+    <button id="spMoveUp" class="btn" type="button" title="Move this slot one position up in the navigation order — its wallpapers, and your current pick, travel with it (does not switch to a different slot)" aria-label="Move this slot up">Move up</button>
+    <button id="spMoveDown" class="btn" type="button" title="Move this slot one position down in the navigation order — its wallpapers, and your current pick, travel with it (does not switch to a different slot)" aria-label="Move this slot down">Move down</button>
+  </div>
+  <div id="spNav" class="sp-nav hidden">
+    <button id="spPrev" class="btn iconbtn" type="button" title="Previous slot (re-rolls a random wallpaper of it)" aria-label="Previous slot">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
+    </button>
+    <span id="spNavCount" class="sp-nav-count"></span>
+    <button id="spNext" class="btn iconbtn" type="button" title="Next slot (re-rolls a random wallpaper of it)" aria-label="Next slot">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
+    </button>
+  </div>
+  </section>
+  <section class="sp-ap-gallery" aria-labelledby="spThumbsLabel">
+    <div class="sp-gallery-head">
+      <span id="spThumbsLabel" class="sp-thumbs-label" title="The wallpapers in this slot — this browser shows one at random on every refresh, on every slot switch, and on the Rotate timer when it is on. Click one to show it now (until the next roll); the download button saves its original image file; &times; removes just that wallpaper.">Wallpapers in this slot</span>
+      <span id="spThumbsCount" class="sp-gallery-count"></span>
+    </div>
+    <div id="spThumbsEmpty" class="sp-gallery-empty">No wallpapers in this slot yet &mdash; upload images or a .zip to add some.</div>
+    <div id="spThumbsWrap" class="sp-thumbs-wrap hidden">
+      <div id="spThumbs" class="sp-thumbs"></div>
+    </div>
   <div id="spDropZone" class="sp-drop">
     <img id="spThumb" class="sp-thumb hidden" alt="Current wallpaper" loading="lazy" decoding="async">
     <span>Drop images or a .zip of images here, or</span>
     <button id="spUploadBtn" class="btn" type="button" title="Add wallpapers to this slot — pick images, or a .zip archive: every supported image inside (jpeg/png/webp/gif/avif) becomes its own wallpaper">Upload background&hellip;</button>
   </div>
   <input type="file" id="spFile" class="hidden" accept="image/jpeg,image/png,image/webp,image/gif,image/avif,application/zip,application/x-zip-compressed,.zip" multiple>
+  </section>
+  <div class="appearance-editor">
+  <section aria-label="Wallpaper position">
   <div class="sp-select" title="Where this wallpaper's origin sits in the cover crop — remembered per wallpaper, on this machine only: pick an anchor (or press 1–9), then fine-tune with the sliders — 0–100% of the way between the cropped edges, snapping back to an anchor near 0/50/100; Apply to all in slot copies it to every wallpaper in this slot, Reset slot returns them all to center">
     Position
     <div class="sp-posgrid" id="spPosGrid" role="group" aria-label="Wallpaper origin anchor">
@@ -453,34 +468,8 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
     </div>
     <div id="spPosSlotHint" class="sp-pos-slot-hint"></div>
   </div>
-  <span class="sp-label">This wallpaper</span>
-  <div class="sp-row">
-    <button id="spRemove" class="btn" type="button" title="Delete the wallpaper currently on screen (an emptied slot is removed too, and the pointer moves to the previous slot)">Remove wallpaper</button>
-    <button id="spResetColors" class="btn" type="button" title="Drop the wallpaper-derived color scheme (the wallpaper stays)">Reset colors</button>
-  </div>
-  <span class="sp-label">Slots</span>
-  <div class="sp-field">
-    <label class="sp-field-label" for="spSlotName">Name</label>
-    <input type="text" id="spSlotName" class="sp-input" maxlength="60" placeholder="No slot" spellcheck="false" autocomplete="off" title="This slot's name, shown in the header slot menu — saved when you press Enter or leave the field; Esc reverts. Leave it empty for the default &ldquo;Slot N&rdquo;." disabled>
-  </div>
-  <div class="sp-field-hint">Enter saves &middot; Esc reverts</div>
-  <div class="sp-row">
-    <button id="spAddSlot" class="btn" type="button" title="Append an empty wallpaper slot and switch to it (fill it with an upload)">Add</button>
-    <button id="spRemoveSlot" class="btn" type="button" title="Delete this slot and every wallpaper in it (the pointer moves to the previous slot)">Remove</button>
-  </div>
-  <div class="sp-row">
-    <button id="spMoveUp" class="btn" type="button" title="Move this slot one position up in the navigation order — its wallpapers, and your current pick, travel with it (does not switch to a different slot)" aria-label="Move this slot up">Move up</button>
-    <button id="spMoveDown" class="btn" type="button" title="Move this slot one position down in the navigation order — its wallpapers, and your current pick, travel with it (does not switch to a different slot)" aria-label="Move this slot down">Move down</button>
-  </div>
-  <div id="spNav" class="sp-nav hidden">
-    <button id="spPrev" class="btn iconbtn" type="button" title="Previous slot (re-rolls a random wallpaper of it)" aria-label="Previous slot">
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
-    </button>
-    <span id="spNavCount" class="sp-nav-count"></span>
-    <button id="spNext" class="btn iconbtn" type="button" title="Next slot (re-rolls a random wallpaper of it)" aria-label="Next slot">
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
-    </button>
-  </div>
+  </section>
+  <section aria-label="Wallpaper rotation and effects">
   <span class="sp-label">Rotation</span>
   <div class="sp-field">
     <label class="sp-field-label" for="spRotate">Rotate</label>
@@ -507,28 +496,23 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
   <label class="sp-slider">Scrim <output id="spScrimOut">0%</output>
     <input type="range" id="spScrim" min="0" max="100" step="1" value="0">
   </label>
-  <label class="sp-slider" title="Opacity of the service list background in both table and sidebar layouts">List background <output id="spListOpacityOut">100%</output>
+  <label class="sp-slider" title="Opacity of the controls page background">Controls background <output id="spListOpacityOut">100%</output>
     <input type="range" id="spListOpacity" min="0" max="100" step="1" value="100">
   </label>
   <label class="sp-slider">Glass blur <output id="spGlassOut">0px</output>
     <input type="range" id="spGlass" min="0" max="20" step="1" value="0">
   </label>
+  <span class="sp-label">This wallpaper</span>
+  <div class="sp-row">
+    <button id="spRemove" class="btn" type="button" title="Delete the wallpaper currently on screen (an emptied slot is removed too, and the pointer moves to the previous slot)">Remove wallpaper</button>
+    <button id="spResetColors" class="btn" type="button" title="Drop the wallpaper-derived color scheme (the wallpaper stays)">Reset colors</button>
+  </div>
+  </section>
+  </div>
   <div class="sp-reset-row">
     <button id="spReset" class="btn" type="button" title="Delete every slot and its wallpapers, and restore the default settings">Reset appearance</button>
   </div>
   <div id="spStatus" class="sp-status" role="status"></div>
-  </div><!-- /.sp-ap-controls -->
-  <!-- right column: the active slot's wallpapers -->
-  <section class="sp-ap-gallery" aria-labelledby="spThumbsLabel">
-    <div class="sp-gallery-head">
-      <span id="spThumbsLabel" class="sp-thumbs-label" title="The wallpapers in this slot — this browser shows one at random on every refresh, on every slot switch, and on the Rotate timer when it is on. Click one to show it now (until the next roll); the download button saves its original image file; &times; removes just that wallpaper.">Wallpapers in this slot</span>
-      <span id="spThumbsCount" class="sp-gallery-count"></span>
-    </div>
-    <div id="spThumbsEmpty" class="sp-gallery-empty">No wallpapers in this slot yet &mdash; upload images or a .zip to add some.</div>
-    <div id="spThumbsWrap" class="sp-thumbs-wrap hidden">
-      <div id="spThumbs" class="sp-thumbs"></div>
-    </div>
-  </section>
   </div><!-- /.sp-ap-body -->
 </div>
 <div id="activityPanel" class="sp-panel activity-panel hidden" role="dialog" aria-label="Activity">
@@ -545,18 +529,19 @@ const $ = (s) => document.querySelector(s);
 let services = [];
 let generatedAt = null;
 let lastError = null;
-let sortKey = 'name';
-let sortDir = 1; // 1 = ascending, -1 = descending
-const HIDE_KEY = 'sp-hide-no-link';
-let hideNoLink = false;
-try { hideNoLink = localStorage.getItem(HIDE_KEY) === '1'; } catch (e) {}
-const LAYOUT_KEY = 'sp-layout';
-let layout = 'table';
+const SHOW_KEY = 'sp-show-no-link';
+let showNoLink = false;
 try {
-  const storedLayout = localStorage.getItem(LAYOUT_KEY);
-  if (storedLayout === 'table' || storedLayout === 'sidebar') layout = storedLayout;
+  const saved = localStorage.getItem(SHOW_KEY);
+  if (saved !== null) showNoLink = saved === '1';
+  else {
+    const legacy = localStorage.getItem('sp-hide-no-link');
+    if (legacy === '0' || legacy === '1') {
+      showNoLink = legacy === '0';
+      localStorage.setItem(SHOW_KEY, showNoLink ? '1' : '0');
+    }
+  }
 } catch (e) {}
-document.body.setAttribute('data-layout', layout);
 
 function escapeHtml(s){return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
@@ -569,14 +554,6 @@ function schemeFor(p){
   return HTTPS_PORTS.has(p.containerPort) || HTTPS_PORTS.has(p.hostPort) ? 'https' : 'http';
 }
 function urlFor(svc, p){ return schemeFor(p) + '://' + hostBase(p) + ':' + p.hostPort + '/'; }
-
-function openNewTab(url){
-  const a = document.createElement('a');
-  a.href = url; a.target = '_blank'; a.rel = 'noopener';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-}
 
 /* Toasts are intentionally ephemeral pings; the durable record of every
    action lives in the Activity panel (server-side), so a faded toast never
@@ -609,7 +586,7 @@ const ICON_STOP = '<svg viewBox="0 0 24 24" width="12" height="12" fill="current
 const ICON_UPDATE = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6v5h-5"/><path d="M4 18v-5h5"/><path d="M6.1 9a7 7 0 0 1 11.8-2.6L20 11"/><path d="M4 13l2.1 4.6A7 7 0 0 0 17.9 15"/></svg>';
 const maintenancePollers = new Set();
 
-/* Per-row start/stop toggle (sidebar layout). The button reflects the
+/* Per-row start/stop control. The button reflects the
    container's current state, and a fresh /api/services poll rebuilds the
    rows after every action, so there is no local state to keep in sync. */
 function containerToggle(s){
@@ -618,7 +595,7 @@ function containerToggle(s){
   const b = document.createElement('button');
   b.type = 'button';
   b.className = 'ctlbtn';
-  b.innerHTML = running ? ICON_STOP : ICON_START;
+  b.innerHTML = (running ? ICON_STOP : ICON_START) + '<span>' + (running ? 'Stop' : 'Start') + '</span>';
   if (s.self){
     b.title = 'This is the portal itself \u2014 it cannot control itself';
     b.disabled = true;
@@ -755,7 +732,7 @@ function projectUpdateButton(s){
   const b = document.createElement('button');
   b.type = 'button';
   b.className = 'ctlbtn' + (active ? ' update-running' : view.state === 'available' ? ' update-ready' : '');
-  b.innerHTML = ICON_UPDATE;
+  b.innerHTML = ICON_UPDATE + '<span>Update &amp; restart</span>';
   b.disabled = !!active || view.state === 'current';
   const jobLine = job ? maintenanceMessage(job) : '';
   if (active) {
@@ -840,7 +817,7 @@ function projectLifecycleButton(s, action){
   const b = document.createElement('button');
   b.type = 'button';
   b.className = 'ctlbtn' + (active ? ' update-running' : '');
-  b.innerHTML = action === 'start' ? ICON_START : ICON_STOP;
+  b.innerHTML = (action === 'start' ? ICON_START : ICON_STOP) + '<span>' + (action === 'start' ? 'Start' : 'Stop') + '</span>';
   b.disabled = !!active;
   b.title = active ? maintenanceMessage(job) + ' for ' + displayName(s) :
     (action === 'start' ? 'Start ' : 'Stop ') + displayName(s) + ' project \u2014 ' + lifecycleStatus(s);
@@ -907,23 +884,6 @@ function primaryUrl(s){
 function hasLink(s){ return !!primaryUrl(s); }
 function displayName(s){ return s.label || s.name; }
 
-function statusRank(s){
-  if (s.lifecycle && s.lifecycle.state === 'stopped') return 0;
-  if (s.lifecycle && s.lifecycle.state === 'partial') return 1;
-  if (s.state === 'exited' || s.state === 'dead' || s.state === 'created') return 0;
-  if (s.health === 'unhealthy') return 1;
-  if (s.state === 'restarting') return 2;
-  if (s.health === 'starting') return 3;
-  return 4; // healthy, or running without health
-}
-
-const SORTERS = {
-  name:   (a, b) => displayName(a).localeCompare(displayName(b)) || a.name.localeCompare(b.name),
-  image:  (a, b) => a.image.localeCompare(b.image) || a.name.localeCompare(b.name),
-  ports:  (a, b) => published(a).length - published(b).length || a.name.localeCompare(b.name),
-  status: (a, b) => statusRank(a) - statusRank(b) || a.name.localeCompare(b.name),
-};
-
 async function load(){
   try {
     const r = await fetch('/api/services', {cache:'no-store'});
@@ -945,137 +905,23 @@ async function load(){
 }
 
 function renderList(){
-  if (lastError){ $('#meta').textContent = lastError; }
-  else {
-    const visible = services.filter(s => !hideNoLink || hasLink(s)).length;
-    const when = generatedAt ? ' \u00b7 updated ' + new Date(generatedAt).toLocaleTimeString() : '';
-    $('#meta').textContent = (hideNoLink && visible !== services.length
-      ? visible + ' of ' + services.length
-      : services.length) + ' services' + when;
-  }
-
-  const rows = services
-    .filter(s => !hideNoLink || hasLink(s))
-    .sort((a, b) => SORTERS[sortKey](a, b) * sortDir);
-
+  const rows = services.filter(s => showNoLink || hasLink(s))
+    .sort((a,b) => displayName(a).localeCompare(displayName(b)) || a.name.localeCompare(b.name));
+  const count = rows.length !== services.length ? rows.length + ' of ' + services.length : String(services.length);
+  $('#meta').textContent = count + ' services' + (lastError ? ' · ' + lastError + (services.length ? ' · showing last known services' : '') :
+    generatedAt ? ' · updated ' + new Date(generatedAt).toLocaleTimeString() : '');
   const empty = $('#empty');
-  if (!services.length){
-    $('#tablewrap').classList.add('hidden');
-    $('#sidebar').classList.add('hidden');
-    empty.textContent = 'No running containers found.';
-    empty.classList.remove('hidden');
-    return;
-  }
-  empty.classList.add('hidden');
-  const side = layout === 'sidebar';
-  $('#tablewrap').classList.toggle('hidden', side);
-  $('#sidebar').classList.toggle('hidden', !side);
-  if (side) renderSidebar(rows);
-  else renderTable(rows);
+  empty.classList.toggle('hidden', rows.length > 0);
+  empty.textContent = !services.length ? (lastError ? 'Could not load services. Use Refresh to try again.' : 'No services found.') :
+    'No services with links. Check “Show services without links” to see all services.';
+  renderServices(rows);
 }
 
-function renderTable(rows){
-  for (const b of document.querySelectorAll('button.th')){
-    const th = b.parentElement;
-    const active = b.dataset.key === sortKey;
-    b.classList.toggle('active', active);
-    b.querySelector('.arr').textContent = active ? (sortDir === 1 ? '\u25b2' : '\u25bc') : '\u2195';
-    if (active) th.setAttribute('aria-sort', sortDir === 1 ? 'ascending' : 'descending');
-    else th.removeAttribute('aria-sort');
-  }
-
-  const wrap = $('#rows');
-  wrap.innerHTML = '';
-  if (!rows.length){
-    const tr = document.createElement('tr');
-    const td = document.createElement('td');
-    td.colSpan = 4;
-    td.style.textAlign = 'center'; td.style.color = 'var(--muted)'; td.style.padding = '40px 14px';
-    td.textContent = 'Every service is hidden \u2014 untick \u201cHide services without links\u201d to see them.';
-    tr.appendChild(td);
-    wrap.appendChild(tr);
-    return;
-  }
-
-  for (const s of rows){
-    const pub = published(s);
-    const primary = primaryUrl(s);
-    const h = s.health;
-    const tr = document.createElement('tr');
-    tr.className = primary ? 'linkable' : 'internal';
-    if (primary) tr.title = primary;
-
-    const td1 = document.createElement('td');
-    const nl = document.createElement('div'); nl.className = 'nameline';
-    const dotCls = serviceDotClass(s);
-    const dot = document.createElement('span'); dot.className = 'dot ' + dotCls;
-    const nm = document.createElement('span'); nm.className = 'name';
-    nm.textContent = displayName(s); nm.title = s.name;
-    nl.appendChild(dot); nl.appendChild(nm);
-    if (s.self){ const t = document.createElement('span'); t.className = 'selftag'; t.textContent = 'this portal'; nl.appendChild(t); }
-    else if (!primary){ const t = document.createElement('span'); t.className = 'selftag'; t.textContent = 'internal'; nl.appendChild(t); }
-    td1.appendChild(nl);
-    if (s.description){ const ds = document.createElement('div'); ds.className = 'desc'; ds.textContent = s.description; td1.appendChild(ds); }
-    tr.appendChild(td1);
-
-    const td2 = document.createElement('td');
-    td2.className = 'cellimage'; td2.textContent = s.image; td2.title = s.image;
-    tr.appendChild(td2);
-
-    const td3 = document.createElement('td');
-    const ports = document.createElement('div'); ports.className = 'ports';
-    if (s.url){
-      const b = document.createElement('button');
-      b.className = 'chip'; b.type = 'button';
-      b.textContent = s.url.startsWith('https:') ? 'Open HTTPS' : 'Open';
-      b.title = s.url;
-      b.addEventListener('click', (ev) => { ev.stopPropagation(); openNewTab(s.url); });
-      ports.appendChild(b);
-    }
-    if (!pub.length && !s.url) ports.innerHTML = '<span class="noports">no published ports</span>';
-    for (const p of pub){
-      const b = document.createElement('button');
-      b.className = 'chip'; b.type = 'button';
-      b.textContent = p.hostPort + (p.protocol && p.protocol !== 'tcp' ? '/' + p.protocol : '');
-      b.title = urlFor(s, p);
-      b.addEventListener('click', (ev) => { ev.stopPropagation(); openNewTab(urlFor(s, p)); });
-      ports.appendChild(b);
-    }
-    td3.appendChild(ports);
-    tr.appendChild(td3);
-
-    const td4 = document.createElement('td');
-    td4.className = 'status';
-    const status = document.createElement('span');
-    status.textContent = s.lifecycle ? lifecycleStatus(s) :
-      escapeHtml((s.statusLine || s.state || '').replace(/\s*\((healthy|unhealthy|starting)\)\s*$/, '')) + (h ? ' \u00b7 ' + h : '');
-    td4.appendChild(status);
-    const tableControls = document.createElement('span');
-    tableControls.className = 'tablectl';
-    const tableUpdate = projectUpdateButton(s);
-    if (tableUpdate) tableControls.appendChild(tableUpdate);
-    for (const button of serviceControlButtons(s)) tableControls.appendChild(button);
-    td4.appendChild(tableControls);
-    tr.appendChild(td4);
-
-    if (primary) tr.addEventListener('click', () => openNewTab(primary));
-    wrap.appendChild(tr);
-  }
-}
-
-function renderSidebar(rows){
+function renderServices(rows){
   const list = $('#sideRows');
   list.innerHTML = '';
-  if (!rows.length){
-    const li = document.createElement('li');
-    li.className = 'side-empty';
-    li.textContent = 'Every service is hidden \u2014 untick \u201cHide services without links\u201d to see them.';
-    list.appendChild(li);
-    return;
-  }
   for (const s of rows){
     const primary = primaryUrl(s);
-    const h = s.health;
     const li = document.createElement('li');
     li.className = 'srow' + (primary ? '' : ' internal');
     if (primary) li.title = primary;
@@ -1092,6 +938,13 @@ function renderSidebar(rows){
     if (primary){ nm.href = primary; nm.target = '_blank'; nm.rel = 'noopener'; }
     li.appendChild(nm);
 
+    const state = document.createElement('span');
+    state.className = 'service-status';
+    const status = serviceState(s);
+    state.textContent = s.health && s.health !== 'healthy' ? s.health : status.charAt(0).toUpperCase() + status.slice(1);
+    state.title = s.lifecycle ? lifecycleStatus(s) : (s.statusLine || status);
+    li.appendChild(state);
+
     const ctl = document.createElement('span'); ctl.className = 'sidectl';
     if (s.self){ const t = document.createElement('span'); t.className = 'selftag'; t.textContent = 'this portal'; ctl.appendChild(t); }
     else if (!primary){ const t = document.createElement('span'); t.className = 'selftag'; t.textContent = 'internal'; ctl.appendChild(t); }
@@ -1103,153 +956,13 @@ function renderSidebar(rows){
   }
 }
 
-for (const b of document.querySelectorAll('button.th')){
-  b.addEventListener('click', () => {
-    if (sortKey === b.dataset.key) sortDir = -sortDir;
-    else { sortKey = b.dataset.key; sortDir = 1; }
-    renderList();
-  });
-}
-
-const hideChk = $('#hideNoLink');
-hideChk.checked = hideNoLink;
-hideChk.addEventListener('change', () => {
-  hideNoLink = hideChk.checked;
-  try { localStorage.setItem(HIDE_KEY, hideNoLink ? '1' : '0'); } catch (e) {}
+const showChk = $('#showNoLink');
+showChk.checked = showNoLink;
+showChk.addEventListener('change', () => {
+  showNoLink = showChk.checked;
+  try { localStorage.setItem(SHOW_KEY, showNoLink ? '1' : '0'); } catch (e) {}
   renderList();
 });
-
-const layoutTableBtn = $('#layoutTable');
-const layoutSidebarBtn = $('#layoutSidebar');
-function syncLayoutButtons(){
-  layoutTableBtn.classList.toggle('active', layout === 'table');
-  layoutSidebarBtn.classList.toggle('active', layout === 'sidebar');
-  layoutTableBtn.setAttribute('aria-pressed', String(layout === 'table'));
-  layoutSidebarBtn.setAttribute('aria-pressed', String(layout === 'sidebar'));
-}
-function setLayout(next){
-  if (next === layout) return;
-  layout = next;
-  document.body.setAttribute('data-layout', layout);
-  try { localStorage.setItem(LAYOUT_KEY, layout); } catch (e) {}
-  syncLayoutButtons();
-  renderList();
-  if (layout === 'sidebar') applySideWidth(); // re-clamp against the row's width
-}
-layoutTableBtn.addEventListener('click', () => setLayout('table'));
-layoutSidebarBtn.addEventListener('click', () => setLayout('sidebar'));
-syncLayoutButtons();
-
-/* ===== Resizable sidebar =================================================
-   In the sidebar layout the panel is one third of the row by default; the
-   handle on its right edge lets you pull that edge toward the centre (or back
-   out to the left). Width is clamped between 280px (the panel's own
-   min-width) and "row minus a 240px wallpaper strip", remembered in
-   localStorage ('sp-sidebar-width'), and re-clamped when the window shrinks.
-   Double-click (or Enter/Space) drops back to the default third; arrow keys
-   nudge by 24px so the handle is usable without a pointer. */
-const SIDE_W_KEY = 'sp-sidebar-width';
-const SIDE_MIN = 280;
-const SIDE_KEEP = 240;
-const SIDE_STEP = 24;
-let sideWidth = 0; // 0 = default (one third of the row)
-try {
-  const storedSide = parseInt(localStorage.getItem(SIDE_W_KEY), 10);
-  if (Number.isFinite(storedSide) && storedSide >= SIDE_MIN) sideWidth = storedSide;
-} catch (e) {}
-
-function sideMax(){
-  const row = $('#listView').clientWidth || window.innerWidth || 1200;
-  return Math.max(SIDE_MIN, row - SIDE_KEEP);
-}
-function clampSideWidth(w){
-  return Math.min(Math.max(Math.round(w), SIDE_MIN), sideMax());
-}
-function applySideWidth(){
-  const side = $('#sidebar');
-  const grip = $('#sideGrip');
-  if (!sideWidth){
-    side.style.removeProperty('flex');
-    side.style.removeProperty('max-width');
-    grip.removeAttribute('aria-valuenow');
-    grip.removeAttribute('aria-valuetext');
-    return;
-  }
-  sideWidth = clampSideWidth(sideWidth);
-  side.style.flex = '0 0 ' + sideWidth + 'px';
-  side.style.maxWidth = sideWidth + 'px';
-  grip.setAttribute('aria-valuenow', String(sideWidth));
-  grip.setAttribute('aria-valuetext', sideWidth + ' pixels');
-}
-function storeSideWidth(){
-  try {
-    if (sideWidth) localStorage.setItem(SIDE_W_KEY, String(sideWidth));
-    else localStorage.removeItem(SIDE_W_KEY);
-  } catch (e) {}
-}
-function setSideWidth(w){ sideWidth = clampSideWidth(w); applySideWidth(); storeSideWidth(); }
-function resetSideWidth(){ sideWidth = 0; applySideWidth(); storeSideWidth(); }
-
-const sideGrip = $('#sideGrip');
-let sideDrag = null;
-
-/* Hover-reveal: the grip is invisible until the pointer gets close to the
-   panel's right edge. The proximity test runs on the whole row (not the grip
-   itself) so the handle can announce itself before the pointer is on it, and
-   it uses left+width rather than rect.right so it behaves the same in the
-   headless test DOM. */
-const SIDE_NEAR = 36;
-function sideNear(x){
-  const r = $('#sidebar').getBoundingClientRect();
-  const edge = r.left + r.width;
-  return x >= edge - SIDE_NEAR && x <= edge + SIDE_NEAR;
-}
-function syncSideGripHover(x){
-  if (sideDrag) return; // .dragging already holds it visible
-  sideGrip.classList.toggle('near', sideNear(x));
-}
-$('#listView').addEventListener('pointermove', (e) => syncSideGripHover(e.clientX));
-$('#listView').addEventListener('pointerleave', () => {
-  if (!sideDrag) sideGrip.classList.remove('near');
-});
-
-sideGrip.addEventListener('pointerdown', (e) => {
-  if (e.button) return;
-  e.preventDefault();
-  sideDrag = { startX: e.clientX, startW: sideWidth || $('#sidebar').getBoundingClientRect().width };
-  sideGrip.classList.add('dragging');
-  document.body.classList.add('sp-side-resizing');
-});
-window.addEventListener('pointermove', (e) => {
-  if (!sideDrag) return;
-  sideDrag.lastX = e.clientX;
-  sideWidth = clampSideWidth(sideDrag.startW + (e.clientX - sideDrag.startX));
-  applySideWidth();
-});
-function endSideDrag(){
-  if (!sideDrag) return;
-  const lastX = sideDrag.lastX;
-  sideDrag = null;
-  sideGrip.classList.remove('dragging');
-  document.body.classList.remove('sp-side-resizing');
-  storeSideWidth();
-  syncSideGripHover(lastX); // stay revealed if the pointer is still by the edge
-}
-window.addEventListener('pointerup', endSideDrag);
-window.addEventListener('pointercancel', endSideDrag);
-sideGrip.addEventListener('dblclick', (e) => { e.preventDefault(); resetSideWidth(); });
-sideGrip.addEventListener('keydown', (e) => {
-  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight'){
-    e.preventDefault();
-    const base = sideWidth || $('#sidebar').getBoundingClientRect().width;
-    setSideWidth(base + (e.key === 'ArrowRight' ? SIDE_STEP : -SIDE_STEP));
-  } else if (e.key === 'Enter' || e.key === ' '){
-    e.preventDefault();
-    resetSideWidth();
-  }
-});
-window.addEventListener('resize', () => { if (sideWidth) applySideWidth(); });
-applySideWidth();
 
 $('#refreshBtn').addEventListener('click', () => { load(); refreshActivity(); });
 setInterval(() => { load(); refreshActivity(); }, 20000);
@@ -1259,6 +972,45 @@ requestUpdateChecks();
 window.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') requestUpdateChecks();
 });
+
+/* Panels share the controls-page geometry; neither can cover the wallpaper half. */
+window.portalPanels = (() => {
+  let current = null, opener = null, onClose = null;
+  const main = $('#pageContent'), header = $('#pageHeader');
+  function position() {
+    document.body.style.setProperty('--panel-top', Math.round(header.getBoundingClientRect().bottom + 8) + 'px');
+  }
+  function close(restore = true) {
+    if (!current) return;
+    current.classList.add('hidden'); current.removeAttribute('aria-modal');
+    main.inert = false; header.inert = false;
+    const previous = opener, callback = onClose;
+    current = null; opener = null; onClose = null;
+    if (callback) callback();
+    if (restore && previous) previous.focus();
+  }
+  function open(panel, button, callback) {
+    close(false); position(); current = panel; opener = button; onClose = callback;
+    panel.classList.remove('hidden'); panel.setAttribute('aria-modal','true');
+    main.inert = true; header.inert = true;
+    panel.querySelector('button').focus();
+  }
+  document.addEventListener('keydown', e => {
+    if (!current) return;
+    if (e.key === 'Escape') { e.preventDefault(); close(); return; }
+    if (e.key !== 'Tab') return;
+    const focusable = Array.from(current.querySelectorAll('button,input,select,textarea,a[href],[tabindex="0"]'))
+      .filter(node => !node.disabled && node.getClientRects().length > 0);
+    const first = focusable[0], last = focusable[focusable.length - 1];
+    if (!first) return;
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(position).observe(header);
+  window.addEventListener('resize', position);
+  position();
+  return {open, close};
+})();
 
 /* ===== Activity panel =====================================================
    The durable record behind the ephemeral toasts: update jobs come from the
@@ -1279,6 +1031,8 @@ let refreshActivity = () => {};
   let events = [];
   let loadFailed = false;
   const logsCache = new Map();
+  const expandedEvents = new Set();
+  let renderedSignature = null;
 
   const isOpen = () => !panel.classList.contains('hidden');
   function seenAt(){ try { return localStorage.getItem(SEEN_KEY) || ''; } catch (e) { return ''; } }
@@ -1308,12 +1062,16 @@ let refreshActivity = () => {};
 
   function toggleLogs(row, ev){
     if (row.classList.contains('open')){
+      expandedEvents.delete(ev.id);
       row.classList.remove('open');
+      row.querySelector('.act-line').setAttribute('aria-expanded', 'false');
       const pre = row.querySelector('.act-logs');
       if (pre) pre.remove();
       return;
     }
+    expandedEvents.add(ev.id);
     row.classList.add('open');
+    row.querySelector('.act-line').setAttribute('aria-expanded', 'true');
     const pre = document.createElement('pre');
     pre.className = 'act-logs';
     row.appendChild(pre);
@@ -1334,6 +1092,10 @@ let refreshActivity = () => {};
   }
 
   function render(){
+    const signature = JSON.stringify([loadFailed, events]);
+    if (signature === renderedSignature) return;
+    renderedSignature = signature;
+    const focusedId = document.activeElement && document.activeElement.getAttribute('data-event-id');
     list.textContent = '';
     if (!events.length){
       const e = document.createElement('div');
@@ -1347,6 +1109,11 @@ let refreshActivity = () => {};
       row.className = 'act-row' + (ev.hasLogs ? ' expandable' : '');
       const line = document.createElement('div');
       line.className = 'act-line';
+      line.setAttribute('data-event-id', ev.id);
+      if (ev.hasLogs) {
+        line.setAttribute('role', 'button'); line.setAttribute('tabindex', '0'); line.setAttribute('aria-expanded', 'false');
+        line.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleLogs(row, ev); } });
+      }
       const t = document.createElement('span');
       t.className = 'act-time';
       t.textContent = fmtTime(ev.at);
@@ -1366,6 +1133,8 @@ let refreshActivity = () => {};
       }
       row.appendChild(line);
       list.appendChild(row);
+      if (ev.hasLogs && expandedEvents.has(ev.id)) toggleLogs(row, ev);
+      if (focusedId === ev.id) line.focus();
     }
   }
 
@@ -1385,16 +1154,15 @@ let refreshActivity = () => {};
 
   btn.addEventListener('click', () => {
     if (isOpen()){
-      panel.classList.add('hidden');
+      window.portalPanels.close();
       return;
     }
-    panel.classList.remove('hidden');
+    window.portalPanels.open(panel, btn);
     markSeen();
     refresh();
   });
   $('#activityClose').addEventListener('click', () => {
-    panel.classList.add('hidden');
-    btn.focus();
+    window.portalPanels.close();
   });
   refresh();
 })();
@@ -2771,7 +2539,10 @@ let refreshActivity = () => {};
   /* ---- panel wiring ---- */
   const panelOpen = () => !els.panel.classList.contains('hidden');
   const openPanel = (open) => {
-    els.panel.classList.toggle('hidden', !open);
+    if (window.portalPanels) {
+      if (open) window.portalPanels.open(els.panel, els.gear, () => syncRotation(true));
+      else window.portalPanels.close();
+    } else els.panel.classList.toggle('hidden', !open);
     if (open) { syncWallpaper(); renderSlotThumbs(); }
     // Rotation holds while the panel is open; closing it starts a fresh interval.
     syncRotation(!open);
@@ -3053,6 +2824,17 @@ let refreshActivity = () => {};
     slotMenuItems[slotMenuFocus].el.focus();
   }
 
+  function positionSlotMenu() {
+    if (!slotMenuOpen || typeof bgSlotMenu.getBoundingClientRect !== 'function') return;
+    const page = document.getElementById('app');
+    if (!page || typeof page.getBoundingClientRect !== 'function') return;
+    bgSlotMenu.style.setProperty('--slot-menu-shift', '0px');
+    const bounds = page.getBoundingClientRect(), menu = bgSlotMenu.getBoundingClientRect();
+    const shift = Math.max(bounds.left + 12 - menu.left, Math.min(0, bounds.right - 12 - menu.right));
+    bgSlotMenu.style.setProperty('--slot-menu-shift', shift + 'px');
+  }
+  window.addEventListener('resize', positionSlotMenu);
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(positionSlotMenu).observe(document.getElementById('pageHeader'));
   function openSlotMenu() {
     const list = Array.isArray(settings.slots) ? settings.slots : [];
     if (!list.length || slotMenuOpen) return;
@@ -3060,11 +2842,7 @@ let refreshActivity = () => {};
     renderSlotMenu();
     bgSlotMenu.classList.remove('hidden');
     bgSlot.setAttribute('aria-expanded', 'true');
-    // Keep the menu on screen when the header wraps the picker to the right.
-    bgSlotMenu.classList.remove('align-right');
-    if (typeof bgSlotMenu.getBoundingClientRect === 'function' && window.innerWidth) {
-      if (bgSlotMenu.getBoundingClientRect().right > window.innerWidth - 8) bgSlotMenu.classList.add('align-right');
-    }
+    positionSlotMenu();
     focusSlotMenuItem(Math.max(0, list.findIndex((s) => s.id === settings.activeSlotId)));
   }
 
@@ -3463,195 +3241,181 @@ let refreshActivity = () => {};
   });
 })();
 
-/* ---- Power / efficiency panel (bottom-left) -----------------------------
-/* ---- Power / efficiency panel (bottom-left) -----------------------------
-   A slim chip shows live total watts + lifetime cost; expanding it opens a
-   card with a 5-minute histogram (stacked GPU / CPU / baseline), per-source
-   wattage and the lifetime energy + cost at the configured rate. The portal
-   measures the machine it is deployed on; only the sources this host exposes
-   appear (GPU and CPU are optional, the baseline always stands in for the
-   unmeasured hardware). Data: /api/power (local power monitor in
-   server.js). Polls every 5 s while expanded, every 20 s collapsed. ---- */
+/* ---- Power / efficiency panel -----------------------------------------
+   Permanent cost-first summary. Values update in place, so polling never
+   recreates the rate form or steals its focus. Projections use the measured
+   lifetime average, never the instantaneous draw. */
+function powerViewModel(data) {
+  const d = data || {}, lt = d.lifetime || {}, rate = d.rate || {};
+  const valid = (n) => typeof n === 'number' && Number.isFinite(n) && n >= 0;
+  const price = valid(rate.usdPerKwh) ? rate.usdPerKwh : null;
+  const average = valid(lt.avgW) && typeof lt.hours === 'number' && Number.isFinite(lt.hours) && lt.hours > 0 ? lt.avgW : null;
+  const daily = price !== null && average !== null ? average / 1000 * 24 * price : null;
+  return {
+    cost: price !== null && valid(lt.kwh) ? lt.kwh * price : null,
+    daily, monthly: daily === null ? null : daily * 30,
+    watts: valid(d.totalW) ? d.totalW : null,
+    hourly: price !== null && valid(d.totalW) ? d.totalW / 1000 * price : null
+  };
+}
 (function () {
-  const panel = $('#powerPanel'), chip = $('#powerChip'),
-        chipText = $('#powerChipText'), chipMoney = $('#powerChipMoney'),
-        card = $('#powerCard');
-  if (!panel || !chip || !card) return;
-  const HIST_SLOTS = 60; // 5 min at the monitor's 5 s cadence
-  let powerData = null, expanded = false, timer = null, rateEditing = false;
-  try { expanded = localStorage.getItem('sp-power-expanded') === '1'; } catch (e) {}
-
-  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const fmtW = (w) => w >= 1000 ? (w / 1000).toFixed(2) + ' kW' : Math.round(w) + ' W';
-  const fmtMoney = (v) => !isFinite(v) || v <= 0 ? '$0.00'
-    : (v < 0.01 ? '$' + v.toFixed(4) : '$' + v.toFixed(2));
-  const fmtKwh = (v) => !isFinite(v) || v <= 0 ? '0.00 kWh'
-    : (v < 0.01 ? v.toFixed(4) : v < 10 ? v.toFixed(3) : v.toFixed(2)) + ' kWh';
-  const fmtDur = (ms) => {
-    if (!isFinite(ms) || ms < 0) return '';
-    const m = Math.floor(ms / 60000), d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60);
-    if (d) return d + 'd ' + h + 'h';
-    if (h) return h + 'h ' + (m % 60) + 'm';
-    return m + 'm';
+  const el = (id) => document.getElementById(id);
+  const canvas = el('powerHist'), form = el('powerRateForm'), input = el('powerRateInput');
+  let data = null, timer = null, inFlight = false, editing = false, saving = false, failed = false, lastSuccess = null;
+  let rateRevision = 0, reloadRequested = false;
+  const money = (v) => v === null ? '—' : '$' + (v > 0 && v < .01 ? v.toFixed(4) : v.toFixed(2));
+  const watts = (v) => v === null ? '—' : v >= 1000 ? (v / 1000).toFixed(2) + ' kW' : Math.round(v) + ' W';
+  const duration = (seconds) => {
+    const minutes = Math.floor(seconds / 60), days = Math.floor(minutes / 1440), hours = Math.floor(minutes % 1440 / 60);
+    return (days ? days + 'd ' : '') + hours + 'h ' + minutes % 60 + 'm';
   };
 
-  function loadPower() {
-    fetch('/api/power', { cache: 'no-store' })
-      .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then((d) => { powerData = d; })
-      .catch(() => { /* keep whatever we last had; the chip renders a no-data state */ })
-      .then(() => { try { renderPower(); } catch (e) { console.error('power panel render: ' + e); } })
-      .finally(schedulePower);
-  }
-  function schedulePower() {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(loadPower, expanded ? 5000 : 20000);
-  }
-
-  function drawHist(canvas, samples) {
-    const dpr = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth || 330, h = canvas.clientHeight || 84;
-    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+  function drawChart() {
     const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const w = canvas.clientWidth || 400, h = 130, dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
     ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, w, h);
-    const step = 1; // px per slot
-    const slotW = w / HIST_SLOTS;
-    const maxW = Math.max(100, ...samples.map((s) => s.total || 0));
-    const top = Math.ceil(maxW / 100) * 100;
-    const y = (v) => h - (v / top) * (h - 14);
-    // grid lines
-    ctx.font = '9px ui-monospace, SFMono-Regular, Menlo, monospace';
-    ctx.fillStyle = 'rgba(139,152,184,.75)';
-    ctx.strokeStyle = 'rgba(38,50,77,.8)';
-    for (const v of [top, top / 2]) {
-      ctx.beginPath(); ctx.moveTo(0, y(v) + 0.5); ctx.lineTo(w - 26, y(v) + 0.5); ctx.stroke();
-      ctx.fillText(Math.round(v) + 'W', w - 24, y(v) + 3);
+    const colors = getComputedStyle(document.body);
+    const css = (name) => colors.getPropertyValue(name).trim();
+    const left = 48, right = w - 10, top = 18, bottom = h - 24;
+    const all = data && Array.isArray(data.samples) ? data.samples : [];
+    const end = data && Number.isFinite(Date.parse(data.generatedAt)) ? Date.parse(data.generatedAt) : Date.now();
+    const start = end - 300000;
+    const samples = all.filter(v => Number.isFinite(v.t) && v.t >= start && v.t <= end);
+    const ceiling = Math.max(100, Math.ceil(Math.max(0, ...samples.map(v => v.total || 0)) / 100) * 100);
+    const y = v => bottom - Math.max(0, v) / ceiling * (bottom - top);
+    ctx.font = '12px system-ui';
+    ctx.fillStyle = css('--muted');
+    ctx.fillText('W', 0, 12);
+    ctx.textAlign = 'right';
+    for (const value of [0, ceiling / 2, ceiling]) {
+      ctx.fillText(String(Math.round(value)), left - 8, y(value) + 4);
+      ctx.strokeStyle = css('--line');
+      ctx.beginPath(); ctx.moveTo(left, y(value)); ctx.lineTo(right, y(value)); ctx.stroke();
     }
-    const offset = HIST_SLOTS - samples.length;
-    for (let i = 0; i < samples.length; i++) {
-      const s = samples[i];
-      const x = (offset + i) * slotW + step * 0.15;
-      const bw = Math.max(1, slotW - step * 0.3);
-      // stacked: baseline (bottom), cpu, gpu (top)
-      const segs = [[s.base || 0, 'rgba(139,152,184,.4)'], [s.cpu || 0, '#5aa7ff'], [s.gpu || 0, '#38d39f']];
-      let acc = 0;
-      for (const [v, color] of segs) {
-        if (!v) continue;
-        const y1 = y(acc), y2 = y(acc + v);
-        ctx.fillStyle = color;
-        ctx.fillRect(x, y2, bw, Math.max(1, y1 - y2));
-        acc += v;
+    const width = Math.max(1, (right - left) / 60 - 1);
+    ctx.save(); ctx.beginPath(); ctx.rect(left, top, Math.max(0, right - left), bottom - top); ctx.clip();
+    for (const sample of samples) {
+      const x = left + (sample.t - start) / 300000 * (right - left);
+      let sum = 0;
+      for (const [key, color] of [['base','--power-base'],['cpu','--power-cpu'],['gpu','--power-gpu']]) {
+        const v = Math.max(0, Number(sample[key]) || 0);
+        ctx.fillStyle = css(color);
+        if (v > 0) ctx.fillRect(x - width, y(sum + v), width, y(sum) - y(sum + v));
+        sum += v;
       }
     }
-  }
-
-  function hostSection() {
-    const d = powerData;
-    const rate = d.rate || { usdPerKwh: 0 };
-    const lt = d.lifetime || {};
-    const now = Date.now();
-    const upMs = d.uptimeS ? d.uptimeS * 1000 : null;
-    const avgW = lt.avgW || d.totalW || 0;
-    const perDay = avgW / 1000 * 24 * rate.usdPerKwh;
-    const sinceLabel = lt.sinceMs ? new Date(lt.sinceMs).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-    const el = document.createElement('div');
-    el.className = 'sp-power-machine';
-    el.innerHTML =
-      '<div class="sp-power-mname"><span class="nm">this host</span>' +
-      (upMs ? '<span class="up">up ' + esc(fmtDur(upMs)) + '</span>' : '') + '</div>' +
-      '<div class="sp-power-totals"><span class="sp-power-watts">' + fmtW(d.totalW || 0) + '</span>' +
-      '<span class="sp-power-perhour">' + fmtMoney((d.totalW || 0) / 1000 * rate.usdPerKwh) + '/h at this draw</span></div>' +
-      '<canvas class="sp-power-hist" data-hist aria-label="Power over the last five minutes"></canvas>' +
-      '<div class="sp-power-legend">' +
-      '<span><span class="dot" style="background:#38d39f"></span>GPU</span>' +
-      '<span><span class="dot" style="background:#5aa7ff"></span>CPU</span>' +
-      '<span><span class="dot" style="background:rgba(139,152,184,.4)"></span>baseline</span></div>' +
-      '<div class="sp-power-rows">' +
-      (d.sources || []).map((s) => {
-        // Every host lists CPU, GPU and baseline; a source this host cannot
-        // measure carries a note ("not measurable on this host") instead of W.
-        const missing = s.w == null;
-        const title = s.energyJSinceBoot
-          ? Math.round(s.energyJSinceBoot / 3.6e6 * 1000) / 1000 + ' kWh since host boot (counter resets at power-off)'
-          : missing ? (s.note || '')
-          : s.kind === 'baseline' ? 'fixed estimate for the unmeasured board, RAM and fans' : 'measured';
-        return '<div class="sp-power-row' + (missing ? ' na' : '') + '" title="' + esc(title) + '">' +
-          '<span class="k">' + esc(s.name) + '</span><span>' + (missing ? esc(s.note || '—') : fmtW(s.w || 0)) + '</span></div>';
-      }).join('') + '</div>' +
-      '<div class="sp-power-lifetime">' +
-      '<div class="big">' + fmtMoney(lt.usd || 0) +
-      ' <span style="font-weight:400;font-size:12px">&middot; ' + fmtKwh(lt.kwh || 0) + '</span></div>' +
-      '<div class="cap">lifetime since monitoring began (' + esc(sinceLabel) + ', ' + esc(fmtDur(now - (lt.sinceMs || now))) + ')' +
-      (perDay ? ' &middot; ' + fmtMoney(perDay) + '/day at the current average' : '') + '</div></div>';
-    return el;
-  }
-
-  function renderRateFooter() {
-    const rate = (powerData && powerData.rate) || {};
-    const el = document.createElement('div');
-    el.className = 'sp-power-rate';
-    if (rateEditing) {
-      el.innerHTML = '<span>rate $/kWh</span><span class="rate-edit">' +
-        '<input id="powerRateInput" type="number" min="0.0001" max="10" step="0.00001" value="' + (rate.usdPerKwh || '') + '">' +
-        '<button id="powerRateSave" type="button">save</button></span>';
-      const input = el.querySelector('#powerRateInput'), save = el.querySelector('#powerRateSave');
-      input.focus(); input.select();
-      const commit = () => {
-        const v = parseFloat(input.value);
-        if (!isFinite(v) || v <= 0 || v > 10) return;
-        fetch('/api/power', { method: 'PUT', body: JSON.stringify({ rate: { usdPerKwh: v } }) })
-          .catch(() => {})
-          .finally(() => { rateEditing = false; loadPower(); });
-      };
-      save.addEventListener('click', commit);
-      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { rateEditing = false; renderPower(); } });
-      return el;
+    ctx.restore(); ctx.fillStyle = css('--muted');
+    ctx.textAlign = 'left'; ctx.fillText('−5 min', left, h - 4);
+    ctx.textAlign = 'right'; ctx.fillText(failed ? 'Last reading' : 'Now', right, h - 4);
+    if (!samples.length) {
+      ctx.textAlign = 'center'; ctx.fillText('Waiting for history', (left + right) / 2, (top + bottom) / 2);
     }
-    el.innerHTML = '<span>rate</span><span class="val">' + (rate.usdPerKwh != null ? '$' + rate.usdPerKwh + '/kWh' : '—') + '</span>' +
-      (rate.label ? '<span title="' + esc(rate.label) + '">' + esc(rate.label) + '</span>' : '') +
-      (rate.source ? '<a href="' + esc(rate.source) + '" target="_blank" rel="noopener" title="rate source">&#183;</a>' : '') +
-      '<button class="edit" id="powerRateEdit" type="button" title="Change the $/kWh rate">edit</button>';
-    el.querySelector('#powerRateEdit').addEventListener('click', () => { rateEditing = true; renderPower(); });
-    return el;
+    const latest = samples[samples.length - 1];
+    el('powerChartSummary').textContent = latest ? 'Last five minutes of power. Latest sample: GPU ' + watts(latest.gpu) + ', CPU ' + watts(latest.cpu) + ', baseline estimate ' + watts(latest.base) + '.' : 'No power history available yet.';
   }
 
   function renderPower() {
-    const hasData = !!(powerData && powerData.rate && powerData.lifetime);
-    if (!hasData) { panel.classList.add('hidden'); return; }
-    panel.classList.remove('hidden');
-    const d = powerData;
-    chipText.textContent = fmtW(d.totalW || 0);
-    const usd = (d.lifetime && d.lifetime.usd) || 0;
-    chipMoney.textContent = usd > 0 ? ' · ' + fmtMoney(usd) : '';
-    chip.title = 'Power — expand the efficiency panel';
-    card.classList.toggle('hidden', !expanded);
-    chip.classList.toggle('hidden', expanded);
-    chip.setAttribute('aria-expanded', String(expanded));
-    if (!expanded) return;
-    card.innerHTML = '';
-    const head = document.createElement('div');
-    head.className = 'sp-power-head';
-    head.innerHTML = '<span class="sp-power-title">Power &amp; cost</span>' +
-      '<button class="edit" id="powerClose" type="button" title="Collapse">&#10005;</button>';
-    card.appendChild(head);
-    card.querySelector('#powerClose').addEventListener('click', () => { expanded = false; try { localStorage.setItem('sp-power-expanded', '0'); } catch (e) {} renderPower(); schedulePower(); });
-    card.appendChild(hostSection());
-    card.appendChild(renderRateFooter());
-    // draw the histogram once the card has layout
-    requestAnimationFrame(() => {
-      const canvas = card.querySelector('canvas[data-hist]');
-      if (canvas) drawHist(canvas, d.samples || []);
-    });
+    const v = powerViewModel(data), lt = data && data.lifetime || {}, rate = data && data.rate || {};
+    el('powerStatus').textContent = failed ? (data ? 'Power readings are stale · last received ' + new Date(lastSuccess).toLocaleTimeString() + '. Retrying…' : 'Power readings unavailable. Retrying…') : data ? '' : 'Loading power readings…';
+    el('powerCost').textContent = money(v.cost);
+    const since = Number.isFinite(lt.sinceMs) ? new Date(lt.sinceMs).toLocaleString([], { year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }) : null;
+    el('powerSince').textContent = (since ? 'Since ' + since : 'Since monitoring began') + (Number.isFinite(lt.kwh) ? ' · ' + lt.kwh.toFixed(3) + ' kWh' : '');
+    el('powerProjection').textContent = money(v.monthly);
+    el('powerDaily').textContent = v.daily === null ? 'Waiting for a monitored average' : money(v.daily) + '/day · at the monitored average';
+    el('powerWatts').textContent = watts(v.watts);
+    el('powerHourly').textContent = money(v.hourly) + '/h at this draw';
+    el('powerUptime').textContent = data && Number.isFinite(data.uptimeS) ? 'Up ' + duration(data.uptimeS) : '';
+    el('powerRateValue').textContent = Number.isFinite(rate.usdPerKwh) ? '$' + rate.usdPerKwh + '/kWh' : '—';
+    el('powerRateValue').title = rate.label || '';
+    el('powerRateEdit').disabled = !data;
+    const source = el('powerRateSource');
+    const safeSource = typeof rate.source === 'string' && /^https?:\/\//i.test(rate.source);
+    source.classList.toggle('hidden', !safeSource);
+    if (safeSource) source.href = rate.source;
+    const list = el('powerSources');
+    list.replaceChildren();
+    for (const src of data && data.sources || []) {
+      const missing = src.w === null || !Number.isFinite(src.w);
+      const row = document.createElement('div'); row.className = 'power-source' + (missing ? ' unavailable' : '');
+      const name = document.createElement('span'); name.className = 'source-name';
+      name.textContent = src.kind === 'baseline' && !/estimate/i.test(src.name) ? src.name + ' (estimate)' : src.name;
+      const value = document.createElement('span'); value.className = 'source-value';
+      value.textContent = missing ? src.note || 'Unavailable' : watts(src.w);
+      if (src.energyJSinceBoot) row.title = (src.energyJSinceBoot / 3.6e6).toFixed(3) + ' kWh since host boot';
+      row.append(name, value); list.appendChild(row);
+    }
+    drawChart();
   }
 
-  chip.addEventListener('click', () => {
-    expanded = true;
-    try { localStorage.setItem('sp-power-expanded', '1'); } catch (e) {}
-    loadPower();
+  function schedule() {
+    clearTimeout(timer);
+    if (document.visibilityState !== 'hidden') timer = setTimeout(loadPower, 5000);
+  }
+  async function loadPower(force = false) {
+    if (inFlight) { if (force) reloadRequested = true; return; }
+    inFlight = true;
+    const revision = rateRevision;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch('/api/power', { cache:'no-store', signal:controller.signal });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      const next = await response.json();
+      if (!next || !next.rate || !next.lifetime) throw new Error('Invalid power readings');
+      if (revision === rateRevision) { data = next; failed = false; lastSuccess = Date.now(); }
+    } catch (e) { failed = true; }
+    finally {
+      clearTimeout(timeout); inFlight = false;
+      renderPower();
+      if (reloadRequested && document.visibilityState !== 'hidden') { reloadRequested = false; loadPower(); }
+      else schedule();
+    }
+  }
+  function finishEdit() {
+    editing = false; form.classList.add('hidden'); el('powerRateEdit').classList.remove('hidden');
+    el('powerRateError').textContent = ''; el('powerRateEdit').focus();
+  }
+  el('powerRateEdit').addEventListener('click', () => {
+    editing = true; input.value = data.rate.usdPerKwh;
+    form.classList.remove('hidden'); el('powerRateEdit').classList.add('hidden');
+    input.focus(); input.select();
   });
-  loadPower();
+  el('powerRateCancel').addEventListener('click', () => { if (!saving) finishEdit(); });
+  input.addEventListener('keydown', e => { if (e.key === 'Escape' && !saving) { e.stopPropagation(); finishEdit(); } });
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    if (saving || !editing) return;
+    const value = Number(input.value);
+    if (!Number.isFinite(value) || value < .0001 || value > 10) {
+      el('powerRateError').textContent = 'Enter a rate between $0.0001 and $10 per kWh.'; return;
+    }
+    saving = true; el('powerRateSave').disabled = true; el('powerRateCancel').disabled = true;
+    el('powerRateError').textContent = '';
+    const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch('/api/power', { method:'PUT', signal:controller.signal, headers:{'Content-Type':'application/json'}, body:JSON.stringify({rate:{usdPerKwh:value}}) });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      rateRevision++;
+      if (data) data = {...data, rate:{...data.rate, usdPerKwh:value}};
+      renderPower();
+      finishEdit();
+      await loadPower(true);
+    } catch (error) {
+      el('powerRateError').textContent = 'Could not save the rate. Your edit is preserved; try again.';
+    } finally {
+      clearTimeout(timeout); saving = false; el('powerRateSave').disabled = false; el('powerRateCancel').disabled = false;
+    }
+  });
+  document.addEventListener('visibilitychange', () => {
+    clearTimeout(timer);
+    if (document.visibilityState === 'visible') loadPower();
+  });
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(drawChart).observe(canvas);
+  if (typeof MutationObserver !== 'undefined') new MutationObserver(drawChart).observe(document.body, {attributes:true, attributeFilter:['style']});
   renderPower();
+  if (document.visibilityState !== 'hidden') loadPower();
 })();
 </script>
 </body>
