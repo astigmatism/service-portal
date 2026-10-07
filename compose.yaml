@@ -27,6 +27,11 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - portal-data:/data
       - "${PORTAL_FAVICON_PATH:-./star.svg}:/app/deployment-favicon:ro"
+      # Host sysfs (read-only): the power monitor reads Intel RAPL powercap
+      # counters from /host/sys when the host exposes them; on VMs or
+      # non-Intel hosts the directory is simply empty and the monitor falls
+      # back to the baseline.
+      - /sys:/host/sys:ro
 
 volumes:
   portal-data:

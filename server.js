@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { createWallpaperImages, serveImage, attachmentDisposition } = require('./wallpaper-images');
+const { createPowerMonitor } = require('./power-monitor');
 
 const PORT = parseInt(process.env.PORT || '80', 10);
 const SOCKET = process.env.DOCKER_SOCKET || '/var/run/docker.sock';
@@ -107,9 +108,11 @@ const MAX_IMAGE_BYTES = 1073741824; // 1 GB, matches the client input cap
 const WALLPAPER_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_JOB_LOG_BYTES = 131072;
 const ACTIVE_JOB_STATES = new Set(['queued', 'running']);
-// Power metering (see the /api/power section near the bottom): per-machine
-// collector list and the electricity rate, persisted in <DATA_DIR>/power.json.
+// Power metering (see the /api/power section near the bottom): the portal
+// measures the host it is deployed on (power-monitor.js); the electricity
+// rate and baseline wattage are persisted in <DATA_DIR>/power.json.
 const POWER_FILE = path.join(DATA_DIR, 'power.json');
+const POWER_STATE_FILE = path.join(DATA_DIR, 'power-state.json');
 const UPDATE_LABELS = {
   enabled: 'io.service-portal.update.enabled',
   script: 'io.service-portal.update.script',
@@ -1496,26 +1499,22 @@ function toService(c, capability, job, lifecycle) {
   };
 }
 
-// ---- Power metering (powerd collectors) ----------------------------------
-// A powerd collector on each monitored machine publishes a JSON snapshot of
-// its power sources (NVIDIA GPUs via NVML, the CPU via RAPL, plus a fixed
-// baseline for the unmeasured board/RAM/fans) and its integrated lifetime
-// energy at <url>/metrics. The portal fetches those snapshots for the
-// bottom-left efficiency panel. The machine list and the electricity rate
-// are persisted in <DATA_DIR>/power.json so they survive recreation; missing
-// or invalid fields fall back to the defaults (the local SnoPUD residential
-// rate from the 2026 rate book).
-const POWER_FETCH_TIMEOUT_MS = 3500;
-const POWER_MAX_MACHINES = 8;
+// ---- Power metering (local host) ------------------------------------------
+// The portal measures the machine it is deployed on. power-monitor.js
+// detects the power sources this host actually exposes — Intel RAPL via the
+// host powercap sysfs (the deployment binds /sys read-only at /host/sys),
+// NVIDIA GPUs via a short-lived `nvidia-smi` container over the docker
+// socket, and always a configurable baseline for the unmeasured hardware —
+// and integrates energy between 5 s ticks with persistent state. The
+// electricity rate and baseline wattage live in <DATA_DIR>/power.json so
+// they survive recreation; missing or invalid fields fall back to the
+// defaults (the local SnoPUD residential rate from the 2026 rate book).
 const POWER_RATE_DEFAULT = {
   usdPerKwh: 0.10613,
   label: 'SnoPUD residential (10.613\u00a2/kWh)',
   source: 'https://www.snopud.com/account/about-my-bill/rates/electric/',
 };
-const POWER_DEFAULTS = {
-  machines: [{ name: 'samus', url: 'http://192.168.1.5:8123' }],
-  rate: { ...POWER_RATE_DEFAULT },
-};
+const POWER_BASELINE_DEFAULT = 50;
 
 function readPowerConfig() {
   let raw = null;
@@ -1537,27 +1536,10 @@ function savePowerConfig(cfg) {
 }
 
 function sanitizePowerConfig(raw) {
-  const machines = [];
-  const seen = new Set();
-  const list = Array.isArray(raw.machines) ? raw.machines : [];
-  for (const entry of list) {
-    if (machines.length >= POWER_MAX_MACHINES) break;
-    if (!entry || typeof entry !== 'object') continue;
-    const url = typeof entry.url === 'string' ? entry.url.trim() : '';
-    if (!url || url.length > 512) continue;
-    let parsed = null;
-    try { parsed = new URL(url); } catch { continue; }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') continue;
-    if (seen.has(url)) continue;
-    seen.add(url);
-    const name = (typeof entry.name === 'string' && entry.name.trim())
-      ? entry.name.trim().slice(0, 64) : parsed.hostname;
-    machines.push({ name, url });
-  }
   const rate = raw.rate && typeof raw.rate === 'object' && !Array.isArray(raw.rate) ? raw.rate : {};
   const usdPerKwh = Number(rate.usdPerKwh);
+  const baselineW = Number(raw.baseline_w);
   return {
-    machines: machines.length ? machines : POWER_DEFAULTS.machines.map((m) => ({ ...m })),
     rate: {
       usdPerKwh: Number.isFinite(usdPerKwh) && usdPerKwh > 0 && usdPerKwh <= 10
         ? Math.round(usdPerKwh * 1e6) / 1e6
@@ -1566,19 +1548,21 @@ function sanitizePowerConfig(raw) {
         ? rate.label.trim().slice(0, 120) : POWER_RATE_DEFAULT.label,
       source: typeof rate.source === 'string' ? rate.source.slice(0, 512) : POWER_RATE_DEFAULT.source,
     },
+    baseline_w: Number.isFinite(baselineW) && baselineW >= 0 && baselineW <= 1000
+      ? Math.round(baselineW * 10) / 10
+      : POWER_BASELINE_DEFAULT,
   };
 }
 
-function fetchPowerMachine(machine) {
-  return fetch(machine.url + '/metrics', { signal: AbortSignal.timeout(POWER_FETCH_TIMEOUT_MS) })
-    .then((res) => {
-      if (!res.ok) throw new Error('collector HTTP ' + res.status);
-      return res.json();
-    })
-    .then((metrics) => ({ name: machine.name, url: machine.url, ok: true, metrics }))
-    .catch((err) => ({ name: machine.name, url: machine.url, ok: false,
-      error: (err && err.name === 'TimeoutError') ? 'collector timed out' : (err && err.message) || 'unreachable' }));
-}
+const powerMonitor = createPowerMonitor({
+  stateFile: POWER_STATE_FILE,
+  baselineW: POWER_BASELINE_DEFAULT,
+  selfName: process.env.SELF_NAME || '',
+  gpuImage: process.env.POWER_GPU_IMAGE || '',
+  dockerJson: dockerJsonRequest,
+  log: (msg) => console.error(msg),
+});
+powerMonitor.setBaseline(readPowerConfig().baseline_w);
 
 const server = http.createServer((req, res) => {
   let pathname;
@@ -1675,22 +1659,38 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  /* ---- power / efficiency (powerd collectors) ----------------------------
-     GET  /api/power           the electricity rate plus a live fetch of
-                              /metrics from every configured machine; a
-                              machine that is down is reported as
-                              { ok: false, error }
-     PUT  /api/power           update the rate and/or machine list ({rate,
-                              machines}); partial bodies merge with the
-                              stored config, sanitized (see
+  /* ---- power / efficiency (this host) ---------------------------------------
+     GET  /api/power           the electricity rate plus a snapshot of the
+                              local power monitor: live wattage per source
+                              (RAPL / GPUs / baseline), the 5-minute sample
+                              window, and the integrated lifetime energy
+                              since monitoring began on this host
+     PUT  /api/power           update the rate and/or the baseline wattage
+                              ({rate, baseline_w}); partial bodies merge
+                              with the stored config, sanitized (see
                               sanitizePowerConfig) */
   if (pathname === '/api/power') {
     if (req.method === 'GET') {
       const cfg = readPowerConfig();
-      Promise.all(cfg.machines.map(fetchPowerMachine))
-        .then((machines) => sendJson(res, 200, {
-          generatedAt: new Date().toISOString(), rate: cfg.rate, machines,
-        }));
+      const snap = powerMonitor.snapshot();
+      sendJson(res, 200, {
+        generatedAt: new Date().toISOString(),
+        rate: cfg.rate,
+        baselineW: cfg.baseline_w,
+        uptimeS: snap.uptimeS,
+        totalW: snap.totalW,
+        gpuAvailable: snap.gpuAvailable,
+        sources: snap.sources,
+        lifetime: {
+          j: snap.lifetime.j,
+          kwh: snap.lifetime.kwh,
+          usd: snap.lifetime.kwh * cfg.rate.usdPerKwh,
+          sinceMs: snap.lifetime.sinceMs,
+          hours: snap.lifetime.hours,
+          avgW: snap.lifetime.avgW,
+        },
+        samples: snap.samples,
+      });
       return;
     }
     if (req.method === 'PUT') {
@@ -1701,12 +1701,12 @@ const server = http.createServer((req, res) => {
           if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error('invalid power config body');
           return withStateLock(() => {
             const stored = readPowerConfig();
-            const merged = raw.machines !== undefined
-              ? { machines: raw.machines, rate: stored.rate }
-              : { machines: stored.machines, rate: stored.rate };
+            const merged = { rate: stored.rate, baseline_w: stored.baseline_w };
             if (raw.rate !== undefined) merged.rate = raw.rate;
+            if (raw.baseline_w !== undefined) merged.baseline_w = raw.baseline_w;
             const cfg = sanitizePowerConfig(merged);
             savePowerConfig(cfg);
+            powerMonitor.setBaseline(cfg.baseline_w);
             return cfg;
           });
         })
@@ -2315,4 +2315,7 @@ const server = http.createServer((req, res) => {
   res.end('not found');
 });
 
-server.listen(PORT, '0.0.0.0', () => console.log('service-portal listening on :' + PORT));
+server.listen(PORT, '0.0.0.0', () => {
+  console.log('service-portal listening on :' + PORT);
+  powerMonitor.start();
+});
