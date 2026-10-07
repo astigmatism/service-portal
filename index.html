@@ -227,6 +227,7 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
 .sp-power-rows{margin:0}
 .sp-power-row{display:flex;justify-content:space-between;gap:10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;padding:1px 0}
 .sp-power-row .k{color:var(--muted)}
+.sp-power-row.na span:last-child{color:var(--muted);font-style:italic;text-align:right}
 .sp-power-lifetime{border-top:1px dashed var(--line);margin-top:8px;padding-top:7px;font-size:12px;color:var(--text)}
 .sp-power-lifetime .big{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:15px;font-weight:650}
 .sp-power-lifetime .cap{color:var(--muted);font-size:11px}
@@ -3569,12 +3570,17 @@ let refreshActivity = () => {};
       '<span><span class="dot" style="background:#5aa7ff"></span>CPU</span>' +
       '<span><span class="dot" style="background:rgba(139,152,184,.4)"></span>baseline</span></div>' +
       '<div class="sp-power-rows">' +
-      (d.sources || []).map((s) =>
-        '<div class="sp-power-row" title="' + (s.energyJSinceBoot
+      (d.sources || []).map((s) => {
+        // Every host lists CPU, GPU and baseline; a source this host cannot
+        // measure carries a note ("not measurable on this host") instead of W.
+        const missing = s.w == null;
+        const title = s.energyJSinceBoot
           ? Math.round(s.energyJSinceBoot / 3.6e6 * 1000) / 1000 + ' kWh since host boot (counter resets at power-off)'
-          : 'this environment exposes no meter for ' + esc(s.name) + '; the value is the current draw or a fixed estimate') + '">' +
-        '<span class="k">' + esc(s.name) + '</span><span>' + fmtW(s.w || 0) + '</span></div>'
-      ).join('') + '</div>' +
+          : missing ? (s.note || '')
+          : s.kind === 'baseline' ? 'fixed estimate for the unmeasured board, RAM and fans' : 'measured';
+        return '<div class="sp-power-row' + (missing ? ' na' : '') + '" title="' + esc(title) + '">' +
+          '<span class="k">' + esc(s.name) + '</span><span>' + (missing ? esc(s.note || '—') : fmtW(s.w || 0)) + '</span></div>';
+      }).join('') + '</div>' +
       '<div class="sp-power-lifetime">' +
       '<div class="big">' + fmtMoney(lt.usd || 0) +
       ' <span style="font-weight:400;font-size:12px">&middot; ' + fmtKwh(lt.kwh || 0) + '</span></div>' +

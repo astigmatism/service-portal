@@ -742,7 +742,7 @@ async function waitUp(base) {
 }
 function spawnServer(dataDir, port) {
   const proc = child.spawn(process.execPath, [path.join(ROOT, 'server.js')], {
-    env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, SELF_NAME: 'test', POWER_GPU_PROBE: 'off' },
+    env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, SELF_NAME: 'test', POWER_SAMPLER: 'off' },
     stdio: ['ignore', 'pipe', 'pipe']
   });
   let out = '';

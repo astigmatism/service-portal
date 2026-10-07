@@ -162,7 +162,7 @@ function startServer(extraEnv) {
         PORT: String(port),
         DATA_DIR: dataDir,
         DOCKER_SOCKET: sockPath,
-        SELF_NAME: 'test', POWER_GPU_PROBE: 'off'
+        SELF_NAME: 'test', POWER_SAMPLER: 'off'
       },
       stdio: ['ignore', 'pipe', 'pipe']
     });

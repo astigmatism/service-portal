@@ -259,7 +259,7 @@ test('project updates are validated, detached, monitored, and persisted', async 
       PORT: String(port),
       DATA_DIR: dataDir,
       DOCKER_SOCKET: socketPath,
-      SELF_NAME: 'portal', POWER_GPU_PROBE: 'off',
+      SELF_NAME: 'portal', POWER_SAMPLER: 'off',
       PORTAL_TITLE: 'Maintenance Test',
       SERVICE_LABELS: JSON.stringify({
         ...JSON.parse(fs.readFileSync(path.join(ROOT, 'labels.json'), 'utf8')),

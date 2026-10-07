@@ -192,7 +192,7 @@ async function startPortal(t, dataDir, socketPath, env) {
       PORT: String(port),
       DATA_DIR: dataDir,
       DOCKER_SOCKET: socketPath,
-      SELF_NAME: 'nobody', POWER_GPU_PROBE: 'off',
+      SELF_NAME: 'nobody', POWER_SAMPLER: 'off',
       SERVICE_LABELS: JSON.stringify({ 'ready-app': { label: 'Ready App' } }),
       ...env
     },

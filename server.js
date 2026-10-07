@@ -1558,9 +1558,10 @@ const powerMonitor = createPowerMonitor({
   stateFile: POWER_STATE_FILE,
   baselineW: POWER_BASELINE_DEFAULT,
   selfName: process.env.SELF_NAME || '',
-  gpuImage: process.env.POWER_GPU_IMAGE || '',
-  // POWER_GPU_PROBE=off skips the nvidia-smi probe container entirely.
-  gpuProbe: !/^(0|off|false|no)$/i.test(process.env.POWER_GPU_PROBE || ''),
+  // Image for the host sampler container; defaults to the portal's own image.
+  image: process.env.POWER_SAMPLER_IMAGE || '',
+  // POWER_SAMPLER=off: no sampler container (only directly readable counters).
+  sampler: !/^(0|off|false|no)$/i.test(process.env.POWER_SAMPLER || ''),
   dockerJson: dockerJsonRequest,
   dockerLogs: (pathname) => dockerRawRequest('GET', pathname, { timeoutMs: 5000 })
     .then((response) => decodeDockerLogs(response.body)),
@@ -1683,6 +1684,7 @@ const server = http.createServer((req, res) => {
         baselineW: cfg.baseline_w,
         uptimeS: snap.uptimeS,
         totalW: snap.totalW,
+        cpuAvailable: snap.cpuAvailable,
         gpuAvailable: snap.gpuAvailable,
         sources: snap.sources,
         lifetime: {
