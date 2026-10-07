@@ -198,7 +198,9 @@ function createPowerMonitor(options) {
       // Maintenance-labelled so the portal's own service list never shows
       // the probe during the second or so that it exists.
       Labels: { 'io.service-portal.maintenance': 'true', 'io.service-portal.power-probe': 'true' },
-      HostConfig: { DeviceRequests: [{ Driver: 'nvidia', Count: 0, Capabilities: [['gpu']] }] },
+      // Count -1 = all GPUs (what `docker run --gpus all` sends); Count 0
+      // would request no devices and the toolkit would inject nothing.
+      HostConfig: { DeviceRequests: [{ Driver: 'nvidia', Count: -1, Capabilities: [['gpu']] }] },
     }, 15000);
     const id = created && created.Id;
     if (!id) throw new Error('docker did not return a container id');
