@@ -173,40 +173,6 @@ body[data-sp-glass] #app{backdrop-filter:blur(var(--sp-glass-blur,0px))}
 .sp-rotate{appearance:auto;color-scheme:dark;cursor:pointer;padding:5px 8px}
 #spRotateHint{line-height:1.35}
 #spRotateHint:empty{display:none}
-/* Appearance panel: two columns — the controls keep their 300px column on the
-   left, the active slot's wallpapers fill a gallery on the right. The panel
-   is capped at the viewport height and each column scrolls on its own, so a
-   full slot never pushes Slots/Effects out of reach. Narrow windows fall
-   back to one scrolling column (see the media query below). */
-.sp-panel.appearance-panel{width:min(880px,calc(100vw - 32px));display:flex;flex-direction:column;overflow:hidden;padding-bottom:0}
-.sp-ap-body{flex:1 1 auto;min-height:0;display:flex;gap:18px}
-.sp-ap-gallery{flex:1 1 auto;min-width:0;overflow-y:auto;padding:0 4px 14px 18px;border-left:1px solid var(--line)}
-.sp-gallery-head{position:sticky;top:0;z-index:2;display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0;padding:0 0 8px;background:var(--panel)}
-.sp-gallery-count{flex:none;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
-.sp-gallery-empty{font-size:12.5px;color:var(--muted);text-align:center;padding:24px 0}
-/* Gallery tiles: one per wallpaper of the active slot. The tile on screen
-   gets the accent ring; the × in its top corner removes just that
-   wallpaper, the download button in its bottom corner saves the original
-   stored image (not the preview). */
-.sp-thumbs-wrap{margin:0}
-.sp-thumbs-label{display:block;font-size:12.5px;color:var(--muted)}
-.sp-thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
-.sp-thumb-item{position:relative;aspect-ratio:16/10;border:1px solid var(--line);border-radius:9px;overflow:hidden;cursor:pointer;background:rgb(var(--panel-2-rgb))}
-.sp-thumb-item img{width:100%;height:100%;object-fit:cover;display:block}
-.sp-thumb-item:hover{border-color:var(--accent)}
-.sp-thumb-item.current{border-color:var(--accent);box-shadow:0 0 0 1.5px var(--accent)}
-.sp-thumb-del{position:absolute;top:5px;right:5px;width:22px;height:22px;line-height:20px;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:15px;cursor:pointer}
-.sp-thumb-del:hover{background:var(--bad)}
-.sp-thumb-dl{position:absolute;right:5px;bottom:5px;width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;text-decoration:none;cursor:pointer}
-.sp-thumb-dl:hover,.sp-thumb-dl:focus-visible{background:var(--accent)}
-.sp-thumb-dl:focus-visible{outline:2px solid #fff;outline-offset:1px}
-@media (max-width:760px){
-  .sp-panel.appearance-panel{display:block;overflow-y:auto;padding-bottom:14px}
-  .sp-ap-body{display:block}
-  .sp-ap-gallery{overflow:visible;padding:0}
-  .sp-ap-gallery{border-left:0;border-top:1px solid var(--line);margin-top:14px;padding-top:12px}
-  .sp-thumbs{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}
-}
 .sp-nav{display:flex;align-items:center;justify-content:flex-start;gap:10px;margin:10px 0 0}
 .sp-nav-count{font-size:12.5px;color:var(--muted);min-width:44px;text-align:center;font-variant-numeric:tabular-nums}
 .sp-slider{display:block;font-size:12.5px;color:var(--muted);margin-top:10px}
@@ -268,21 +234,93 @@ h2{font-size:18px;line-height:1.35;font-weight:600;margin:0}
 .toast{max-width:420px;pointer-events:auto;overflow-wrap:anywhere}
 .sp-panel,.sp-panel.appearance-panel,.sp-panel.activity-panel{left:var(--page-margin);right:auto;top:var(--panel-top);width:var(--page-width);max-width:var(--page-width);max-height:calc(100dvh - var(--panel-top) - var(--page-margin));overflow:auto;padding:18px 24px;container-type:inline-size;container-name:overlay;box-shadow:0 14px 28px rgba(0,0,0,.3)}
 .sp-panel-head{position:sticky;top:-18px;z-index:3;background:var(--panel);padding:8px 0}
-.sp-ap-body{display:block;overflow:visible}
-.sp-ap-gallery{overflow:visible;min-width:0;padding:0;border:0}
-.sp-ap-gallery{border-top:1px solid var(--line);margin-top:18px;padding-top:18px}
 .act-list{overflow:visible}
-.sp-gallery-head{position:static}
-.appearance-editor{display:grid;grid-template-columns:1fr;gap:24px;border-top:1px solid var(--line);padding-top:18px;margin-top:18px}
-.appearance-editor section{min-width:0}
-.appearance-slots .sp-row{display:inline-flex;margin:4px 8px 4px 0}
-.appearance-slots .sp-nav{display:inline-flex;margin:4px 0}
-.appearance-slots .sp-field{max-width:440px}
-.sp-ap-gallery .sp-drop{display:flex;flex-direction:row;align-items:center;justify-content:center;flex-wrap:wrap;gap:12px;margin-top:14px;padding:12px}
-.sp-ap-gallery .sp-thumb{width:80px;height:50px;margin:0}
-.sp-ap-gallery .sp-thumbs-wrap{max-height:240px;overflow-y:auto}
-.sp-reset-row::after{content:"Deletes all wallpaper slots and images";display:block;color:var(--muted);font-size:12px;margin-top:6px}
-.sp-field,.sp-row,.sp-pos-slot{flex-wrap:wrap}
+/* Appearance follows the reference: one toolbar, a gallery with an upload
+   tile, then compact Position and Effects cards. Only the panel scrolls. */
+.sp-panel.appearance-panel{padding:0 18px 18px;scrollbar-width:thin;scrollbar-color:var(--muted) transparent;border-radius:12px}
+.appearance-panel .sp-panel-head{top:0;margin:0 -18px 14px;padding:10px 18px;border-bottom:1px solid var(--line)}
+.appearance-panel .sp-panel-title{font-size:22px;font-weight:550}
+#appearanceClose{border-color:transparent;background:transparent;font-size:24px;line-height:1;padding:3px 7px}
+header .seg{border:0;background:none;gap:8px;overflow:visible}
+header .seg-btn{border:1px solid var(--line);border-radius:8px;background:rgba(var(--panel-2-rgb),.55);min-height:34px}
+header .seg-btn + .seg-btn{border-left:1px solid var(--line)}
+header .iconbtn[aria-expanded=true]{border-color:var(--accent);background:rgba(var(--panel-2-rgb),.8);box-shadow:inset 0 0 14px color-mix(in srgb,var(--accent) 20%,transparent)}
+.sp-ap-body{display:block;overflow:visible}
+.sp-section-title,.sp-thumbs-label{font-size:16px;font-weight:600;color:var(--text);margin:0 0 10px}
+.sp-slot-toolbar{display:grid;grid-template-columns:110px minmax(150px,1fr) auto auto;align-items:center;gap:14px}
+#spSlotSelect{width:100%;min-height:36px;font-size:13px}
+.sp-slot-name{min-width:0}
+.appearance-slots .sp-field{margin:0;flex-wrap:nowrap}
+.appearance-slots .sp-field-label{width:auto}
+.appearance-slots .sp-field-hint{margin-left:48px;font-size:11px}
+.sp-slot-actions{display:grid;gap:6px}
+.appearance-slots .sp-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0}
+.sp-slot-actions .btn{padding:7px 10px;font-size:12px}
+.appearance-slots .sp-nav{display:flex;margin:0;gap:8px;position:relative;padding-bottom:16px}
+.sp-nav-count{position:absolute;left:0;right:0;bottom:-3px;font-size:11px}
+.sp-nav .btn{padding:8px;min-width:36px}
+.sp-ap-gallery{overflow:visible;min-width:0;border:0;border-top:1px solid var(--line);margin-top:18px;padding:14px 0 0}
+.sp-gallery-head{display:flex;justify-content:space-between;gap:8px;position:static;background:none;padding:0;margin:0;align-items:baseline}
+.sp-gallery-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));align-items:stretch;gap:14px}
+.sp-thumbs-wrap,.sp-thumbs{display:contents}
+.sp-gallery-empty{grid-column:1/-1;padding:4px 0 8px;text-align:left}
+.sp-thumb-item{display:flex;flex-direction:column;gap:6px;aspect-ratio:auto;border:0;border-radius:0;overflow:visible;background:none;cursor:default}
+.sp-thumb-item.current{box-shadow:none}
+.sp-thumb-preview{position:relative;display:block;width:100%;aspect-ratio:4/3;padding:0;border:1px solid var(--line);border-radius:7px;overflow:hidden;cursor:pointer;background:rgb(var(--panel-2-rgb))}
+.sp-thumb-preview img{width:100%;height:100%;object-fit:cover;display:block}
+.sp-thumb-preview:hover{border-color:var(--accent)}
+.sp-thumb-preview[aria-pressed=true]{border:2px solid var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.sp-thumb-preview[aria-pressed=true]::after{content:'✓';position:absolute;top:7px;right:7px;display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--accent);color:var(--text);font-size:15px;font-weight:700}
+.sp-thumb-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.sp-thumb-del,.sp-thumb-dl{position:static;width:auto;height:30px;display:flex;align-items:center;justify-content:center;padding:0;border:1px solid var(--line);border-radius:5px;background:rgba(var(--panel-2-rgb),.6);color:var(--text)}
+.sp-thumb-del:hover{border-color:var(--bad);color:var(--bad);background:rgba(var(--panel-2-rgb),.6)}
+.sp-thumb-dl:hover{border-color:var(--accent);background:rgba(var(--panel-2-rgb),.9)}
+.sp-ap-gallery .sp-drop{flex-direction:column;flex-wrap:nowrap;justify-content:center;gap:12px;margin:0;padding:18px 10px;min-height:150px;border-color:var(--muted);border-radius:7px;font-size:12px}
+.sp-ap-gallery .sp-drop.over{border-color:var(--accent)}
+.sp-ap-gallery .sp-thumb{display:none}
+.sp-upload-icon{flex:none;color:var(--text)}
+#spUploadBtn{min-width:90px}
+.appearance-editor{display:grid;grid-template-columns:1fr;gap:14px;margin-top:20px}
+.sp-editor-card{min-width:0;padding:14px;border:1px solid var(--line);border-radius:10px;background:rgba(var(--panel-2-rgb),.13)}
+.sp-card-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:18px}
+.sp-card-head h2{font-size:16px}
+.sp-card-head span{font-size:11px;color:var(--muted)}
+.sp-position-controls{display:grid;grid-template-columns:auto minmax(0,1fr);gap:20px;align-items:center}
+.sp-select{margin:0}
+.sp-posgrid{grid-template-columns:repeat(3,28px);gap:6px;margin:0}
+.sp-pos{width:28px;height:28px;border-color:var(--muted);border-radius:5px}
+.sp-pos::after{display:none}
+.sp-pos[aria-pressed=true]{border-color:var(--accent);background:var(--accent);box-shadow:0 0 9px color-mix(in srgb,var(--accent) 30%,transparent)}
+.sp-position-sliders{min-width:0;display:grid;gap:14px}
+.appearance-panel .sp-slider{display:grid;grid-template-columns:minmax(0,1fr) 38px;gap:4px 8px;align-items:center;margin:0;font-size:12px;color:var(--text)}
+.appearance-panel .sp-slider output{float:none;text-align:right;grid-column:2;grid-row:2;font-size:12px;color:var(--muted)}
+.appearance-panel .sp-slider input[type=range]{grid-column:1;grid-row:2;min-width:0;width:100%;margin:0;height:20px;accent-color:var(--accent)}
+/* Explicit tracks keep slider geometry consistent across desktop browsers. */
+.appearance-panel input[type=range]{appearance:none;background:transparent;cursor:pointer}
+.appearance-panel input[type=range]::-webkit-slider-runnable-track{height:5px;border:0;border-radius:5px;background:linear-gradient(to right,var(--accent) var(--range-fill,0%),rgba(139,152,184,.35) var(--range-fill,0%))}
+.appearance-panel input[type=range]::-webkit-slider-thumb{appearance:none;width:16px;height:16px;border:0;border-radius:50%;margin-top:-5.5px;background:color-mix(in srgb,var(--accent) 55%,white);box-shadow:0 1px 3px #0004}
+.appearance-panel input[type=range]::-moz-range-track{height:5px;border:0;border-radius:5px;background:rgba(139,152,184,.35)}
+.appearance-panel input[type=range]::-moz-range-progress{height:5px;border-radius:5px;background:var(--accent)}
+.appearance-panel input[type=range]::-moz-range-thumb{width:16px;height:16px;border:0;border-radius:50%;background:color-mix(in srgb,var(--accent) 55%,white)}
+.sp-pos-slot{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:20px}
+.sp-pos-slot .btn{white-space:normal;padding:7px 6px;font-size:12px;line-height:1.4}
+.sp-pos-slot-hint{font-size:11px}
+.sp-rotation-field{margin-top:20px;flex-wrap:nowrap;gap:12px}
+.sp-rotation-field .sp-field-label{width:auto;color:var(--text)}
+.sp-rotation-field .sp-input{max-width:170px}
+#spRotateHint{margin:10px 0 0;font-size:11px;line-height:1.5}
+.sp-effects-card{display:flex;flex-direction:column;gap:12px}
+.sp-effects-card .sp-card-head{margin-bottom:0}
+.sp-effects-card .sp-slider{grid-template-columns:125px minmax(40px,1fr) 34px;gap:8px;min-height:27px}
+.sp-effects-card .sp-slider input[type=range]{grid-column:2;grid-row:1}
+.sp-effects-card .sp-slider output{grid-column:3;grid-row:1}
+.sp-wallpaper-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:auto 0 0;padding-top:14px}
+.sp-wallpaper-actions .btn{white-space:normal;font-size:12px;padding:8px 5px}
+.sp-reset-row{display:flex;align-items:center;flex-wrap:wrap;gap:16px;margin-top:22px;padding-top:18px}
+.sp-reset-row::after{content:'Deletes all wallpaper slots and images';color:var(--muted);font-size:12px}
+.btn-danger{color:var(--bad);border-color:var(--bad);background:color-mix(in srgb,var(--bad) 7%,transparent);padding:10px 18px}
+.btn-danger:hover{color:var(--bad);border-color:var(--bad);background:color-mix(in srgb,var(--bad) 15%,transparent)}
+.sp-status:empty{display:none}
 .sp-field input,.sp-field select{min-width:0;max-width:100%}
 .slot-menu{max-width:min(270px,calc(var(--page-width) - 48px))}
 #powerPanel{font-size:14px}
@@ -317,9 +355,12 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,[t
 @container page (min-width:640px){.power-sources{grid-template-columns:1fr 1fr}}
 @container page (max-width:479px){.power-summary{grid-template-columns:1fr;gap:14px}.sidectl{flex-basis:100%;justify-content:flex-start;margin-left:19px}.service-status{margin-left:auto}}
 @container overlay (min-width:640px){.appearance-editor{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+@container overlay (max-width:639px){.sp-slot-toolbar{grid-template-columns:110px minmax(0,1fr)}.sp-slot-actions{grid-column:1}.appearance-slots .sp-nav{justify-self:end}.sp-slot-actions .btn{white-space:nowrap}.sp-slot-actions{width:max-content}.sp-gallery-grid{grid-template-columns:repeat(auto-fill,minmax(130px,1fr))}}
+@container overlay (max-width:349px){.sp-slot-toolbar{grid-template-columns:1fr}.sp-slot-name{grid-column:1}.appearance-slots .sp-nav{grid-column:1;justify-self:start}.sp-position-controls{gap:12px}.sp-effects-card .sp-slider{grid-template-columns:104px minmax(30px,1fr) 30px;gap:5px}.sp-card-head span{font-size:10px}}
+
 @media (min-width:1440px) and (min-aspect-ratio:4/3){:root{--page-width:min(880px,calc(50vw - 48px))}body::before{background:linear-gradient(90deg,rgba(8,14,22,.4) 0%,rgba(8,14,22,.2) 44%,transparent 52%)}}
-@media (max-width:599px){:root{--page-margin:12px;--page-width:calc(100vw - 24px)}header{padding:14px 16px}#pageContent{padding:16px}.sp-panel,.sp-panel.appearance-panel,.sp-panel.activity-panel{padding:16px}.title{font-size:18px}.slot-btn{max-width:200px}.slot-menu{max-width:calc(var(--page-width) - 32px)}}
-@media (pointer:coarse){button,.ctlbtn,.btn,.seg-btn{min-height:44px;min-width:44px}.sp-posgrid{grid-template-columns:repeat(3,44px)}.sp-pos{width:44px;height:44px}input,select{font-size:16px!important}.sp-thumb-del,.sp-thumb-dl{width:44px;height:44px}}
+@media (max-width:599px){:root{--page-margin:12px;--page-width:calc(100vw - 24px)}header{padding:14px 16px}#pageContent{padding:16px}.sp-panel,.sp-panel.activity-panel{padding:16px}.sp-panel.appearance-panel{padding:0 14px 14px}.appearance-panel .sp-panel-head{margin-left:-14px;margin-right:-14px;padding-left:14px;padding-right:14px}.title{font-size:18px}.slot-btn{max-width:200px}.slot-menu{max-width:calc(var(--page-width) - 32px)}}
+@media (pointer:coarse){button,.ctlbtn,.btn,.seg-btn{min-height:44px;min-width:44px}.sp-posgrid{grid-template-columns:repeat(3,44px)}.sp-pos{width:44px;height:44px}input,select{font-size:16px!important}.sp-thumb-del,.sp-thumb-dl{width:auto;height:44px}.sp-position-controls{gap:12px}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 </style>
 </head>
@@ -352,14 +393,14 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,[t
         </div>
       </div>
     </div>
+    <button id="appearanceBtn" class="btn iconbtn" type="button" title="Appearance &mdash; wallpaper &amp; effects" aria-haspopup="dialog">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9.5 3-.7 2.5-2.4 1-.7 2.4L3 9.5v5l2.7.6.7 2.4 2.4 1 .7 2.5h5l.7-2.5 2.4-1 .7-2.4 2.7-.6v-5l-2.7-.6-.7-2.4-2.4-1L14.5 3Z"/><circle cx="12" cy="12" r="3"/></svg>
+    <span>Appearance</span>
+    </button>
     <button id="activityBtn" class="btn iconbtn" type="button" title="Activity &mdash; updates, starts &amp; stops" aria-haspopup="dialog">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
       <span>Activity</span>
       <span id="activityBadge" class="badge hidden">0</span>
-    </button>
-    <button id="appearanceBtn" class="btn iconbtn" type="button" title="Appearance &mdash; wallpaper &amp; effects" aria-haspopup="dialog">
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
-    <span>Appearance</span>
     </button>
   </header>
   <main id="pageContent">
@@ -403,19 +444,25 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,[t
   </div>
   <div class="sp-ap-body">
   <section class="appearance-slots" aria-label="Wallpaper slots">
-  <span class="sp-label">Slots</span>
+  <h2 class="sp-section-title">Wallpaper slots</h2>
+  <div class="sp-slot-toolbar">
+  <select id="spSlotSelect" class="sp-input sp-rotate" aria-label="Wallpaper slot" disabled><option value="">No slots</option></select>
+  <div class="sp-slot-name">
   <div class="sp-field">
     <label class="sp-field-label" for="spSlotName">Name</label>
     <input type="text" id="spSlotName" class="sp-input" maxlength="60" placeholder="No slot" spellcheck="false" autocomplete="off" title="This slot's name, shown in the header slot menu — saved when you press Enter or leave the field; Esc reverts. Leave it empty for the default &ldquo;Slot N&rdquo;." disabled>
   </div>
   <div class="sp-field-hint">Enter saves &middot; Esc reverts</div>
+  </div>
+  <div class="sp-slot-actions">
   <div class="sp-row">
-    <button id="spAddSlot" class="btn" type="button" title="Append an empty wallpaper slot and switch to it (fill it with an upload)">Add</button>
-    <button id="spRemoveSlot" class="btn" type="button" title="Delete this slot and every wallpaper in it (the pointer moves to the previous slot)">Remove</button>
+    <button id="spAddSlot" class="btn" type="button" title="Append an empty wallpaper slot and switch to it (fill it with an upload)">Add slot</button>
+    <button id="spRemoveSlot" class="btn" type="button" title="Delete this slot and every wallpaper in it (the pointer moves to the previous slot)">Remove slot</button>
   </div>
   <div class="sp-row">
     <button id="spMoveUp" class="btn" type="button" title="Move this slot one position up in the navigation order — its wallpapers, and your current pick, travel with it (does not switch to a different slot)" aria-label="Move this slot up">Move up</button>
     <button id="spMoveDown" class="btn" type="button" title="Move this slot one position down in the navigation order — its wallpapers, and your current pick, travel with it (does not switch to a different slot)" aria-label="Move this slot down">Move down</button>
+  </div>
   </div>
   <div id="spNav" class="sp-nav hidden">
     <button id="spPrev" class="btn iconbtn" type="button" title="Previous slot (re-rolls a random wallpaper of it)" aria-label="Previous slot">
@@ -426,27 +473,32 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,[t
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
     </button>
   </div>
+  </div>
   </section>
   <section class="sp-ap-gallery" aria-labelledby="spThumbsLabel">
     <div class="sp-gallery-head">
-      <span id="spThumbsLabel" class="sp-thumbs-label" title="The wallpapers in this slot — this browser shows one at random on every refresh, on every slot switch, and on the Rotate timer when it is on. Click one to show it now (until the next roll); the download button saves its original image file; &times; removes just that wallpaper.">Wallpapers in this slot</span>
+      <span id="spThumbsLabel" class="sp-thumbs-label" title="The wallpapers in this slot — this browser shows one at random on every refresh, on every slot switch, and on the Rotate timer when it is on. Click one to show it now (until the next roll); the download button saves its original image file; the trash button removes just that wallpaper.">Wallpapers in this slot</span>
       <span id="spThumbsCount" class="sp-gallery-count"></span>
     </div>
+    <div class="sp-gallery-grid">
     <div id="spThumbsEmpty" class="sp-gallery-empty">No wallpapers in this slot yet &mdash; upload images or a .zip to add some.</div>
     <div id="spThumbsWrap" class="sp-thumbs-wrap hidden">
       <div id="spThumbs" class="sp-thumbs"></div>
     </div>
   <div id="spDropZone" class="sp-drop">
     <img id="spThumb" class="sp-thumb hidden" alt="Current wallpaper" loading="lazy" decoding="async">
-    <span>Drop images or a .zip of images here, or</span>
-    <button id="spUploadBtn" class="btn" type="button" title="Add wallpapers to this slot — pick images, or a .zip archive: every supported image inside (jpeg/png/webp/gif/avif) becomes its own wallpaper">Upload background&hellip;</button>
+    <svg class="sp-upload-icon" viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18H5a4 4 0 0 1-1-7.87A7 7 0 0 1 17.6 8 5 5 0 0 1 19 18h-2"/><path d="M12 20V10m-4 4 4-4 4 4"/></svg>
+    <span>Drop images or ZIP</span>
+    <button id="spUploadBtn" class="btn" type="button" title="Add wallpapers to this slot — pick images, or a .zip archive: every supported image inside (jpeg/png/webp/gif/avif) becomes its own wallpaper">Upload</button>
+  </div>
   </div>
   <input type="file" id="spFile" class="hidden" accept="image/jpeg,image/png,image/webp,image/gif,image/avif,application/zip,application/x-zip-compressed,.zip" multiple>
   </section>
   <div class="appearance-editor">
-  <section aria-label="Wallpaper position">
+  <section class="sp-editor-card sp-position-card" aria-label="Wallpaper position">
+  <div class="sp-card-head"><h2>Position</h2><span>This browser</span></div>
   <div class="sp-select" title="Where this wallpaper's origin sits in the cover crop — remembered per wallpaper, on this machine only: pick an anchor (or press 1–9), then fine-tune with the sliders — 0–100% of the way between the cropped edges, snapping back to an anchor near 0/50/100; Apply to all in slot copies it to every wallpaper in this slot, Reset slot returns them all to center">
-    Position
+    <div class="sp-position-controls">
     <div class="sp-posgrid" id="spPosGrid" role="group" aria-label="Wallpaper origin anchor">
       <button id="spPos-tl" class="sp-pos" type="button" data-dot="tl" aria-pressed="false" aria-label="Top left" title="Top left (7)"></button>
       <button id="spPos-tc" class="sp-pos" type="button" data-dot="tc" aria-pressed="false" aria-label="Top" title="Top (8)"></button>
@@ -458,23 +510,23 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,[t
       <button id="spPos-bc" class="sp-pos" type="button" data-dot="bc" aria-pressed="false" aria-label="Bottom" title="Bottom (2)"></button>
       <button id="spPos-br" class="sp-pos" type="button" data-dot="br" aria-pressed="false" aria-label="Bottom right" title="Bottom right (3)"></button>
     </div>
+    <div class="sp-position-sliders">
     <label class="sp-slider" title="Origin's horizontal offset: 0 = flush left, 50 = centered, 100 = flush right">Horizontal <output id="spPosXOut">50%</output>
       <input type="range" id="spPosX" min="0" max="100" step="1" value="50">
     </label>
     <label class="sp-slider" title="Origin's vertical offset: 0 = flush top, 50 = centered, 100 = flush bottom">Vertical <output id="spPosYOut">50%</output>
       <input type="range" id="spPosY" min="0" max="100" step="1" value="50">
     </label>
+    </div>
+    </div>
     <div class="sp-pos-slot">
       <button id="spPosApplySlot" class="btn" type="button" title="Apply this position to all wallpapers in this slot (this browser only)">Apply to all in slot</button>
-      <button id="spPosResetSlot" class="btn" type="button" title="Return every wallpaper in this slot to center, 50% &middot; 50% (this browser only)">Reset slot</button>
+      <button id="spPosResetSlot" class="btn" type="button" title="Return every wallpaper in this slot to center, 50% &middot; 50% (this browser only)">Reset slot positions</button>
     </div>
     <div id="spPosSlotHint" class="sp-pos-slot-hint"></div>
   </div>
-  </section>
-  <section aria-label="Wallpaper rotation and effects">
-  <span class="sp-label">Rotation</span>
-  <div class="sp-field">
-    <label class="sp-field-label" for="spRotate">Rotate</label>
+  <div class="sp-field sp-rotation-field">
+    <label class="sp-field-label" for="spRotate">Rotation</label>
     <select id="spRotate" class="sp-input sp-rotate" title="Show the next wallpaper of this slot on a timer, in random order (each one once before any repeats) — this browser only, keeps running in a background tab, paused while this panel is open">
       <option value="0">Off</option>
       <option value="5">Every 5 minutes</option>
@@ -488,8 +540,10 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,[t
     </select>
   </div>
   <div id="spRotateHint" class="sp-field-hint"></div>
-  <span class="sp-label">Effects</span>
-  <label class="sp-slider">Opacity <output id="spOpacityOut">100%</output>
+  </section>
+  <section class="sp-editor-card sp-effects-card" aria-label="Wallpaper effects">
+  <div class="sp-card-head"><h2>Effects</h2></div>
+  <label class="sp-slider">Wallpaper opacity <output id="spOpacityOut">100%</output>
     <input type="range" id="spOpacity" min="0" max="100" step="1" value="100">
   </label>
   <label class="sp-slider">Wallpaper blur <output id="spBlurOut">0px</output>
@@ -504,15 +558,14 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,[t
   <label class="sp-slider">Glass blur <output id="spGlassOut">0px</output>
     <input type="range" id="spGlass" min="0" max="20" step="1" value="0">
   </label>
-  <span class="sp-label">This wallpaper</span>
-  <div class="sp-row">
-    <button id="spRemove" class="btn" type="button" title="Delete the wallpaper currently on screen (an emptied slot is removed too, and the pointer moves to the previous slot)">Remove wallpaper</button>
+  <div class="sp-row sp-wallpaper-actions">
     <button id="spResetColors" class="btn" type="button" title="Drop the wallpaper-derived color scheme (the wallpaper stays)">Reset colors</button>
+    <button id="spRemove" class="btn" type="button" title="Delete the wallpaper currently on screen (an emptied slot is removed too, and the pointer moves to the previous slot)">Remove wallpaper</button>
   </div>
   </section>
   </div>
   <div class="sp-reset-row">
-    <button id="spReset" class="btn" type="button" title="Delete every slot and its wallpapers, and restore the default settings">Reset appearance</button>
+    <button id="spReset" class="btn btn-danger" type="button" title="Delete every slot and its wallpapers, and restore the default settings">Reset appearance&hellip;</button>
   </div>
   <div id="spStatus" class="sp-status" role="status"></div>
   </div><!-- /.sp-ap-body -->
@@ -987,6 +1040,7 @@ window.portalPanels = (() => {
     current.classList.add('hidden'); current.removeAttribute('aria-modal');
     main.inert = false; header.inert = false;
     const previous = opener, callback = onClose;
+    if (previous) previous.setAttribute('aria-expanded', 'false');
     current = null; opener = null; onClose = null;
     if (callback) callback();
     if (restore && previous) previous.focus();
@@ -994,6 +1048,7 @@ window.portalPanels = (() => {
   function open(panel, button, callback) {
     close(false); position(); current = panel; opener = button; onClose = callback;
     panel.classList.remove('hidden'); panel.setAttribute('aria-modal','true');
+    button.setAttribute('aria-expanded', 'true');
     main.inert = true; header.inert = true;
     panel.querySelector('button').focus();
   }
@@ -1195,7 +1250,7 @@ let refreshActivity = () => {};
    persisted on the server, so you always come back to the slot you left on
    (with a fresh random wallpaper of it). The panel's thumbnail strip lists
    the active slot's wallpapers — click one to show it deliberately (until
-   the next roll), × to remove just that wallpaper. Each wallpaper's
+   the next roll), or use the separate trash button to remove it. Each wallpaper's
    Position origin is per browser; "Apply to all in slot" copies the
    on-screen one to every wallpaper of the active slot and "Reset slot"
    returns them all to center. Rotation → Rotate (per browser, in
@@ -1399,6 +1454,8 @@ let refreshActivity = () => {};
     addSlot: $id('spAddSlot'),
     removeSlot: $id('spRemoveSlot'),
     slotName: $id('spSlotName'),
+    slotSelect: $id('spSlotSelect'),
+    thumbsLabel: $id('spThumbsLabel'),
     moveUp: $id('spMoveUp'),
     moveDown: $id('spMoveDown'),
     thumbsWrap: $id('spThumbsWrap'),
@@ -2419,7 +2476,10 @@ let refreshActivity = () => {};
       if (!entry) {
         const item = document.createElement('div');
         item.className = 'sp-thumb-item';
-        item.title = 'Show this wallpaper';
+        const preview = document.createElement('button');
+        preview.type = 'button';
+        preview.className = 'sp-thumb-preview';
+        preview.addEventListener('click', () => showWallpaper(w.id));
         const img = document.createElement('img');
         img.alt = '';
         img.loading = 'lazy';
@@ -2428,16 +2488,16 @@ let refreshActivity = () => {};
         const del = document.createElement('button');
         del.type = 'button';
         del.className = 'sp-thumb-del';
-        del.textContent = '×';
+        del.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7m4-7v7"/></svg>';
         del.title = 'Remove this wallpaper';
         del.setAttribute('aria-label', 'Remove this wallpaper');
         del.addEventListener('click', (e) => {
           e.stopPropagation();
           removeWallpaperById(w.id);
         });
-        item.appendChild(img);
-        item.appendChild(del);
-        // Third child, after [img, ×]: a real link, so keyboard focus,
+        preview.appendChild(img);
+        item.appendChild(preview);
+        // A real link preserves keyboard focus,
         // middle-click and "Save link as" work too. The empty download
         // attribute lets the server's Content-Disposition name the file.
         const dl = document.createElement('a');
@@ -2449,12 +2509,17 @@ let refreshActivity = () => {};
         dl.innerHTML = DOWNLOAD_ICON;
         // Let the browser download, but do not also show the wallpaper.
         dl.addEventListener('click', (e) => e.stopPropagation());
-        item.appendChild(dl);
-        item.addEventListener('click', () => showWallpaper(w.id));
-        entry = { item, img };
+        const actions = document.createElement('div');
+        actions.className = 'sp-thumb-actions';
+        actions.appendChild(dl);
+        actions.appendChild(del);
+        item.appendChild(actions);
+        entry = { item, img, preview };
         thumbNodes.set(w.id, entry);
       }
       entry.item.classList.toggle('current', w.id === displayedId);
+      entry.preview.setAttribute('aria-pressed', String(w.id === displayedId));
+      entry.preview.setAttribute('aria-label', 'Show wallpaper ' + (index + 1));
       if (els.thumbs.children[index] !== entry.item)
         els.thumbs.insertBefore(entry.item, els.thumbs.children[index] || null);
       if (panelOpen()) loadPreview(entry.img, thumbnailUrl(w.id));
@@ -2474,6 +2539,30 @@ let refreshActivity = () => {};
     else if (st) hint = 'Copies ' + Math.round(st.pos.x) + '% \u00b7 ' + Math.round(st.pos.y) + '% to ' + st.differing + ' other wallpaper' +
       (st.differing === 1 ? '' : 's') + ' in this slot. This browser only.';
     if (els.posSlotHint.textContent !== hint) els.posSlotHint.textContent = hint;
+  }
+
+  function paintRange(input) {
+    input.style.setProperty('--range-fill', (Number(input.value) / (Number(input.max) || 100) * 100) + '%');
+  }
+
+  let slotSelectSignature = '';
+  function syncSlotSelect(list) {
+    const signature = JSON.stringify(list.map((slot) => [slot.id, slot.name]));
+    if (signature !== slotSelectSignature) {
+      els.slotSelect.textContent = '';
+      const options = list.length ? list : [{id: '', name: 'No slots'}];
+      options.forEach((slot, i) => {
+        const option = document.createElement('option');
+        option.value = slot.id;
+        option.textContent = slotLabel(slot, i);
+        els.slotSelect.appendChild(option);
+      });
+      slotSelectSignature = signature;
+    }
+    els.slotSelect.disabled = list.length === 0;
+    els.slotSelect.value = settings.activeSlotId || '';
+    const idx = list.findIndex((slot) => slot.id === settings.activeSlotId);
+    els.thumbsLabel.textContent = idx === -1 ? 'Wallpapers' : 'Wallpapers in ' + slotLabel(list[idx], idx);
   }
 
   function syncPanel() {
@@ -2534,6 +2623,8 @@ let refreshActivity = () => {};
       els.slotName.value = idx === -1 ? '' : list[idx].name || '';
       nameEditSlotId = activeId;
     }
+    [els.posX, els.posY, els.opacity, els.blur, els.scrim, els.listOpacity, els.glass].forEach(paintRange);
+    syncSlotSelect(list);
     renderSlotPicker();
     renderSlotThumbs();
   }
@@ -2710,7 +2801,7 @@ let refreshActivity = () => {};
   function syncRotationControls(slotSize) {
     els.rotate.value = String(rotateMinutes);
     const active = rotateMinutes > 0 && slotSize >= 2;
-    let hint = '';
+    let hint = 'This browser · paused while Appearance is open';
     if (rotateMinutes > 0 && slotSize < 2) hint = 'Rotation starts once this slot has two or more wallpapers.';
     else if (active) hint = 'Every ' + rotateLabel(rotateMinutes) + ', in random order, this browser only. Paused while this panel is open.';
     if (els.rotateHint.textContent !== hint) els.rotateHint.textContent = hint;
@@ -2940,6 +3031,7 @@ let refreshActivity = () => {};
       syncPanel(); // back to the stored name, unless a new draft is being typed
     });
   }
+  els.slotSelect.addEventListener('change', () => selectSlot(els.slotSelect.value));
   els.slotName.addEventListener('focus', () => { nameEditing = true; });
   els.slotName.addEventListener('blur', () => { nameEditing = false; });
   els.slotName.addEventListener('change', renameSlot);
@@ -3025,6 +3117,7 @@ let refreshActivity = () => {};
         document.body.style.setProperty('--sp-bg-position', pos.x + '% ' + pos.y + '%');
         els.posXOut.textContent = pos.x + '%';
         els.posYOut.textContent = pos.y + '%';
+        paintRange(els.posX); paintRange(els.posY);
         for (const key of POS_CELLS) {
           const a = ANCHORS[key];
           els.posCells[key].setAttribute('aria-pressed', String(a[0] === pos.x && a[1] === pos.y));
@@ -3099,6 +3192,7 @@ let refreshActivity = () => {};
       scheduleSlider(field, () => {
         paint();
         out.textContent = format(settings[field] * scale);
+        paintRange(input);
         els.reset.disabled = isDefault();
       });
       pushSettings(false);

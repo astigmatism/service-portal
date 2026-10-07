@@ -39,6 +39,12 @@ on every request. No reconfiguration, no restart for discovery.
   stays disabled while the deployment is current; when an update is ready it is enabled, badged with
   the number of commits the deployment is behind, and its tooltip lists the pending commits (see
   [Update checks](#update-checks)).
+- **Appearance** uses a compact slot toolbar with direct selection, a wallpaper
+  gallery with a neighboring upload tile, and separate Position and Effects cards.
+  Thumbnail download/removal actions sit below each preview; the selected preview
+  has a checkmark and supports keyboard selection. Rotation stays with Position.
+  Cards stack below 640px of panel content width, and the panel uses one scroll area.
+  Saved wallpaper colors, effects, and per-browser position/rotation scopes are retained.
 - An **Activity** panel (header toggle, next to Appearance) keeps a durable, newest-first feed of
   portal actions: project jobs (from the persisted maintenance records, with full runner logs
   expandable per event) and container start/stop actions (appended to `/data/activity.jsonl`,

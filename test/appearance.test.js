@@ -665,15 +665,15 @@ for (const needle of [
   'id="bgShuffle"', '.seg-arrow{', 'header{position:relative;z-index:20;',
   'id="spSlotName"', '.sp-input{', 'maxlength="60"',
   '.sp-nav{', 'accept="image/jpeg,image/png,image/webp,image/gif,image/avif,application/zip,application/x-zip-compressed,.zip" multiple>',
-  'Drop images or a .zip of images here, or', "new DecompressionStream('deflate-raw')",
+  'Drop images or ZIP', "new DecompressionStream('deflate-raw')",
   'id="spPosGrid"', 'id="spPos-br"', '.sp-pos{', '.sp-pos:disabled{', 'id="spPosX"', 'id="spPosY"',
   'id="spPosApplySlot"', 'id="spPosResetSlot"', 'id="spPosSlotHint"', '.sp-pos-slot{', '.sp-pos-slot-hint:empty{',
   'background-position:var(--sp-bg-position,50% 50%)',
   "const POS_LS_KEY = 'sp-wallpaper-positions'",
   'id="spAddSlot"', 'id="spRemoveSlot"', 'id="spThumbsWrap"', 'id="spThumbs"',
-  '.sp-thumb-item{', '.sp-thumb-item.current{', '.sp-thumb-del{',
+  '.sp-thumb-item{', '.sp-thumb-item.current{', '.sp-thumb-del,.sp-thumb-dl{',
   'class="sp-panel appearance-panel', '.sp-ap-body{', '.appearance-editor{', '.sp-ap-gallery{',
-  'id="spThumbsLabel"', 'id="spThumbsCount"', 'id="spThumbsEmpty"', '.sp-thumb-dl{', '@media (max-width:760px)',
+  'id="spThumbsLabel"', 'id="spThumbsCount"', 'id="spThumbsEmpty"', '.sp-thumb-dl{', '@container overlay (max-width:639px)',
   "const downloadUrl = (id) => wallpaperUrl(id) + '?download=1'",
   'const SLOTS_URL = \'/api/appearance/slots\'',
   'Previous slot (re-rolls a random wallpaper of it)'
@@ -686,7 +686,7 @@ for (const gone of ['id="bgPrev"', 'id="bgNext"']) {
 /* Timed rotation: the panel's Rotate select offers exactly the supported
    intervals (minutes, 0 = off) and the Rotation group sits between Slots
    and Effects. */
-for (const needle of ['id="spRotate"', 'id="spRotateHint"', '<label class="sp-field-label" for="spRotate">Rotate</label>',
+for (const needle of ['id="spRotate"', 'id="spRotateHint"', '<label class="sp-field-label" for="spRotate">Rotation</label>',
   "const ROTATE_LS_KEY = 'sp-wallpaper-rotate'", 'const ROTATE_CHOICES = [0, 5, 10, 15, 30, 60, 120, 180, 360]',
   '.seg-arrow.rotating{', '.sp-rotate{', '#spRotateHint:empty{display:none}']) {
   assert.ok(html.includes(needle), 'index.html missing: ' + needle);
@@ -695,20 +695,20 @@ for (const needle of ['id="spRotate"', 'id="spRotateHint"', '<label class="sp-fi
   const sel = html.slice(html.indexOf('<select id="spRotate"'), html.indexOf('</select>', html.indexOf('<select id="spRotate"')));
   assert.deepStrictEqual([...sel.matchAll(/<option value="(\d+)">/g)].map((m) => m[1]),
     ['0', '5', '10', '15', '30', '60', '120', '180', '360'], 'rotate intervals: off, 5 min … 6 h');
-  const rotation = html.indexOf('<span class="sp-label">Rotation</span>');
+  const rotation = html.indexOf('class="sp-field sp-rotation-field"');
   assert.ok(html.indexOf('id="spNav"') < rotation && rotation < html.indexOf('id="spRotate"') &&
-    html.indexOf('id="spRotateHint"') < html.indexOf('<span class="sp-label">Effects</span>'),
+    html.indexOf('id="spRotateHint"') < html.indexOf('<h2>Effects</h2>'),
     'the Rotation group sits between Slots and Effects');
 }
 assert.ok(html.indexOf('id="bgSlot"') < html.indexOf('id="bgShuffle"') &&
   html.indexOf('id="bgShuffle"') < html.indexOf('id="bgSlotMenu"'),
   'the slot menu button and shuffle share one group; the menu sits after it');
-assert.ok(html.indexOf('<span class="sp-label">Slots</span>') < html.indexOf('id="spSlotName"') &&
+assert.ok(html.indexOf('<h2 class="sp-section-title">Wallpaper slots</h2>') < html.indexOf('id="spSlotName"') &&
   html.indexOf('id="spSlotName"') < html.indexOf('id="spAddSlot"'),
   'the Name field heads the Slots group');
 assert.ok(html.indexOf('id="spPosY"') < html.indexOf('id="spPosApplySlot"') &&
   html.indexOf('id="spPosApplySlot"') < html.indexOf('id="spPosResetSlot"') &&
-  html.indexOf('id="spPosResetSlot"') < html.indexOf('<span class="sp-label">This wallpaper</span>'),
+  html.indexOf('id="spPosResetSlot"') < html.indexOf('class="sp-row sp-wallpaper-actions"'),
   'the slot-wide position actions sit under the sliders, inside Position');
 {
   const slots = html.indexOf('class="appearance-slots"');
@@ -1017,12 +1017,12 @@ function spawnServer(dataDir, port) {
     const items = t.elements.spThumbs.children;
     assert.strictEqual(items.length, 3, 'three thumbnails rendered');
     assert.strictEqual(t.elements.spThumbsCount.textContent, '3 wallpapers', 'gallery head counts the slot');
-    // Each tile's third child downloads the original: a real link to the
+    // Each tile's action row downloads the original: a real link to the
     // ?download=1 variant (server names the file), and clicking it neither
     // shows that wallpaper nor talks to the API.
     st.slots[0].wallpapers.forEach((w, i) => {
-      const dl = items[i].children[2];
-      assert.strictEqual(dl.className, 'sp-thumb-dl', 'third child is the download link');
+      const dl = items[i].children[1].children[0];
+      assert.strictEqual(dl.className, 'sp-thumb-dl', 'first action is the download link');
       assert.strictEqual(dl.href, '/api/appearance/wallpapers/' + encodeURIComponent(w.id) + '?download=1',
         'download points at the original, not the thumbnail');
       assert.strictEqual(dl.attrs.download, '', 'empty download attribute defers naming to the server');
@@ -1031,15 +1031,15 @@ function spawnServer(dataDir, port) {
     const other = currentBefore === 0 ? 1 : 0;
     const fetchesBefore = t.fetchState.posts.length + t.fetchState.deletes.length + t.fetchState.putBodies.length + t.fetchState.metaPuts.length;
     let stopped = false;
-    items[other].children[2].listeners.click[0]({ stopPropagation() { stopped = true; } });
+    items[other].children[1].children[0].listeners.click[0]({ stopPropagation() { stopped = true; } });
     await sleep(30);
     assert.ok(stopped, 'download click does not bubble to the tile');
     assert.strictEqual(items.findIndex((item) => item.classList.contains('current')), currentBefore,
       'downloading does not switch the displayed wallpaper');
     assert.strictEqual(t.fetchState.posts.length + t.fetchState.deletes.length + t.fetchState.putBodies.length + t.fetchState.metaPuts.length,
       fetchesBefore, 'downloading sends no API request');
-    const del = items[1].children[1]; // each thumbnail: [img, × button, download link]
-    assert.strictEqual(del.className, 'sp-thumb-del', 'second child is the delete button');
+    const del = items[1].children[1].children[1]; // action row: [download, remove]
+    assert.strictEqual(del.className, 'sp-thumb-del', 'second action is the delete button');
     del.listeners.click[0]({ stopPropagation() {} });
     await sleep(500);
     assert.deepStrictEqual(t.fetchState.deletes, [middle], 'only the middle wallpaper was deleted');
@@ -1376,6 +1376,40 @@ function spawnServer(dataDir, port) {
     await sleep(300);
     assert.strictEqual(t2.fetchState.settings.activeSlotId, null, 'clicking the dimmed button changes nothing');
     console.log('  ok 14. header slot menu names the slot, jumps straight to any slot, keyboard + dismiss');
+  }
+
+  /* Panel selector shares the header's slot semantics, including empty and
+     unnamed slots, and refreshes without rebuilding focused option nodes. */
+  {
+    const slots = [
+      {id: 'picker-a', name: 'Classic', wallpapers: [{id: 'pick-a', type: 'image/png', accent: '', accentTouched: true}]},
+      {id: 'picker-b', name: '', wallpapers: []}
+    ];
+    const t = boot(() => makeBitmap(1, 1, () => [128, 128, 128]), {slots, activeSlotId: slots[0].id});
+    await sleep(30);
+    const E = t.elements;
+    assert.deepStrictEqual(E.spSlotSelect.children.map(option => option.textContent), ['Classic', 'Slot 2']);
+    assert.strictEqual(E.spSlotSelect.value, 'picker-a');
+    assert.strictEqual(E.spThumbsLabel.textContent, 'Wallpapers in Classic');
+    const options = E.spSlotSelect.children.slice();
+    const preview = E.spThumbs.children[0].children[0];
+    assert.strictEqual(preview.type, 'button', 'wallpaper selection is keyboard-operable');
+    assert.strictEqual(preview.attrs['aria-pressed'], 'true', 'the selected preview exposes its state');
+    E.spSlotSelect.value = 'picker-b';
+    E.spSlotSelect.listeners.change[0]();
+    await sleep(30);
+    assert.strictEqual(t.fetchState.settings.activeSlotId, 'picker-b');
+    assert.strictEqual(E.bgSlotLabel.textContent, 'Slot 2');
+    assert.strictEqual(E.spThumbsLabel.textContent, 'Wallpapers in Slot 2');
+    assert.ok(!E.spThumbsEmpty.classList.contains('hidden'));
+    assert.ok(E.spPosX.disabled, 'an empty slot has no position to edit');
+    assert.deepStrictEqual(E.spSlotSelect.children, options, 'selection does not recreate option nodes');
+    E.spSlotSelect.value = 'picker-a';
+    E.spSlotSelect.listeners.change[0]();
+    await sleep(30);
+    assert.strictEqual(E.spSlotName.value, 'Classic');
+    assert.ok(!E.spPosX.disabled);
+    console.log('  ok panel slot selector, empty state and accessible preview selection');
   }
 
   /* ---- Scenario 14b: header shuffle picks a different wallpaper from
@@ -2080,7 +2114,7 @@ function spawnServer(dataDir, port) {
     });
     await sleep(30);
     const nodes = t.elements.spThumbs.children.slice();
-    const images = nodes.map((node) => node.children[0]);
+    const images = nodes.map((node) => node.children[0].children[0]);
     assert.ok(images.every((img) => !img.src), 'closed panel does not load previews');
     assert.ok(!t.elements.spThumb.src, 'closed panel does not load the current preview');
     click(t.elements, 'appearanceBtn');
@@ -2125,7 +2159,7 @@ function spawnServer(dataDir, port) {
     assert.deepEqual(t.elements.spThumbs.children, nodes);
     t.elements.spPosY.value = '66';
     t.elements.spPosY.listeners.input[0]();
-    nodes[10].listeners.click[0]();
+    nodes[10].children[0].listeners.click[0]();
     const positionAfterSelection = t.body.style.props['--sp-bg-position'];
     t.flushFrames();
     assert.equal(t.body.style.props['--sp-bg-position'], positionAfterSelection, 'selection cancels stale position paints');
@@ -2133,12 +2167,12 @@ function spawnServer(dataDir, port) {
     assert.deepEqual(t.elements.spThumbs.children, nodes, 'selecting a wallpaper retains nodes');
 
     t.fetchState.confirmResult = false;
-    nodes[0].children[1].listeners.click[0]({ stopPropagation() {} });
+    nodes[0].children[1].children[1].listeners.click[0]({ stopPropagation() {} });
     click(t.elements, 'spRemove');
     assert.equal(t.fetchState.confirmations.length, 2);
     assert.equal(t.fetchState.deletes.length, 0, 'both cancel paths send no delete');
     t.fetchState.confirmResult = true;
-    nodes[0].children[1].listeners.click[0]({ stopPropagation() {} });
+    nodes[0].children[1].children[1].listeners.click[0]({ stopPropagation() {} });
     await sleep(30);
     assert.deepEqual(t.fetchState.deletes, ['perf-0']);
     assert.equal(t.elements.spThumbs.children[0], nodes[1], 'deleting one retains surviving elements');
@@ -2146,7 +2180,7 @@ function spawnServer(dataDir, port) {
     await sleep(30);
     assert.deepEqual(t.fetchState.deletes, ['perf-0', 'perf-10'], 'current removal targets the selected wallpaper');
     images[1].listeners.error[0]();
-    nodes[2].listeners.click[0]();
+    nodes[2].children[0].listeners.click[0]();
     assert.equal(images[1].src, undefined, 'failed preview does not fall back to an original');
     assert.equal(images[1].srcWrites, 1, 'failed preview does not retry on panel synchronization');
     const survivors = t.elements.spThumbs.children.slice();
@@ -2312,7 +2346,7 @@ function spawnServer(dataDir, port) {
     const before = counts();
     const thumbs = E.spThumbs.children.slice();
     assert.strictEqual(thumbs.length, 3, 'the strip lists slot A');
-    thumbs[0].listeners.click[0](); // show a1 deliberately
+    thumbs[0].children[0].listeners.click[0](); // show a1 deliberately
 
     assert.ok(!E.spPosApplySlot.disabled, 'apply enabled: another wallpaper differs');
     assert.ok(!E.spPosResetSlot.disabled, 'reset enabled: a wallpaper is off center');
@@ -2356,7 +2390,7 @@ function spawnServer(dataDir, port) {
     assert.ok(!E.spPosApplySlot.disabled, 'apply is live again once a1 differs');
 
     // Another wallpaper of the slot shows the applied origin.
-    thumbs[1].listeners.click[0]();
+    thumbs[1].children[0].listeners.click[0]();
     assert.strictEqual(t.body.style.props['--sp-bg-position'], '72% 30%', 'a2 shows the applied origin');
     assert.strictEqual(E.spPosX.value, '72');
 
@@ -2437,7 +2471,7 @@ function spawnServer(dataDir, port) {
     assert.deepStrictEqual(t.clock.pending(), [], 'nothing scheduled while off');
     assert.ok(!E.bgShuffle.classList.contains('rotating'));
     assert.strictEqual(E.bgShuffle.title, 'Show another random wallpaper in this slot');
-    assert.strictEqual(E.spRotateHint.textContent, '', 'no hint while off');
+    assert.match(E.spRotateHint.textContent, /This browser.*paused/, 'scope is visible even while rotation is off');
 
     // Pick 5 minutes in the panel: held while it is open, armed on close.
     click(E, 'appearanceBtn');
@@ -2542,7 +2576,7 @@ function spawnServer(dataDir, port) {
     assert.strictEqual(t.localStorage.getItem('sp-wallpaper-rotate'), null, 'off forgets the interval');
     assert.deepStrictEqual(t.clock.pending(), [], 'nothing scheduled once off');
     assert.ok(!E.bgShuffle.classList.contains('rotating'));
-    assert.strictEqual(E.spRotateHint.textContent, '');
+    assert.match(E.spRotateHint.textContent, /This browser.*paused/);
     const offShown = shown();
     await tick(86400000);
     assert.strictEqual(shown(), offShown, 'a day later, still the same wallpaper');
