@@ -198,6 +198,50 @@ body[data-sp-bg] .selftag{background:rgba(var(--panel-rgb),calc(var(--sp-list-al
 body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #sidebar{backdrop-filter:blur(var(--sp-glass-blur,0px))}
 .btn:disabled{opacity:.45;cursor:default}
 .iconbtn{display:inline-flex;align-items:center;justify-content:center}
+/* Power / efficiency panel: a slim chip pinned to the bottom-left of the
+   viewport (above toasts when they share the corner) that expands into a
+   card with a 5-minute power histogram, per-source wattage and the lifetime
+   energy + cost. Data comes from /api/power (powerd collectors, see
+   server.js). The collapsed chip is the default; expansion is remembered. */
+#powerPanel{position:fixed;left:18px;bottom:18px;z-index:55;display:flex;flex-direction:column;align-items:flex-start;gap:8px;max-width:min(380px,calc(100vw - 36px))}
+#powerChip{display:inline-flex;align-items:center;gap:7px;padding:6px 13px;background:rgb(var(--panel-rgb) / .82);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:999px;color:var(--text);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1;cursor:pointer;transition:border-color .15s ease}
+#powerChip:hover,#powerChip:focus-visible{border-color:var(--accent);outline:none}
+#powerChip .bolt{width:13px;height:13px;flex:none;stroke:var(--ok)}
+#powerChip.offline .bolt{stroke:var(--bad)}
+#powerChip .money{color:var(--muted)}
+.sp-power-card{width:min(380px,calc(100vw - 36px));max-height:calc(100vh - 96px);overflow-y:auto;background:rgb(var(--panel-rgb) / .9);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:12px;box-shadow:0 16px 48px rgba(0,0,0,.55);padding:12px 14px 10px}
+.sp-power-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.sp-power-title{font-weight:650;font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.sp-power-machine{padding:4px 0 10px}
+.sp-power-machine + .sp-power-machine{border-top:1px solid var(--line)}
+.sp-power-mname{display:flex;align-items:baseline;gap:8px;margin-bottom:2px}
+.sp-power-mname .nm{font-weight:600;font-size:13px}
+.sp-power-mname .up{font-size:11px;color:var(--muted)}
+.sp-power-totals{display:flex;align-items:baseline;gap:8px}
+.sp-power-watts{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:26px;font-weight:650;line-height:1.15;font-variant-numeric:tabular-nums}
+.sp-power-perhour{font-size:11.5px;color:var(--muted)}
+.sp-power-hist{width:100%;height:84px;display:block;margin:6px 0 2px}
+.sp-power-legend{display:flex;gap:12px;margin:0 0 6px;font-size:11px;color:var(--muted)}
+.sp-power-legend .dot{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px}
+.sp-power-rows{margin:0}
+.sp-power-row{display:flex;justify-content:space-between;gap:10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;padding:1px 0}
+.sp-power-row .k{color:var(--muted)}
+.sp-power-lifetime{border-top:1px dashed var(--line);margin-top:8px;padding-top:7px;font-size:12px;color:var(--text)}
+.sp-power-lifetime .big{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:15px;font-weight:650}
+.sp-power-lifetime .cap{color:var(--muted);font-size:11px}
+.sp-power-offline{font-size:12px;color:var(--muted);padding:2px 0 8px}
+.sp-power-offline b{color:var(--bad);font-weight:600}
+.sp-power-rate{display:flex;align-items:center;gap:8px;border-top:1px solid var(--line);margin-top:4px;padding-top:8px;font-size:11.5px;color:var(--muted)}
+.sp-power-rate .val{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text)}
+.sp-power-rate a{color:var(--accent);text-decoration:none}
+.sp-power-rate a:hover{text-decoration:underline}
+.sp-power-rate .edit{margin-left:auto;font-size:11.5px;color:var(--muted);cursor:pointer;background:none;border:none;padding:2px 4px;border-radius:5px}
+.sp-power-rate .edit:hover{color:var(--text);background:rgb(var(--panel-2-rgb))}
+.sp-power-rate .rate-edit{display:flex;gap:6px;flex:1;justify-content:flex-end}
+.sp-power-rate .rate-edit input{width:92px;appearance:none;border:1px solid var(--line);background:rgb(var(--panel-2-rgb));color:var(--text);border-radius:7px;padding:3px 7px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;outline:none}
+.sp-power-rate .rate-edit input:focus{border-color:var(--accent)}
+.sp-power-rate .rate-edit button{font-size:11.5px;padding:3px 9px;border-radius:7px;border:1px solid var(--line);background:rgb(var(--panel-2-rgb));color:var(--text);cursor:pointer}
+.sp-power-rate .rate-edit button:hover{border-color:var(--accent)}
 .sp-panel{position:fixed;top:64px;right:16px;z-index:50;width:300px;max-width:calc(100vw - 32px);max-height:calc(100vh - 80px);overflow-y:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;box-shadow:0 16px 48px rgba(0,0,0,.55)}
 .sp-panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
 .sp-panel-title{font-weight:650;font-size:14px}
@@ -363,6 +407,14 @@ body[data-sp-glass] header,body[data-sp-glass] .tablewrap,body[data-sp-glass] #s
     </div>
     <div class="empty hidden" id="empty"></div>
   </main>
+</div>
+<div id="powerPanel" class="hidden" aria-label="Power usage">
+  <div id="powerCard" class="sp-power-card hidden"></div>
+  <button id="powerChip" type="button" title="Power &mdash; expand the efficiency panel" aria-expanded="false">
+    <svg class="bolt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+    <span id="powerChipText">power&hellip;</span>
+    <span id="powerChipMoney" class="money"></span>
+  </button>
 </div>
 <div id="appearancePanel" class="sp-panel appearance-panel hidden" role="dialog" aria-label="Appearance">
   <div class="sp-panel-head">
@@ -3411,6 +3463,213 @@ let refreshActivity = () => {};
     applyAppearance(settings);
     syncPanel();
   });
+})();
+
+/* ---- Power / efficiency panel (bottom-left) -----------------------------
+   A slim chip shows live total watts + lifetime cost; expanding it opens a
+   card with a 5-minute histogram (stacked GPU / CPU / baseline), per-source
+   wattage and the lifetime energy + cost at the configured rate. Data:
+   /api/power (server.js proxies the powerd collectors). Polls every 5 s
+   while expanded, every 20 s collapsed. ---- */
+(function () {
+  const panel = $('#powerPanel'), chip = $('#powerChip'),
+        chipText = $('#powerChipText'), chipMoney = $('#powerChipMoney'),
+        card = $('#powerCard');
+  if (!panel || !chip || !card) return;
+  const HIST_SLOTS = 60; // 5 min at the collector's 5 s cadence
+  let powerData = null, expanded = false, timer = null, rateEditing = false;
+  try { expanded = localStorage.getItem('sp-power-expanded') === '1'; } catch (e) {}
+
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const fmtW = (w) => w >= 1000 ? (w / 1000).toFixed(2) + ' kW' : Math.round(w) + ' W';
+  const fmtMoney = (v) => !isFinite(v) || v <= 0 ? '$0.00'
+    : (v < 0.01 ? '$' + v.toFixed(4) : '$' + v.toFixed(2));
+  const fmtDur = (ms) => {
+    if (!isFinite(ms) || ms < 0) return '';
+    const m = Math.floor(ms / 60000), d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60);
+    if (d) return d + 'd ' + h + 'h';
+    if (h) return h + 'h ' + (m % 60) + 'm';
+    return m + 'm';
+  };
+
+  function okMachines() {
+    return ((powerData && powerData.machines) || []).filter((m) => m.ok && m.metrics);
+  }
+  function lifetimeUsd() {
+    const rate = powerData && powerData.rate ? powerData.rate.usdPerKwh : 0;
+    return okMachines().reduce((sum, m) => sum + (m.metrics.lifetime && m.metrics.lifetime.kwh || 0) * rate, 0);
+  }
+
+  function loadPower() {
+    fetch('/api/power', { cache: 'no-store' })
+      .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then((d) => { powerData = d; })
+      .catch(() => { /* fetch failed: collapse to "no collector" state, keep the rate */
+        powerData = { rate: powerData && powerData.rate, machines: [] };
+      })
+      .then(() => { try { renderPower(); } catch (e) { console.error('power panel render: ' + e); } })
+      .finally(schedulePower);
+  }
+  function schedulePower() {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(loadPower, expanded ? 5000 : 20000);
+  }
+
+  function drawHist(canvas, samples) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth || 330, h = canvas.clientHeight || 84;
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, w, h);
+    const step = 1; // px per slot
+    const slotW = w / HIST_SLOTS;
+    const maxW = Math.max(100, ...samples.map((s) => s.total || 0));
+    const top = Math.ceil(maxW / 100) * 100;
+    const y = (v) => h - (v / top) * (h - 14);
+    // grid lines
+    ctx.font = '9px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.fillStyle = 'rgba(139,152,184,.75)';
+    ctx.strokeStyle = 'rgba(38,50,77,.8)';
+    for (const v of [top, top / 2]) {
+      ctx.beginPath(); ctx.moveTo(0, y(v) + 0.5); ctx.lineTo(w - 26, y(v) + 0.5); ctx.stroke();
+      ctx.fillText(Math.round(v) + 'W', w - 24, y(v) + 3);
+    }
+    const offset = HIST_SLOTS - samples.length;
+    for (let i = 0; i < samples.length; i++) {
+      const s = samples[i];
+      const x = (offset + i) * slotW + step * 0.15;
+      const bw = Math.max(1, slotW - step * 0.3);
+      // stacked: baseline (bottom), cpu, gpu (top)
+      const segs = [[s.base || 0, 'rgba(139,152,184,.4)'], [s.cpu || 0, '#5aa7ff'], [s.gpu || 0, '#38d39f']];
+      let acc = 0;
+      for (const [v, color] of segs) {
+        if (!v) continue;
+        const y1 = y(acc), y2 = y(acc + v);
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y2, bw, Math.max(1, y1 - y2));
+        acc += v;
+      }
+    }
+  }
+
+  function machineSection(m) {
+    const mt = m.metrics || {}; // offline machines carry no metrics
+    const rate = (powerData && powerData.rate) || { usdPerKwh: 0 };
+    const lt = mt.lifetime || {};
+    const now = mt.now_ms || Date.now();
+    const upMs = mt.boot_ms ? now - mt.boot_ms : null;
+    const avgW = (lt.hours ? lt.j / (lt.hours * 3600) : mt.total_w) || 0;
+    const perDay = avgW / 1000 * 24 * rate.usdPerKwh;
+    const sinceLabel = lt.since_ms ? new Date(lt.since_ms).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+    const el = document.createElement('div');
+    el.className = 'sp-power-machine';
+    el.innerHTML =
+      '<div class="sp-power-mname"><span class="nm">' + esc(m.name) + '</span>' +
+      (upMs ? '<span class="up">up ' + esc(fmtDur(upMs)) + '</span>' : '') + '</div>' +
+      (m.ok ? (
+        '<div class="sp-power-totals"><span class="sp-power-watts">' + fmtW(mt.total_w || 0) + '</span>' +
+        '<span class="sp-power-perhour">' + fmtMoney((mt.total_w || 0) / 1000 * rate.usdPerKwh) + '/h at this draw</span></div>' +
+        '<canvas class="sp-power-hist" data-hist aria-label="Power over the last five minutes"></canvas>' +
+        '<div class="sp-power-legend">' +
+        '<span><span class="dot" style="background:#38d39f"></span>GPU</span>' +
+        '<span><span class="dot" style="background:#5aa7ff"></span>CPU</span>' +
+        '<span><span class="dot" style="background:rgba(139,152,184,.4)"></span>baseline</span></div>' +
+        '<div class="sp-power-rows">' +
+        (mt.sources || []).map((s) =>
+          '<div class="sp-power-row" title="' + (s.energy_j_since_boot ? 'counter: ' + Math.round(s.energy_j_since_boot / 3.6e6 * 1000) / 1000 + ' kWh since boot (resets at power-off)' : '') + '">' +
+          '<span class="k">' + esc(s.name) + '</span><span>' + fmtW(s.w || 0) + '</span></div>'
+        ).join('') + '</div>' +
+        '<div class="sp-power-lifetime">' +
+        '<div class="big">' + fmtMoney((lt.kwh || 0) * rate.usdPerKwh) +
+        ' <span style="font-weight:400;font-size:12px">&middot; ' + (lt.kwh || 0).toFixed(2) + ' kWh</span></div>' +
+        '<div class="cap">lifetime since monitoring began (' + esc(sinceLabel) + ', ' + esc(fmtDur(now - (lt.since_ms || now))) + ')' +
+        (perDay ? ' &middot; ' + fmtMoney(perDay) + '/day at the current average' : '') + '</div></div>'
+      ) : (
+        '<div class="sp-power-offline"><b>collector offline</b> &mdash; ' + esc(m.error || 'unreachable') +
+        (lt && lt.kwh ? ' &middot; last seen lifetime ' + lt.kwh.toFixed(2) + ' kWh' : '') + '</div>'
+      ));
+    return el;
+  }
+
+  function renderRateFooter() {
+    const rate = (powerData && powerData.rate) || {};
+    const el = document.createElement('div');
+    el.className = 'sp-power-rate';
+    if (rateEditing) {
+      el.innerHTML = '<span>rate $/kWh</span><span class="rate-edit">' +
+        '<input id="powerRateInput" type="number" min="0.0001" max="10" step="0.00001" value="' + (rate.usdPerKwh || '') + '">' +
+        '<button id="powerRateSave" type="button">save</button></span>';
+      const input = el.querySelector('#powerRateInput'), save = el.querySelector('#powerRateSave');
+      input.focus(); input.select();
+      const commit = () => {
+        const v = parseFloat(input.value);
+        if (!isFinite(v) || v <= 0 || v > 10) return;
+        fetch('/api/power', { method: 'PUT', body: JSON.stringify({ rate: { usdPerKwh: v } }) })
+          .catch(() => {})
+          .finally(() => { rateEditing = false; loadPower(); });
+      };
+      save.addEventListener('click', commit);
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { rateEditing = false; renderPower(); } });
+      return el;
+    }
+    el.innerHTML = '<span>rate</span><span class="val">' + (rate.usdPerKwh != null ? '$' + rate.usdPerKwh + '/kWh' : '—') + '</span>' +
+      (rate.label ? '<span title="' + esc(rate.label) + '">' + esc(rate.label) + '</span>' : '') +
+      (rate.source ? '<a href="' + esc(rate.source) + '" target="_blank" rel="noopener" title="rate source">&#183;</a>' : '') +
+      '<button class="edit" id="powerRateEdit" type="button" title="Change the $/kWh rate">edit</button>';
+    el.querySelector('#powerRateEdit').addEventListener('click', () => { rateEditing = true; renderPower(); });
+    return el;
+  }
+
+  function renderPower() {
+    const machines = ((powerData && powerData.machines) || []);
+    if (!machines.length) { panel.classList.add('hidden'); return; }
+    panel.classList.remove('hidden');
+    const ok = okMachines();
+    if (ok.length) {
+      const totalW = ok.reduce((s, m) => s + (m.metrics.total_w || 0), 0);
+      chip.classList.remove('offline');
+      chipText.textContent = fmtW(totalW);
+      const usd = lifetimeUsd();
+      chipMoney.textContent = usd > 0 ? ' · ' + fmtMoney(usd) : '';
+      chip.title = 'Power — expand the efficiency panel';
+    } else {
+      chip.classList.add('offline');
+      chipText.textContent = 'offline';
+      chipMoney.textContent = '';
+      chip.title = 'Power — no collector reachable';
+    }
+    card.classList.toggle('hidden', !expanded);
+    chip.classList.toggle('hidden', expanded);
+    chip.setAttribute('aria-expanded', String(expanded));
+    if (!expanded) return;
+    card.innerHTML = '';
+    const head = document.createElement('div');
+    head.className = 'sp-power-head';
+    head.innerHTML = '<span class="sp-power-title">Power &amp; cost</span>' +
+      '<button class="edit" id="powerClose" type="button" title="Collapse">&#10005;</button>';
+    card.appendChild(head);
+    card.querySelector('#powerClose').addEventListener('click', () => { expanded = false; try { localStorage.setItem('sp-power-expanded', '0'); } catch (e) {} renderPower(); schedulePower(); });
+    for (const m of machines) card.appendChild(machineSection(m));
+    card.appendChild(renderRateFooter());
+    // draw the histograms once the card has layout; canvases exist only for
+    // the ok machines, in order
+    requestAnimationFrame(() => {
+      const canvases = card.querySelectorAll('canvas[data-hist]');
+      const okNow = okMachines();
+      okNow.forEach((m, i) => {
+        if (canvases[i]) drawHist(canvases[i], m.metrics.samples || []);
+      });
+    });
+  }
+
+  chip.addEventListener('click', () => {
+    expanded = true;
+    try { localStorage.setItem('sp-power-expanded', '1'); } catch (e) {}
+    loadPower();
+  });
+  loadPower();
+  renderPower();
 })();
 </script>
 </body>

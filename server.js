@@ -107,6 +107,9 @@ const MAX_IMAGE_BYTES = 1073741824; // 1 GB, matches the client input cap
 const WALLPAPER_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_JOB_LOG_BYTES = 131072;
 const ACTIVE_JOB_STATES = new Set(['queued', 'running']);
+// Power metering (see the /api/power section near the bottom): per-machine
+// collector list and the electricity rate, persisted in <DATA_DIR>/power.json.
+const POWER_FILE = path.join(DATA_DIR, 'power.json');
 const UPDATE_LABELS = {
   enabled: 'io.service-portal.update.enabled',
   script: 'io.service-portal.update.script',
@@ -1493,6 +1496,90 @@ function toService(c, capability, job, lifecycle) {
   };
 }
 
+// ---- Power metering (powerd collectors) ----------------------------------
+// A powerd collector on each monitored machine publishes a JSON snapshot of
+// its power sources (NVIDIA GPUs via NVML, the CPU via RAPL, plus a fixed
+// baseline for the unmeasured board/RAM/fans) and its integrated lifetime
+// energy at <url>/metrics. The portal fetches those snapshots for the
+// bottom-left efficiency panel. The machine list and the electricity rate
+// are persisted in <DATA_DIR>/power.json so they survive recreation; missing
+// or invalid fields fall back to the defaults (the local SnoPUD residential
+// rate from the 2026 rate book).
+const POWER_FETCH_TIMEOUT_MS = 3500;
+const POWER_MAX_MACHINES = 8;
+const POWER_RATE_DEFAULT = {
+  usdPerKwh: 0.10613,
+  label: 'SnoPUD residential (10.613\u00a2/kWh)',
+  source: 'https://www.snopud.com/account/about-my-bill/rates/electric/',
+};
+const POWER_DEFAULTS = {
+  machines: [{ name: 'samus', url: 'http://192.168.1.5:8123' }],
+  rate: { ...POWER_RATE_DEFAULT },
+};
+
+function readPowerConfig() {
+  let raw = null;
+  try {
+    raw = JSON.parse(fs.readFileSync(POWER_FILE, 'utf8'));
+  } catch (err) {
+    if (err.code !== 'ENOENT') console.error('could not read power config: ' + err.message);
+  }
+  return sanitizePowerConfig(raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {});
+}
+
+function savePowerConfig(cfg) {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    atomicWriteFileSync(POWER_FILE, JSON.stringify(cfg, null, 2) + '\n');
+  } catch (err) {
+    console.error('could not save power config: ' + err.message);
+  }
+}
+
+function sanitizePowerConfig(raw) {
+  const machines = [];
+  const seen = new Set();
+  const list = Array.isArray(raw.machines) ? raw.machines : [];
+  for (const entry of list) {
+    if (machines.length >= POWER_MAX_MACHINES) break;
+    if (!entry || typeof entry !== 'object') continue;
+    const url = typeof entry.url === 'string' ? entry.url.trim() : '';
+    if (!url || url.length > 512) continue;
+    let parsed = null;
+    try { parsed = new URL(url); } catch { continue; }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') continue;
+    if (seen.has(url)) continue;
+    seen.add(url);
+    const name = (typeof entry.name === 'string' && entry.name.trim())
+      ? entry.name.trim().slice(0, 64) : parsed.hostname;
+    machines.push({ name, url });
+  }
+  const rate = raw.rate && typeof raw.rate === 'object' && !Array.isArray(raw.rate) ? raw.rate : {};
+  const usdPerKwh = Number(rate.usdPerKwh);
+  return {
+    machines: machines.length ? machines : POWER_DEFAULTS.machines.map((m) => ({ ...m })),
+    rate: {
+      usdPerKwh: Number.isFinite(usdPerKwh) && usdPerKwh > 0 && usdPerKwh <= 10
+        ? Math.round(usdPerKwh * 1e6) / 1e6
+        : POWER_RATE_DEFAULT.usdPerKwh,
+      label: typeof rate.label === 'string' && rate.label.trim()
+        ? rate.label.trim().slice(0, 120) : POWER_RATE_DEFAULT.label,
+      source: typeof rate.source === 'string' ? rate.source.slice(0, 512) : POWER_RATE_DEFAULT.source,
+    },
+  };
+}
+
+function fetchPowerMachine(machine) {
+  return fetch(machine.url + '/metrics', { signal: AbortSignal.timeout(POWER_FETCH_TIMEOUT_MS) })
+    .then((res) => {
+      if (!res.ok) throw new Error('collector HTTP ' + res.status);
+      return res.json();
+    })
+    .then((metrics) => ({ name: machine.name, url: machine.url, ok: true, metrics }))
+    .catch((err) => ({ name: machine.name, url: machine.url, ok: false,
+      error: (err && err.name === 'TimeoutError') ? 'collector timed out' : (err && err.message) || 'unreachable' }));
+}
+
 const server = http.createServer((req, res) => {
   let pathname;
   let searchParams;
@@ -1585,6 +1672,49 @@ const server = http.createServer((req, res) => {
       return;
     }
     sendJson(res, 200, { generatedAt: new Date().toISOString(), events: activityEvents() });
+    return;
+  }
+
+  /* ---- power / efficiency (powerd collectors) ----------------------------
+     GET  /api/power           the electricity rate plus a live fetch of
+                              /metrics from every configured machine; a
+                              machine that is down is reported as
+                              { ok: false, error }
+     PUT  /api/power           update the rate and/or machine list ({rate,
+                              machines}); partial bodies merge with the
+                              stored config, sanitized (see
+                              sanitizePowerConfig) */
+  if (pathname === '/api/power') {
+    if (req.method === 'GET') {
+      const cfg = readPowerConfig();
+      Promise.all(cfg.machines.map(fetchPowerMachine))
+        .then((machines) => sendJson(res, 200, {
+          generatedAt: new Date().toISOString(), rate: cfg.rate, machines,
+        }));
+      return;
+    }
+    if (req.method === 'PUT') {
+      readBody(req, 16384)
+        .then((buf) => {
+          let raw;
+          try { raw = JSON.parse(buf.toString('utf8')); } catch { throw new Error('invalid JSON body'); }
+          if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error('invalid power config body');
+          return withStateLock(() => {
+            const stored = readPowerConfig();
+            const merged = raw.machines !== undefined
+              ? { machines: raw.machines, rate: stored.rate }
+              : { machines: stored.machines, rate: stored.rate };
+            if (raw.rate !== undefined) merged.rate = raw.rate;
+            const cfg = sanitizePowerConfig(merged);
+            savePowerConfig(cfg);
+            return cfg;
+          });
+        })
+        .then((cfg) => sendJson(res, 200, { ok: true, power: cfg }))
+        .catch((err) => sendJson(res, 400, { error: err.message }));
+      return;
+    }
+    sendJson(res, 405, { error: 'method not allowed' });
     return;
   }
 
