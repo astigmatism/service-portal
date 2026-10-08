@@ -38,6 +38,15 @@ function fakeDocker(socketPath) {
             'Content-Length: ' + b.length + '\r\nConnection: close\r\n\r\n' + body);
         };
         if (method === 'GET' && p === '/containers/json?all=1') return respond('200 OK', '[]');
+        // Inspect answers with a friendly name for known containers and
+        // refuses it (404) for the "bad" id, so both the name path and the
+        // ID-fallback path are exercised.
+        const inspect = p.match(/^\/containers\/([0-9a-f]{6,64})\/json$/);
+        if (method === 'GET' && inspect) {
+          if (inspect[1].startsWith('bad'))
+            return respond('404 Not Found', JSON.stringify({ message: 'no such container: ' + inspect[1] }));
+          return respond('200 OK', JSON.stringify({ Name: '/comfyui-test' }));
+        }
         const m = p.match(/^\/containers\/([0-9a-f]{6,64})\/(start|stop)$/);
         if (method === 'POST' && m) {
           if (m[1].startsWith('bad'))
@@ -123,8 +132,8 @@ const json = (r) => JSON.parse(r.body);
     }
     assert.strictEqual((await call(port, 'GET', '/healthz')).status, 200, 'server is up');
 
-    // A container action is recorded durably, even though the fake engine
-    // refuses the name lookup — the action must still succeed.
+    // A container action is recorded durably and names the container using
+    // the friendly name from the pre-action inspect, not the raw ID.
     const containerId = 'ab12cd34ef56';
     const stop = await call(port, 'POST', '/api/services/' + containerId + '/stop');
     assert.strictEqual(stop.status, 200, 'stop → 200, got ' + stop.status + ' ' + stop.body);
@@ -135,7 +144,12 @@ const json = (r) => JSON.parse(r.body);
     assert.strictEqual(containerEvents.length, 1, 'the stop was recorded once');
     assert.strictEqual(containerEvents[0].action, 'stop');
     assert.strictEqual(containerEvents[0].state, 'ok');
-    assert.match(containerEvents[0].message, /Stopped /, 'human-readable message');
+    assert.strictEqual(containerEvents[0].service, 'comfyui-test', 'event carries the container name, not the ID');
+    assert.strictEqual(
+      containerEvents[0].message,
+      'Stopped comfyui-test',
+      'message shows the friendly name');
+    assert.ok(!containerEvents[0].message.includes(containerId), 'message does not leak the container ID');
 
     // The persisted maintenance job surfaces as an update event, newest-first
     // ordering puts the fresh stop above the September job.
@@ -155,7 +169,10 @@ const json = (r) => JSON.parse(r.body);
     const feed2 = json(await call(port, 'GET', '/api/activity'));
     const failed = feed2.events.filter((ev) => ev.kind === 'container' && ev.state === 'error');
     assert.strictEqual(failed.length, 1, 'the failed stop was recorded');
-    assert.match(failed[0].message, /Could not stop/, 'failure message reads naturally');
+    // Inspect refused this id, so the event falls back to the container ID —
+    // exactly the pre-fix behavior the action must still guarantee.
+    assert.strictEqual(failed[0].service, 'bad123456789', 'ID fallback when the pre-action inspect fails');
+    assert.match(failed[0].message, /^Could not stop bad123456789/, 'failure message reads naturally with the ID fallback');
 
     // Method guard.
     assert.strictEqual((await call(port, 'POST', '/api/activity')).status, 405, 'POST is not allowed');

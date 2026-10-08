@@ -1627,7 +1627,7 @@ const server = http.createServer((req, res) => {
       }
       // Docker allows a stopped container its grace period. Inspect supplies
       // a friendly activity name but is not required for the action.
-      return dockerApiRequest('GET', '/containers/' + svcAction[1] + '/json', 10000)
+      return dockerJsonRequest('GET', '/containers/' + svcAction[1] + '/json', null, 10000)
         .then((info) => String((info && info.Name) || '').replace(/^\//, ''))
         .catch(() => '')
         .then((name) => name || svcAction[1].slice(0, 12))
