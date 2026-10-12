@@ -34,12 +34,18 @@ on every request. No reconfiguration, no restart for discovery.
 - The corner button switches between regular and **compact view**. Compact keeps
   current power, hourly cost and estimated cost to date above an alphabetical list
   of linked services, including unhealthy or stopped services with explicit states.
+  The compact header retains the wallpaper slot picker and shuffle button in the
+  same place as regular view (compact form: no "Wallpaper:" label or icon, slot
+  name truncated with the full name in the dropdown and tooltip); the Appearance
+  and Activity header buttons are hidden.
   Drag the right, bottom or bottom-right grip to resize; the service list scrolls
   while metrics stay visible. Grips support arrow keys (10px, Shift 1px) and Home
   restores the 360px-wide, content-height default. Minimum size is 280 × 250px,
   constrained by the viewport. Mode and size are saved per browser (`sp-compact-view`,
   `sp-compact-size`); temporary viewport clamps do not discard your preferred size.
-  Return to regular view for service actions, full readings and appearance controls.
+  Return to regular view for service actions, full readings and the Appearance /
+  Activity header buttons (the slot menu's "Name & manage slots…" still opens the
+  Appearance dialog from compact view).
 - Services show state labels, name links, Start/Stop and opted-in Update & restart
   controls, with a 20-second auto-refresh. **Show services without links** is unchecked
   by default; checking it includes internal services. The preference is remembered

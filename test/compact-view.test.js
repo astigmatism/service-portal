@@ -55,6 +55,20 @@ test('viewport and two-page clamps preserve preferred dimensions for restoration
   app.resize(1920,1080);assert.deepEqual(app.size(),{width:880,height:1032});
   assert.deepEqual(JSON.parse(app.store.get('sp-compact-size')),{width:880,height:1032});
 });
+test('compact view keeps the wallpaper slot picker and shuffle in the header',()=>{
+  const rule=html.slice(html.indexOf('#app.is-compact #appearanceBtn'),html.indexOf('#app.is-compact #viewModeToggle .compact-icon'));
+  assert.ok(!rule.includes('#bgSlotPick'),'the compact header no longer hides the wallpaper slot picker');
+  for(const needle of [
+    '#app.is-compact #bgSlot .slot-btn-caption,#app.is-compact #bgSlot .slot-btn-icon{display:none}',
+    '#app.is-compact .slot-btn{max-width:140px}',
+    '<span class="slot-btn-caption">Wallpaper:</span>'
+  ]){
+    assert.ok(html.includes(needle),'index.html missing: '+needle);
+  }
+  const caption=html.indexOf('<span class="slot-btn-caption">Wallpaper:</span>');
+  assert.ok(caption>html.indexOf('id="bgSlot"')&&caption<html.indexOf('id="bgSlotMenu"'),
+    'the caption label lives inside the slot menu button');
+});
 test('keyboard sizing, cancellation, foreign pointers and default reset',()=>{
   const app=boot({'sp-compact-view':'1'});
   app.fire('compactResizeRight','keydown',{key:'ArrowLeft'});assert.equal(app.size().width,350);

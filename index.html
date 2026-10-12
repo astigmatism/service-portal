@@ -363,7 +363,11 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,[t
 @media (max-width:599px){:root{--page-margin:12px;--page-width:calc(100vw - 24px)}header{padding:14px 16px}#pageContent{padding:16px}.sp-panel,.sp-panel.appearance-panel,.sp-panel.activity-panel{width:calc(100vw - 24px);max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);padding:0 14px 14px}.sp-panel-head{margin-left:-14px;margin-right:-14px;padding-left:14px;padding-right:14px}.title{font-size:18px}.slot-btn{max-width:200px}.slot-menu{max-width:calc(var(--page-width) - 32px)}}
 @media (pointer:coarse){button,.ctlbtn,.btn,.seg-btn{min-height:44px;min-width:44px}.sp-posgrid{grid-template-columns:repeat(3,44px)}.sp-pos{width:44px;height:44px}input,select{font-size:16px!important}.sp-thumb-del,.sp-thumb-dl{width:auto;height:44px}.sp-position-controls{gap:12px}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
-/* Compact mode keeps metrics fixed and lets only the linked services scroll. */
+/* Compact mode keeps metrics fixed and lets only the linked services scroll.
+   The header keeps the wallpaper slot picker and shuffle button (same place as
+   in regular view); the "Wallpaper:" caption and icon drop out to fit, and the
+   slot name is capped so the title keeps its space — the full name stays in the
+   dropdown, tooltip and aria-label. */
 #viewModeToggle{flex:none;width:34px;height:34px;padding:7px}
 #viewModeToggle .expand-icon{display:none}
 #compactContent,.compact-resize,#compactResizeHint{display:none}
@@ -372,7 +376,9 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,[t
 #app.is-compact #pageHeader{padding:12px 16px;min-height:58px;flex-wrap:nowrap;gap:8px}
 #app.is-compact .title{font-size:18px;min-width:0;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
 #app.is-compact .logo{width:24px;height:28px;flex:none}
-#app.is-compact #bgSlotPick,#app.is-compact #appearanceBtn,#app.is-compact #activityBtn,#app.is-compact #pageContent{display:none}
+#app.is-compact #appearanceBtn,#app.is-compact #activityBtn,#app.is-compact #pageContent{display:none}
+#app.is-compact #bgSlot .slot-btn-caption,#app.is-compact #bgSlot .slot-btn-icon{display:none}
+#app.is-compact .slot-btn{max-width:140px}
 #app.is-compact #viewModeToggle .compact-icon{display:none}
 #app.is-compact #viewModeToggle .expand-icon{display:block}
 #app.is-compact #compactContent{display:flex;flex-direction:column;min-height:0;flex:1;padding:0 20px 18px}
@@ -415,7 +421,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,[t
       <div class="seg" role="group" aria-label="Background image">
         <button id="bgSlot" class="seg-btn slot-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="bgSlotMenu" title="Wallpaper slot — pick one to jump straight to it (re-rolls a random wallpaper of it)">
           <svg class="slot-btn-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="9" cy="10" r="1.6"></circle><polyline points="21 16 15.5 11 6 20"></polyline></svg>
-          <span>Wallpaper:</span>
+          <span class="slot-btn-caption">Wallpaper:</span>
           <span id="bgSlotLabel" class="slot-btn-name unnamed">No slots</span>
           <svg class="slot-btn-chev" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
         </button>
